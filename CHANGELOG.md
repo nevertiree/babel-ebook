@@ -43,17 +43,17 @@
 
 ### Added
 
-- New translation-scope toggles: body, metadata, toc, alt_text, image_captions, tables,  
+- New translation-scope toggles: body, metadata, toc, alt_text, image_captions, tables,
   footnotes, and code.
-- Configurable EPUB splitting concurrency, max translation chunk length, and code  
+- Configurable EPUB splitting concurrency, max translation chunk length, and code
   translation option.
 - Per-target-language default output font setting, injected into generated EPUBs.
-- Customizable output filename template with `{stem}`, `{source_lang}`, `{target_lang}`,  
+- Customizable output filename template with `{stem}`, `{source_lang}`, `{target_lang}`,
   `{output_mode}` placeholders.
 - Versioned local settings storage with migration from legacy flat keys.
-- New **About** tab in the desktop app, showing app version, description, authors,  
+- New **About** tab in the desktop app, showing app version, description, authors,
   license, homepage, and acknowledgments.
-- New **Logs** tab in the desktop app sidebar, displaying all events with timestamps  
+- New **Logs** tab in the desktop app sidebar, displaying all events with timestamps
   and a real-time search box.
 
 ### Fixed
@@ -67,7 +67,7 @@
 
 ### Internal
 
-- Activated pre-commit hooks for Rust fmt/clippy/tests, cargo-deny, desktop typecheck/build,  
+- Activated pre-commit hooks for Rust fmt/clippy/tests, cargo-deny, desktop typecheck/build,
   and markdown lint.
 - Added GitHub Actions jobs for desktop builds and pre-commit checks.
 

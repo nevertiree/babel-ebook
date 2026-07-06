@@ -2,8 +2,8 @@
 
 ## Project Overview
 
-BabelEbook（巴别塔）is an EPUB translator powered by large language models. It produces  
-bilingual e-books (Chinese/English by default) and ships as both a Rust CLI and a Tauri + React  
+BabelEbook（巴别塔）is an EPUB translator powered by large language models. It produces
+bilingual e-books (Chinese/English by default) and ships as both a Rust CLI and a Tauri + React
 desktop GUI.
 
 - **Repository root**: project root (e.g. `C:/Users/<you>/Documents/Codebase/babel-ebook` on Windows)
@@ -57,7 +57,7 @@ pnpm release:build      # full release build (must run on a tag)
 - Rust core (`crates/babel-ebook`) handles EPUB parsing, chunking, caching, LLM calls, and progress events.
 - CLI (`crates/babel-ebook-cli`) is a thin wrapper around the core.
 - Desktop app streams progress via Tauri events (`translation_progress`) to the React UI.
-- The workspace version lives in `Cargo.toml` `[workspace.package].version` and is mirrored  
+- The workspace version lives in `Cargo.toml` `[workspace.package].version` and is mirrored
   to `desktop/package.json` and `desktop/src-tauri/tauri.conf.json` by `pnpm version:bump`.
 
 ## Adding or Changing Features
@@ -119,7 +119,7 @@ If the CDP port is not exposed, kill hung `babel-ebook-desktop.exe` and `msedgew
 
 1. Merge feature branches into `develop`.
 2. On `master` (or a `release/*` branch), run `pnpm version:bump patch|minor|major`.
-3. The bump script updates version files, syncs `Cargo.lock`, updates `CHANGELOG.md`,  
+3. The bump script updates version files, syncs `Cargo.lock`, updates `CHANGELOG.md`,
    commits, and creates an annotated tag `v<x.y.z>`.
 4. Run `pnpm release:build` on the tag commit.
 5. Merge `master` back into `develop` so both branches carry the version bump.
@@ -132,10 +132,10 @@ If the CDP port is not exposed, kill hung `babel-ebook-desktop.exe` and `msedgew
 
 ## Common Gotchas
 
-- `pnpm release:build` must be run on a tag commit; otherwise it exits with  
+- `pnpm release:build` must be run on a tag commit; otherwise it exits with
   `HEAD does not point to a tag`.
-- Windows release builds may fail to overwrite `target/release/babel-ebook-desktop.exe` if old  
+- Windows release builds may fail to overwrite `target/release/babel-ebook-desktop.exe` if old
   processes are still running. Kill them first.
-- WebView2 CDP port `9222` may already be occupied by a system `msedgewebview2.exe`;  
+- WebView2 CDP port `9222` may already be occupied by a system `msedgewebview2.exe`;
   use a different port or kill the existing process.
 - The desktop app stores settings via Tauri Store and the OS keyring; clean these if tests behave unexpectedly.
