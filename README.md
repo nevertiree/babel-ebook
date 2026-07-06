@@ -20,6 +20,32 @@
 
 > 你的 EPUB 内容和 API 密钥只在你自己的电脑上处理，不会发送到开发者的服务器。
 
+<p align="center">
+  <!-- TODO: 替换为实际应用截图或 GIF -->
+  <img src="desktop/src-tauri/icons/128x128@2x.png" alt="BabelEbook icon" width="120">
+</p>
+
+<p align="center">
+  <a href="https://github.com/nevertiree/babel-ebook/releases/latest/download/BabelEbook_0.1.0_x64-setup.exe">
+    <img alt="Download for Windows" src="https://img.shields.io/badge/Windows-Download-blue?logo=windows&logoColor=white">
+  </a>
+  <a href="https://github.com/nevertiree/babel-ebook/releases/latest/download/BabelEbook_0.1.0_amd64.AppImage">
+    <img alt="Download for Linux" src="https://img.shields.io/badge/Linux-Download-orange?logo=linux&logoColor=white">
+  </a>
+</p>
+
+---
+
+## 为什么选择 BabelEbook？
+
+| 特性 | BabelEbook | 在线翻译工具 | Calibre 插件 |
+|------|------------|--------------|--------------|
+| 完全本地运行，EPUB 不上传 | ✅ | ❌ | ✅ |
+| 中英双语对照排版 | ✅ | 部分支持 | 需手动调整 |
+| 一键安装桌面应用 | ✅ | 无需安装 | 需 Calibre |
+| 支持 DeepSeek / OpenAI / Anthropic / Ollama | ✅ | 固定供应商 | 依赖插件 |
+| 术语表、排除选择器、并发控制 | ✅ | 部分支持 | 依赖插件 |
+
 ---
 
 ## ⚠️ 平台限制 / Platform Support
