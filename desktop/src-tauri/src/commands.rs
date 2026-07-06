@@ -221,8 +221,7 @@ fn validate_connection_args(args: &TestConnectionArgs) -> Result<(), String> {
     if !(0.0..=2.0).contains(&args.temperature) {
         return Err("temperature must be between 0.0 and 2.0".into());
     }
-    if provider == "openai-compatible"
-        && args.base_url.as_ref().map_or(true, |u| u.trim().is_empty())
+    if provider == "openai-compatible" && args.base_url.as_ref().is_none_or(|u| u.trim().is_empty())
     {
         return Err("base_url is required for provider openai-compatible".into());
     }
