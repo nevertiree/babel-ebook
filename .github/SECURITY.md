@@ -1,29 +1,29 @@
-# Security Policy
+# 安全策略
 
-## Supported Versions
+## 受支持的版本
 
-Only the latest released version of BabelEbook is actively supported with security updates.
+仅最新发布的 BabelEbook 版本会积极提供安全更新。
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 0.3.x   | :white_check_mark: |
-| < 0.3   | :x:                |
+| 版本      | 受支持             |
+| --------- | ------------------ |
+| 0.1.x     | :white_check_mark: |
+| < 0.1     | :x:                |
 
-## Reporting a Vulnerability
+## 报告漏洞
 
-If you discover a security vulnerability, please report it privately by emailing the maintainer or opening a confidential issue. Do not disclose security issues publicly until they have been addressed.
+如果你发现安全漏洞，请通过电子邮件私下向维护者报告，或创建保密 Issue。在问题修复之前，请勿公开披露安全细节。
 
-Please include:
+请包含：
 
-- A description of the vulnerability.
-- Steps to reproduce it.
-- The affected version(s).
-- Any suggested mitigation or fix.
+- 漏洞描述。
+- 复现步骤。
+- 受影响的版本。
+- 任何建议的缓解措施或修复方案。
 
-We aim to respond to security reports within 7 days.
+我们力争在 7 天内回复安全报告。
 
-## Security Best Practices for Users
+## 用户安全最佳实践
 
-- Never commit API keys to the repository. Use environment variables, the OS keyring, or local config files excluded by `.gitignore`.
-- Keep your Rust toolchain and dependencies up to date.
-- Only download installers from the official repository releases.
+- 切勿将 API Key 提交到仓库。请使用环境变量、操作系统密钥环或被 `.gitignore` 排除的本地配置文件。
+- 保持 Rust 工具链和依赖项为最新版本。
+- 仅从官方仓库的 Releases 页面下载安装包。

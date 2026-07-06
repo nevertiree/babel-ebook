@@ -1,24 +1,24 @@
-# Contributing to BabelEbook
+# 为 BabelEbook 做贡献
 
-Thank you for your interest in improving BabelEbook! This document provides guidelines for contributing to the project.
+感谢你对改进 BabelEbook 的兴趣！本文档提供了为本项目做贡献的指南。
 
-## Getting Started
+## 开始
 
-1. Fork the repository and clone your fork.
-2. Install [Rust](https://rustup.rs/) 1.78 or newer.
-3. Install [pnpm](https://pnpm.io/) for the desktop frontend.
-4. Build the workspace:
+1. Fork 本仓库并克隆你的 Fork。
+2. 安装 [Rust](https://rustup.rs/) 1.78 或更新版本。
+3. 安装 [pnpm](https://pnpm.io/) 用于桌面前端开发。
+4. 构建工作空间：
 
    ```bash
    cargo build --workspace
    cd desktop && pnpm install
    ```
 
-## Development Workflow
+## 开发流程
 
-- Create feature branches from `develop`.
-- Keep commits focused and use conventional commit style when possible (`feat:`, `fix:`, `chore:`).
-- Run the quality gates before submitting a pull request:
+- 从 `develop` 分支创建功能分支。
+- 保持提交聚焦，并尽量使用约定式提交风格（`feat:`、`fix:`、`chore:`）。
+- 提交 Pull Request 前运行质量门：
 
   ```bash
   cargo fmt -- --check
@@ -27,21 +27,21 @@ Thank you for your interest in improving BabelEbook! This document provides guid
   cd desktop && pnpm exec tsc --noEmit && pnpm build
   ```
 
-## Reporting Issues
+## 报告问题
 
-When reporting bugs, please include:
+报告 Bug 时，请包含：
 
-- The version of BabelEbook (or commit hash).
-- Steps to reproduce the issue.
-- Expected vs. actual behavior.
-- Your operating system and Rust version.
+- BabelEbook 版本（或提交哈希）。
+- 复现步骤。
+- 预期行为与实际行为。
+- 操作系统和 Rust 版本。
 
-## Pull Request Process
+## Pull Request 流程
 
-1. Ensure all tests and lint checks pass.
-2. Update `README.md` and `CHANGELOG.md` if your change affects user-facing behavior.
-3. Keep the diff scoped to the feature or fix being introduced.
+1. 确保所有测试和检查通过。
+2. 如果改动影响用户可见的行为，更新 `README.md` 和 `CHANGELOG.md`。
+3. 保持 diff 范围与当前功能或修复相关。
 
-## Code of Conduct
+## 行为准则
 
-Please be respectful and constructive in all project interactions.
+请在所有项目互动中保持尊重和建设性。

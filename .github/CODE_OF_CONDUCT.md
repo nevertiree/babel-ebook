@@ -1,27 +1,27 @@
-# Code of Conduct
+# 行为准则
 
-## Our Pledge
+## 我们的承诺
 
-We pledge to make participation in the BabelEbook project a harassment-free experience for everyone, regardless of age, body size, disability, ethnicity, gender identity and expression, level of experience, nationality, personal appearance, race, religion, or sexual identity and orientation.
+我们承诺为每一位参与者提供无骚扰的 BabelEbook 项目参与体验，无论其年龄、体型、残疾、种族、性别认同与表达、经验水平、国籍、外貌、种族、宗教信仰或性取向。
 
-## Our Standards
+## 我们的标准
 
-Examples of behavior that contributes to a positive environment:
+有助于营造积极环境的行为示例：
 
-- Using welcoming and inclusive language.
-- Being respectful of differing viewpoints and experiences.
-- Gracefully accepting constructive criticism.
-- Focusing on what is best for the community.
+- 使用友好和包容的语言。
+- 尊重不同的观点和经验。
+- 虚心接受建设性批评。
+- 关注社区整体利益。
 
-Examples of unacceptable behavior:
+不可接受的行为示例：
 
-- Trolling, insulting/derogatory comments, and personal or political attacks.
-- Public or private harassment.
-- Publishing others' private information without permission.
-- Other conduct which could reasonably be considered inappropriate in a professional setting.
+- 挑衅、侮辱/贬损性评论，以及人身或政治攻击。
+- 公开或私下的骚扰。
+- 未经许可发布他人的私人信息。
+- 在专业场合中可被合理视为不适当的其他行为。
 
-## Enforcement
+## 执行
 
-Instances of abusive, harassing, or otherwise unacceptable behavior may be reported to the project maintainers. All complaints will be reviewed and investigated promptly and fairly.
+如发现辱骂、骚扰或其他不可接受的行为，可向项目维护者举报。所有投诉都将得到及时、公正的审查和调查。
 
-Maintainers have the right and responsibility to remove, edit, or reject contributions that are not aligned with this Code of Conduct.
+维护者有权也有责任删除、编辑或拒绝不符合本行为准则的贡献。
