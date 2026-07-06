@@ -488,7 +488,7 @@ impl Config {
             validate_url(url, "base_url")?;
         }
         if provider == "openai-compatible"
-            && self.base_url.as_ref().map_or(true, |u| u.trim().is_empty())
+            && self.base_url.as_ref().is_none_or(|u| u.trim().is_empty())
         {
             return Err(BabelEbookError::Configuration(
                 "base_url is required for provider openai-compatible".into(),

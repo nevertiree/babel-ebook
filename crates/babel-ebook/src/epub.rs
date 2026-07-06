@@ -195,7 +195,7 @@ fn manifest_id(href: &str) -> String {
             }
         })
         .collect();
-    if id.chars().next().map_or(true, |c| c.is_ascii_digit()) {
+    if id.chars().next().is_none_or(|c| c.is_ascii_digit()) {
         id.insert(0, 'i');
     }
     id

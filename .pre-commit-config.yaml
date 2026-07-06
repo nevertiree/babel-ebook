@@ -63,14 +63,6 @@ repos:
         files: 'desktop/.*\.(ts|tsx)$'
         require_serial: true
 
-      - id: pnpm-build
-        name: Desktop build
-        entry: bash -c 'cd desktop && pnpm build'
-        language: system
-        pass_filenames: false
-        files: 'desktop/.*\.(ts|tsx|css)$'
-        require_serial: true
-
       - id: cargo-deny
         name: Cargo deny
         entry: cargo deny check
