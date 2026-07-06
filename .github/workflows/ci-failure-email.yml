@@ -1,0 +1,31 @@
+name: CI Failure Email Notification
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+jobs:
+  send-email:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+    steps:
+      - name: Send CI failure email
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.MAIL_SERVER }}
+          server_port: ${{ secrets.MAIL_PORT }}
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: "[BabelEbook] CI 失败 - ${{ github.repository }}"
+          to: ${{ secrets.MAIL_TO }}
+          from: ${{ secrets.MAIL_FROM }}
+          html_body: |
+            <h2>BabelEbook CI 失败通知</h2>
+            <p><strong>仓库：</strong>${{ github.repository }}</p>
+            <p><strong>分支：</strong>${{ github.event.workflow_run.head_branch }}</p>
+            <p><strong>提交：</strong>${{ github.event.workflow_run.head_sha }}</p>
+            <p><strong>工作流：</strong>${{ github.event.workflow_run.name }}</p>
+            <p><strong>运行链接：</strong><a href="${{ github.event.workflow_run.html_url }}">查看详情</a></p>
+            <p>请尽快检查并修复。</p>
+          convert_markdown: false

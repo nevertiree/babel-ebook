@@ -283,6 +283,25 @@ pnpm build
 3. 保持 diff 范围与功能相关，不要附带无关的重命名或格式化。
 4. 桌面改动建议补充或更新 Playwright E2E 测试。
 
+### 邮件通知
+
+仓库已配置以下场景的邮件通知：
+
+- CI 失败
+- Issue 被创建 / 重新打开 / 关闭
+- Pull Request 被创建 / 重新打开 / 关闭
+
+需要在仓库 Settings → Secrets and variables → Actions 中配置以下 Secrets：
+
+| Secret | 说明 |
+| ------ | ---- |
+| `MAIL_SERVER` | SMTP 服务器地址，例如 `smtp.126.com` |
+| `MAIL_PORT` | SMTP 端口，例如 `465` |
+| `MAIL_USERNAME` | SMTP 用户名 |
+| `MAIL_PASSWORD` | SMTP 密码或授权码 |
+| `MAIL_FROM` | 发件人邮箱 |
+| `MAIL_TO` | 收件人邮箱（可填你的邮箱） |
+
 ## 发布流程
 
 ```bash

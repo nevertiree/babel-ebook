@@ -1,0 +1,31 @@
+name: Pull Request Email Notification
+
+on:
+  pull_request:
+    types: [opened, reopened, closed]
+
+jobs:
+  send-email:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send PR notification email
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.MAIL_SERVER }}
+          server_port: ${{ secrets.MAIL_PORT }}
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: "[BabelEbook] PR ${{ github.event.action }} - ${{ github.event.pull_request.title }}"
+          to: ${{ secrets.MAIL_TO }}
+          from: ${{ secrets.MAIL_FROM }}
+          html_body: |
+            <h2>BabelEbook Pull Request 通知</h2>
+            <p><strong>操作：</strong>${{ github.event.action }}</p>
+            <p><strong>标题：</strong>${{ github.event.pull_request.title }}</p>
+            <p><strong>作者：</strong>${{ github.event.pull_request.user.login }}</p>
+            <p><strong>来源分支：</strong>${{ github.event.pull_request.head.ref }}</p>
+            <p><strong>目标分支：</strong>${{ github.event.pull_request.base.ref }}</p>
+            <p><strong>链接：</strong><a href="${{ github.event.pull_request.html_url }}">查看 PR</a></p>
+            <hr>
+            <p>${{ github.event.pull_request.body }}</p>
+          convert_markdown: false
