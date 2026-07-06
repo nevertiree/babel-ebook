@@ -21,8 +21,7 @@
 > 你的 EPUB 内容和 API 密钥只在你自己的电脑上处理，不会发送到开发者的服务器。
 
 <p align="center">
-  <!-- TODO: 替换为实际应用截图或 GIF -->
-  <img src="desktop/src-tauri/icons/128x128@2x.png" alt="BabelEbook icon" width="120">
+  <img src="docs/assets/screenshots/01-translate.png" alt="BabelEbook 主界面" width="800">
 </p>
 
 <p align="center">
@@ -45,6 +44,18 @@
 | 一键安装桌面应用 | ✅ | 无需安装 | 需 Calibre |
 | 支持 DeepSeek / OpenAI / Anthropic / Ollama | ✅ | 固定供应商 | 依赖插件 |
 | 术语表、排除选择器、并发控制 | ✅ | 部分支持 | 依赖插件 |
+
+---
+
+## 界面截图
+
+| 主界面 | 算力设置 | 翻译选项 |
+|--------|----------|----------|
+| ![主界面](docs/assets/screenshots/01-translate.png) | ![算力设置](docs/assets/screenshots/02-settings-compute.png) | ![翻译选项](docs/assets/screenshots/03-settings-translation.png) |
+
+| 翻译进度 | 日志 |
+|----------|------|
+| ![翻译进度](docs/assets/screenshots/06-translate-progress.png) | ![日志](docs/assets/screenshots/07-logs-progress.png) |
 
 ---
 
