@@ -26,7 +26,6 @@ allow = [
     # parsing crates (e.g., cssparser, selectors). It is explicitly allowed here
     # as an exception to the otherwise permissive license policy.
     "MPL-2.0",
-    "Unicode-DFS-2016",
     "Unicode-3.0",
     "Zlib",
 ]
