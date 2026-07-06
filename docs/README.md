@@ -12,7 +12,7 @@
 [ci-badge]: https://github.com/nevertiree/babel-ebook/actions/workflows/ci.yml/badge.svg
 [ci-url]: https://github.com/nevertiree/babel-ebook/actions/workflows/ci.yml
 [license-badge]: https://img.shields.io/badge/License-MIT-yellow.svg
-[license-url]: LICENSE
+[license-url]: ../LICENSE
 [rust-badge]: https://img.shields.io/badge/rust-1.88%2B-blue.svg
 [rust-url]: https://www.rust-lang.org/
 [release-badge]: https://img.shields.io/github/v/release/nevertiree/babel-ebook
@@ -20,10 +20,12 @@
 
 > 你的 EPUB 内容和 API 密钥只在你自己的电脑上处理，不会发送到开发者的服务器。
 >
-> 其他语言版本：[English](README.en.md)
+> 其他语言版本：
+> [中文](README.md) · [English](README.en.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Русский](README.ru.md)
+> [Español](README.es.md)
 
 <p align="center">
-  <img src="docs/assets/screenshots/01-translate.png" alt="BabelEbook 主界面" width="800">
+  <img src="assets/screenshots/01-translate.png" alt="BabelEbook 主界面" width="800">
 </p>
 
 <p align="center">
@@ -53,11 +55,11 @@
 
 | 主界面 | 算力设置 | 翻译选项 |
 |--------|----------|----------|
-| ![主界面](docs/assets/screenshots/01-translate.png) | ![算力设置](docs/assets/screenshots/02-settings-compute.png) | ![翻译选项](docs/assets/screenshots/03-settings-translation.png) |
+| ![主界面](assets/screenshots/01-translate.png) | ![算力设置](assets/screenshots/02-settings-compute.png) | ![翻译选项](assets/screenshots/03-settings-translation.png) |
 
 | 翻译进度 | 日志 |
 |----------|------|
-| ![翻译进度](docs/assets/screenshots/06-translate-progress.png) | ![日志](docs/assets/screenshots/07-logs-progress.png) |
+| ![翻译进度](assets/screenshots/06-translate-progress.png) | ![日志](assets/screenshots/07-logs-progress.png) |
 
 ---
 
@@ -318,7 +320,7 @@ pnpm build
 ### PR 要求
 
 1. 所有 CI 检查通过。
-2. 更新 `README.md` 和 `CHANGELOG.md`（如果涉及用户可见的改动）。
+2. 更新 `docs/README.md` 和 `CHANGELOG.md`（如果涉及用户可见的改动）。
 3. 保持 diff 范围与功能相关，不要附带无关的重命名或格式化。
 4. 桌面改动建议补充或更新 Playwright E2E 测试。
 

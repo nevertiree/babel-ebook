@@ -15,7 +15,7 @@
 /.pre-commit-config.yaml @nevertiree
 
 # Documentation and community files
-/README.md @nevertiree
+/docs/README*.md @nevertiree
 /CHANGELOG.md @nevertiree
 /.github/CONTRIBUTING.md @nevertiree
 /.github/SECURITY.md @nevertiree
