@@ -5,7 +5,7 @@
 ## 开始
 
 1. Fork 本仓库并克隆你的 Fork。
-2. 安装 [Rust](https://rustup.rs/) 1.85 或更新版本。
+2. 安装 [Rust](https://rustup.rs/) 1.88 或更新版本。
 3. 安装 [pnpm](https://pnpm.io/) 用于桌面前端开发。
 4. 构建工作空间：
 

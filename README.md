@@ -13,7 +13,7 @@
 [ci-url]: https://github.com/nevertiree/babel-ebook/actions/workflows/ci.yml
 [license-badge]: https://img.shields.io/badge/License-MIT-yellow.svg
 [license-url]: LICENSE
-[rust-badge]: https://img.shields.io/badge/rust-1.85%2B-blue.svg
+[rust-badge]: https://img.shields.io/badge/rust-1.88%2B-blue.svg
 [rust-url]: https://www.rust-lang.org/
 [release-badge]: https://img.shields.io/github/v/release/nevertiree/babel-ebook
 [release-url]: https://github.com/nevertiree/babel-ebook/releases
@@ -134,7 +134,7 @@ BabelEbook 采用 Rust + TypeScript 混合架构：
 
 ## 环境要求
 
-- [Rust](https://rustup.rs/) 1.85 或更新版本
+- [Rust](https://rustup.rs/) 1.88 或更新版本
 - [pnpm](https://pnpm.io/) 9+（桌面开发）
 - Windows 10/11（桌面 GUI 开发）
 - 对应供应商的 API 密钥
