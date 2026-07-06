@@ -1,0 +1,17 @@
+hello: Hola
+err_provider_not_found: El proveedor "%{provider}" no es compatible
+err_api_key_missing: Falta la clave API para el proveedor "%{provider}"
+btn_translate: Traducir
+log_translation_complete: Traducción completada
+err_api: "Error en la solicitud API después de reintentos: %{msg}"
+err_configuration: "Error de configuración: %{msg}"
+log_estimated_tokens: "Tokens de origen estimados: %{total} (%{count} documentos)"
+log_document_translated: "Documento %{href} traducido"
+log_document_failed: "Documento %{href} falló: %{error}"
+log_title_translate_failed: "No se pudo traducir el título del índice de %{href}: %{error}"
+log_failed_documents: "Los siguientes documentos no se pudieron traducir: %{documents}"
+err_load_config: "no se pudo cargar el archivo de configuración"
+err_default_config: "no se pudo construir la configuración predeterminada"
+err_parsed_args: "no se pudieron analizar los argumentos de la línea de comandos"
+err_create_translator: "no se pudo crear el traductor"
+err_translation: "la traducción falló"

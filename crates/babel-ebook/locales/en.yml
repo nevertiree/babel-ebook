@@ -1,0 +1,17 @@
+hello: Hello
+err_provider_not_found: Provider "%{provider}" is not supported
+err_api_key_missing: API key for provider "%{provider}" is not set
+btn_translate: Translate
+log_translation_complete: Translation completed
+err_api: "API request failed after retries: %{msg}"
+err_configuration: "Configuration error: %{msg}"
+log_estimated_tokens: "Estimated source tokens: %{total} (%{count} documents)"
+log_document_translated: "Document %{href} translated"
+log_document_failed: "Document %{href} failed: %{error}"
+log_title_translate_failed: "Failed to translate ToC title for %{href}: %{error}"
+log_failed_documents: "The following documents failed to translate: %{documents}"
+err_load_config: "failed to load config file"
+err_default_config: "failed to build default config"
+err_parsed_args: "failed to parse command-line arguments"
+err_create_translator: "failed to create translator"
+err_translation: "translation failed"

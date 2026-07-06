@@ -1,0 +1,17 @@
+hello: Привет
+err_provider_not_found: Провайдер "%{provider}" не поддерживается
+err_api_key_missing: API-ключ для провайдера "%{provider}" не задан
+btn_translate: Перевести
+log_translation_complete: Перевод завершён
+err_api: "Ошибка запроса API после повторных попыток: %{msg}"
+err_configuration: "Ошибка конфигурации: %{msg}"
+log_estimated_tokens: "Оценочное количество исходных токенов: %{total} (%{count} документов)"
+log_document_translated: "Документ %{href} переведён"
+log_document_failed: "Документ %{href} не удалось перевести: %{error}"
+log_title_translate_failed: "Не удалось перевести заголовок оглавления для %{href}: %{error}"
+log_failed_documents: "Следующие документы не удалось перевести: %{documents}"
+err_load_config: "не удалось загрузить файл конфигурации"
+err_default_config: "не удалось создать конфигурацию по умолчанию"
+err_parsed_args: "не удалось разобрать аргументы командной строки"
+err_create_translator: "не удалось создать переводчик"
+err_translation: "перевод не удался"

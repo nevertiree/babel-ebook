@@ -1,0 +1,14 @@
+ignores:
+  # Internal implementation plans contain long code blocks and command lists;
+  # specs and user-facing docs are linted instead.
+  - "docs/superpowers/plans/*.md"
+
+config:
+  MD013:
+    line_length: 120
+    code_blocks: false
+    tables: false
+  MD024:
+    siblings_only: true
+  MD033: false
+  MD060: false

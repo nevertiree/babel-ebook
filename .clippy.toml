@@ -1,0 +1,2 @@
+avoid-breaking-exported-api = false
+suppress-restriction-lint-in-const = false

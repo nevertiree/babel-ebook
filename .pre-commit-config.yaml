@@ -1,0 +1,64 @@
+repos:
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: Rust fmt
+        entry: cargo fmt -- --check
+        language: system
+        pass_filenames: false
+        files: '\.rs$'
+
+      - id: cargo-clippy
+        name: Rust clippy
+        entry: cargo clippy --workspace --all-targets -- -D warnings
+        language: system
+        pass_filenames: false
+        files: '\.rs$'
+        require_serial: true
+
+      - id: cargo-test
+        name: Rust tests
+        entry: cargo test --workspace
+        language: system
+        pass_filenames: false
+        files: '\.rs$'
+        require_serial: true
+
+      - id: pnpm-install
+        name: Install desktop dependencies
+        entry: bash -c 'cd desktop && pnpm install --frozen-lockfile'
+        language: system
+        pass_filenames: false
+        files: 'desktop/(package\.json|pnpm-lock\.yaml)$'
+        require_serial: true
+
+      - id: pnpm-typecheck
+        name: Desktop typecheck
+        entry: bash -c 'cd desktop && pnpm exec tsc --noEmit'
+        language: system
+        pass_filenames: false
+        files: 'desktop/.*\.(ts|tsx)$'
+        require_serial: true
+
+      - id: pnpm-build
+        name: Desktop build
+        entry: bash -c 'cd desktop && pnpm build'
+        language: system
+        pass_filenames: false
+        files: 'desktop/.*\.(ts|tsx|css)$'
+        require_serial: true
+
+      - id: cargo-deny
+        name: Cargo deny
+        entry: cargo deny check
+        language: system
+        pass_filenames: false
+        files: 'Cargo\.(toml|lock)|deny\.toml$'
+        require_serial: true
+
+      - id: markdownlint
+        name: Markdown lint
+        entry: npx markdownlint-cli2 README.md CHANGELOG.md AGENTS.md docs/**/*.md
+        language: system
+        pass_filenames: false
+        files: '\.md$'

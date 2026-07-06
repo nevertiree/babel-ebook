@@ -1,0 +1,17 @@
+hello: 안녕하세요
+err_provider_not_found: '"%{provider}" 공급자가 지원되지 않습니다'
+err_api_key_missing: '"%{provider}" 공급자의 API 키가 설정되지 않았습니다'
+btn_translate: 번역
+log_translation_complete: 번역이 완료되었습니다
+err_api: "API 요청이 재시도 후 실패했습니다: %{msg}"
+err_configuration: "설정 오류: %{msg}"
+log_estimated_tokens: "예상 소스 토큰: %{total}(%{count}개 문서)"
+log_document_translated: "문서 %{href} 번역 완료"
+log_document_failed: "문서 %{href} 번역 실패: %{error}"
+log_title_translate_failed: "문서 %{href}의 목차 제목 번역 실패: %{error}"
+log_failed_documents: "다음 문서를 번역하지 못했습니다: %{documents}"
+err_load_config: "설정 파일을 불러오지 못했습니다"
+err_default_config: "기본 설정을 구성하지 못했습니다"
+err_parsed_args: "명령줄 인수를 분석하지 못했습니다"
+err_create_translator: "번역기를 생성하지 못했습니다"
+err_translation: "번역에 실패했습니다"

@@ -1,0 +1,23 @@
+[package]
+name = "babel-ebook-cli"
+version.workspace = true
+description = "CLI for BabelEbook, an LLM-powered EPUB translator"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "babel-ebook"
+path = "src/main.rs"
+
+[dependencies]
+babel-ebook = { path = "../babel-ebook" }
+clap = { version = "4", features = ["derive"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tracing-subscriber = "0.3"
+anyhow = "1"
+serde_json = "1"
+rust-i18n = "3"
+sys-locale = "0.3"

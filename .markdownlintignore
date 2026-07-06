@@ -1,0 +1,5 @@
+# Legacy generated plans contain long tables and CLI command lists that predate lint rules.
+# They are kept for historical reference; all new docs and specs are linted.
+docs/superpowers/plans/2026-07-04-babel-ebook-v2-plan.md
+docs/superpowers/plans/2026-07-04-desktop-ux-fixes.md
+docs/superpowers/plans/2026-07-04-rust-rewrite.md

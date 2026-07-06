@@ -1,0 +1,37 @@
+[graph]
+targets = [{ triple = "x86_64-unknown-linux-gnu" }]
+all-features = false
+no-default-features = false
+
+[output]
+feature-depth = 1
+
+[advisories]
+yanked = "warn"
+# Many transitive dependencies (Tauri/GTK/kuchiki) carry unmaintained advisories
+# that are outside the project's direct control, so only vulnerabilities,
+# unsound workspace crates, and yanked crates are checked for now.
+unmaintained = "none"
+unsound = "workspace"
+
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-3-Clause",
+    "BSD-2-Clause",
+    "ISC",
+    # MPL-2.0 is a weak/file-level copyleft license used by transitive HTML/CSS
+    # parsing crates (e.g., cssparser, selectors). It is explicitly allowed here
+    # as an exception to the otherwise permissive license policy.
+    "MPL-2.0",
+    "Unicode-DFS-2016",
+    "Unicode-3.0",
+    "Zlib",
+]
+confidence-threshold = 0.8
+
+[bans]
+multiple-versions = "warn"
+wildcards = "allow"

@@ -1,0 +1,17 @@
+hello: こんにちは
+err_provider_not_found: プロバイダー「%{provider}」はサポートされていません
+err_api_key_missing: プロバイダー「%{provider}」の API キーが設定されていません
+btn_translate: 翻訳
+log_translation_complete: 翻訳が完了しました
+err_api: "APIリクエストがリトライ後に失敗しました: %{msg}"
+err_configuration: "設定エラー: %{msg}"
+log_estimated_tokens: "推定ソーストークン: %{total}（%{count} ドキュメント）"
+log_document_translated: "ドキュメント %{href} を翻訳しました"
+log_document_failed: "ドキュメント %{href} の翻訳に失敗しました: %{error}"
+log_title_translate_failed: "ドキュメント %{href} の目次タイトル翻訳に失敗しました: %{error}"
+log_failed_documents: "以下のドキュメントの翻訳に失敗しました: %{documents}"
+err_load_config: "設定ファイルの読み込みに失敗しました"
+err_default_config: "デフォルト設定の構築に失敗しました"
+err_parsed_args: "コマンドライン引数の解析に失敗しました"
+err_create_translator: "翻訳エンジンの作成に失敗しました"
+err_translation: "翻訳に失敗しました"

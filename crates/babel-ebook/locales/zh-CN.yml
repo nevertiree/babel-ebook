@@ -1,0 +1,17 @@
+hello: 你好
+err_provider_not_found: 不支持的供应商 "%{provider}"
+err_api_key_missing: 未设置供应商 "%{provider}" 的 API Key
+btn_translate: 开始翻译
+log_translation_complete: 翻译完成
+err_api: "API 请求在重试后失败: %{msg}"
+err_configuration: "配置错误: %{msg}"
+log_estimated_tokens: "预估源文本 token: %{total}（%{count} 个文档）"
+log_document_translated: "文档 %{href} 已翻译"
+log_document_failed: "文档 %{href} 翻译失败: %{error}"
+log_title_translate_failed: "文档 %{href} 的目录标题翻译失败: %{error}"
+log_failed_documents: "以下文档翻译失败: %{documents}"
+err_load_config: "加载配置文件失败"
+err_default_config: "构建默认配置失败"
+err_parsed_args: "解析命令行参数失败"
+err_create_translator: "创建翻译器失败"
+err_translation: "翻译失败"

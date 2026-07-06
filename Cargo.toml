@@ -1,0 +1,16 @@
+[workspace]
+members = ["crates/*", "desktop/src-tauri"]
+resolver = "2"
+
+[workspace.package]
+version = "0.3.0"
+authors = ["BabelEbook Contributors"]
+edition = "2021"
+rust-version = "1.78"
+license = "MIT"
+repository = "https://github.com/nevertiree/babel-ebook"
+homepage = "https://github.com/nevertiree/babel-ebook"
+documentation = "https://github.com/nevertiree/babel-ebook#readme"
+description = "BabelEbook — an EPUB translator powered by large language models"
+keywords = ["epub", "translator", "llm", "ebook", "bilingual"]
+categories = ["command-line-utilities", "gui"]

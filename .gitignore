@@ -1,0 +1,51 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# Cache and outputs
+.babel_ebook_cache/
+.epub_translator_cache/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+output/
+*.epub
+!tests/fixtures/*.epub
+
+# Environment
+.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Rust
+/target
+
+# Release artifacts
+/release/
+/desktop/target/
+
+# Local test configs with secrets
+test_config.json
+
+# JavaScript dependencies
+node_modules/
+
+/.worktrees/
