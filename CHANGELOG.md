@@ -2,7 +2,16 @@
 
 ## [0.1.1] - 2026-07-06
 
-- Release version 0.1.1.
+### Fixed
+
+- Desktop **Test Connection** button now passes the correct arguments to the
+  `test_connection` command, so URL and API-key validation works for all
+  providers (including DeepSeek).
+
+### Internal
+
+- Updated `crossbeam-epoch` to 0.9.20 to resolve `RUSTSEC-2026-0204` and keep
+  `cargo-deny` passing.
 
 ## [0.1.0] - 2026-07-06
 
