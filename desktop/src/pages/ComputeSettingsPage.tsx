@@ -55,11 +55,13 @@ export default function ComputeSettingsPage({
     onTestConnection("idle");
     try {
       await invoke("test_connection", {
-        provider: form.provider,
-        apiKey: form.api_key,
-        baseUrl: form.base_url || null,
-        model: form.model,
-        temperature: form.temperature,
+        args: {
+          provider: form.provider,
+          api_key: form.api_key,
+          base_url: form.base_url || null,
+          model: form.model,
+          temperature: form.temperature,
+        },
       });
       onTestConnection("ok");
       setTestMessage(t("connection_ok"));
