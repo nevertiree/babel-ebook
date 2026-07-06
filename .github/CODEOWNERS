@@ -1,0 +1,22 @@
+# Global default
+* @nevertiree
+
+# Rust core and CLI
+/crates/ @nevertiree
+/Cargo.toml @nevertiree
+/Cargo.lock @nevertiree
+/deny.toml @nevertiree
+
+# Desktop application
+/desktop/ @nevertiree
+
+# CI/CD and repository automation
+/.github/workflows/ @nevertiree
+/.pre-commit-config.yaml @nevertiree
+
+# Documentation and community files
+/README.md @nevertiree
+/CHANGELOG.md @nevertiree
+/.github/CONTRIBUTING.md @nevertiree
+/.github/SECURITY.md @nevertiree
+/.github/CODE_OF_CONDUCT.md @nevertiree
