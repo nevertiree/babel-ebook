@@ -39,7 +39,7 @@
 ## Pull Request 流程
 
 1. 确保所有测试和检查通过。
-2. 如果改动影响用户可见的行为，更新 `README.md` 和 `CHANGELOG.md`。
+2. 如果改动影响用户可见的行为，更新 `docs/README.md` 和 `CHANGELOG.md`。
 3. 保持 diff 范围与当前功能或修复相关。
 
 ## 行为准则

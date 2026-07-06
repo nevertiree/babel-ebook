@@ -14,7 +14,7 @@ Read this in other languages: [简体中文](README.md)
 [ci-badge]: https://github.com/nevertiree/babel-ebook/actions/workflows/ci.yml/badge.svg
 [ci-url]: https://github.com/nevertiree/babel-ebook/actions/workflows/ci.yml
 [license-badge]: https://img.shields.io/badge/License-MIT-yellow.svg
-[license-url]: LICENSE
+[license-url]: ../LICENSE
 [rust-badge]: https://img.shields.io/badge/rust-1.88%2B-blue.svg
 [rust-url]: https://www.rust-lang.org/
 [release-badge]: https://img.shields.io/github/v/release/nevertiree/babel-ebook
@@ -23,10 +23,12 @@ Read this in other languages: [简体中文](README.md)
 > Your EPUB content and API keys are processed only on your own computer
 > and are never sent to the project maintainers' servers.
 >
-> Read this in other languages: [简体中文](README.md)
+> Read this in other languages:
+> [中文](README.md) · [English](README.en.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Русский](README.ru.md)
+> [Español](README.es.md)
 
 <p align="center">
-  <img src="docs/assets/screenshots/01-translate.png" alt="BabelEbook main window" width="800">
+  <img src="assets/screenshots/01-translate.png" alt="BabelEbook main window" width="800">
 </p>
 
 <p align="center">
@@ -56,11 +58,11 @@ Read this in other languages: [简体中文](README.md)
 
 | Main window | Compute settings | Translation options |
 |-------------|------------------|---------------------|
-| ![Main window](docs/assets/screenshots/01-translate.png) | ![Compute settings](docs/assets/screenshots/02-settings-compute.png) | ![Translation options](docs/assets/screenshots/03-settings-translation.png) |
+| ![Main window](assets/screenshots/01-translate.png) | ![Compute settings](assets/screenshots/02-settings-compute.png) | ![Translation options](assets/screenshots/03-settings-translation.png) |
 
 | Translation progress | Logs |
 |----------------------|------|
-| ![Translation progress](docs/assets/screenshots/06-translate-progress.png) | ![Logs](docs/assets/screenshots/07-logs-progress.png) |
+| ![Translation progress](assets/screenshots/06-translate-progress.png) | ![Logs](assets/screenshots/07-logs-progress.png) |
 
 ---
 
@@ -310,7 +312,7 @@ This project follows **Git Flow**:
 #### PR Requirements
 
 1. All CI checks pass.
-2. Update `README.md` and `CHANGELOG.md` if user-facing behavior changes.
+2. Update `docs/README.md` and `CHANGELOG.md` if user-facing behavior changes.
 3. Keep the diff scoped to the feature or fix.
 4. Desktop changes should include or update Playwright E2E tests.
 

@@ -37,7 +37,7 @@ pnpm release:build      # full release build (must run on a tag)
 ├── Cargo.toml              # workspace manifest, single source of truth for version
 ├── Cargo.lock
 ├── CHANGELOG.md
-├── README.md
+├── docs/README.md
 ├── AGENTS.md               # this file
 ├── crates/
 │   ├── babel-ebook/        # core translation library
@@ -74,7 +74,7 @@ pnpm release:build      # full release build (must run on a tag)
   ```
 
 - For desktop changes, add or update Playwright E2E tests in `desktop/e2e/`.
-- Update `README.md` and `CHANGELOG.md` if user-facing behavior changes.
+- Update `docs/README.md` and `CHANGELOG.md` if user-facing behavior changes.
 - Update this `AGENTS.md` if build/test/release workflows change.
 
 ## Branch & Merge Workflow
