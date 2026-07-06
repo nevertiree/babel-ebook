@@ -77,6 +77,47 @@ pnpm release:build      # full release build (must run on a tag)
 - Update `README.md` and `CHANGELOG.md` if user-facing behavior changes.
 - Update this `AGENTS.md` if build/test/release workflows change.
 
+## Branch & Merge Workflow
+
+`master` and `develop` are protected branches. **Never push commits directly to them.**
+Always work in a feature branch and merge through a Pull Request.
+
+Typical workflow using the GitHub CLI (`gh`):
+
+```bash
+# 1. Make sure you are on the latest develop
+git checkout develop
+git pull origin develop
+
+# 2. Create a feature branch
+git checkout -b feat/<short-description>
+
+# 3. Make focused commits
+git add ...
+git commit -m "feat(scope): description"
+
+# 4. Push the branch
+git push origin feat/<short-description>
+
+# 5. Open a Pull Request
+gh pr create --base develop --head feat/<short-description> \
+  --title "feat(scope): description" \
+  --body "What this PR does and why."
+
+# 6. Wait for CI to pass. Do not merge while checks are failing.
+gh run watch <run-id> --exit-status
+
+# 7. Merge via gh (squash is preferred for feature branches)
+gh pr merge <pr-number> --squash --delete-branch
+
+# 8. Pull the updated base branch locally
+git checkout develop
+git pull origin develop
+```
+
+For documentation-only or hot-fix changes that must land on `master`, branch from
+`master` and set `--base master` when creating the PR.
+
 ## Running Translations
 
 CLI:
