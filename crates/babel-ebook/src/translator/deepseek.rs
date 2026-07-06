@@ -109,12 +109,28 @@ impl Translator for DeepSeekTranslator {
     }
 
     async fn health_check(&self) -> Result<(), BabelEbookError> {
-        self.client
-            .models()
-            .list()
+        // DeepSeek's /models endpoint omits the `created` field that async-openai's
+        // model list deserializer expects, so perform a lightweight HTTP check
+        // instead of parsing the response body.
+        use async_openai::config::Config;
+        let config = self.client.config();
+        let url = config.url("/models");
+        let client = reqwest::Client::new();
+        let response = client
+            .get(&url)
+            .headers(config.headers())
+            .timeout(Duration::from_secs(10))
+            .send()
             .await
-            .map(|_| ())
-            .map_err(|e| BabelEbookError::ApiError(e.to_string()))
+            .map_err(|e| BabelEbookError::ApiError(e.to_string()))?;
+
+        let status = response.status();
+        if status.is_success() {
+            Ok(())
+        } else {
+            let body = response.text().await.unwrap_or_default();
+            Err(BabelEbookError::ApiError(format!("HTTP {status}: {body}")))
+        }
     }
 
     async fn translate(
