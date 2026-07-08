@@ -130,3 +130,76 @@ pub fn build_test_config(args: &TestConnectionArgs) -> Result<Config, String> {
 
     Ok(config)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::args::{PromptTemplates, TranslateArgs};
+    use crate::config::build_config;
+
+    fn sample_translate_args() -> TranslateArgs {
+        TranslateArgs {
+            source: "input.epub".to_string(),
+            output: "output.epub".to_string(),
+            provider: "deepseek".to_string(),
+            api_key: String::new(),
+            model: "deepseek-chat".to_string(),
+            concurrency: 1,
+            max_input_tokens: 4000,
+            max_output_tokens: 2000,
+            temperature: 0.3,
+            source_lang: "en".to_string(),
+            target_lang: "zh-CN".to_string(),
+            dry_run: true,
+            base_url: None,
+            output_mode: "bilingual".to_string(),
+            style: "default".to_string(),
+            preserve_classes: false,
+            exclude_selectors: Vec::new(),
+            translate_attributes: Vec::new(),
+            translate_body: true,
+            translate_metadata: true,
+            translate_toc: true,
+            translate_alt_text: true,
+            translate_image_captions: true,
+            translate_tables: true,
+            translate_footnotes: true,
+            translate_code: false,
+            output_font: None,
+            system_prompt: None,
+            prompts: PromptTemplates::default(),
+        }
+    }
+
+    #[test]
+    fn build_config_propagates_system_prompt() {
+        let mut args = sample_translate_args();
+        args.system_prompt = Some("custom system prompt".to_string());
+        let config = build_config(&args).unwrap();
+        assert_eq!(
+            config.system_prompt,
+            Some("custom system prompt".to_string())
+        );
+    }
+
+    #[test]
+    fn build_config_ignores_empty_system_prompt() {
+        let mut args = sample_translate_args();
+        args.system_prompt = Some(String::new());
+        let config = build_config(&args).unwrap();
+        assert_eq!(config.system_prompt, None);
+    }
+
+    #[test]
+    fn build_config_propagates_prompt_templates() {
+        let mut args = sample_translate_args();
+        args.prompts.default = "default prompt".to_string();
+        args.prompts.literary = "literary prompt".to_string();
+        args.prompts.technical = "technical prompt".to_string();
+        args.prompts.academic = "academic prompt".to_string();
+        let config = build_config(&args).unwrap();
+        assert_eq!(config.prompts.default, "default prompt");
+        assert_eq!(config.prompts.literary, "literary prompt");
+        assert_eq!(config.prompts.technical, "technical prompt");
+        assert_eq!(config.prompts.academic, "academic prompt");
+    }
+}
