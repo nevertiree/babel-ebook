@@ -264,3 +264,102 @@ impl babel_ebook::ProgressCallback for TaskProgressCallback {
         let _ = self.window.emit("task_progress", &payload);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::args::{PromptTemplates, TranslateArgs};
+
+    fn sample_args(source: &str, output: &str) -> TranslateArgs {
+        TranslateArgs {
+            source: source.to_string(),
+            output: output.to_string(),
+            provider: "deepseek".to_string(),
+            api_key: "test".to_string(),
+            model: "deepseek-chat".to_string(),
+            concurrency: 1,
+            max_input_tokens: 1000,
+            max_output_tokens: 500,
+            temperature: 0.3,
+            source_lang: "en".to_string(),
+            target_lang: "zh-CN".to_string(),
+            dry_run: true,
+            base_url: None,
+            output_mode: "bilingual".to_string(),
+            style: "default".to_string(),
+            preserve_classes: false,
+            exclude_selectors: Vec::new(),
+            translate_attributes: Vec::new(),
+            translate_body: true,
+            translate_metadata: true,
+            translate_toc: true,
+            translate_alt_text: true,
+            translate_image_captions: true,
+            translate_tables: true,
+            translate_footnotes: true,
+            translate_code: false,
+            output_font: None,
+            system_prompt: None,
+            prompts: PromptTemplates::default(),
+        }
+    }
+
+    #[tokio::test]
+    async fn enqueue_adds_pending_task() {
+        let queue = QueueManager::new();
+        let task = queue.enqueue(sample_args("a.epub", "a.out.epub")).await;
+        let state = queue.state().await;
+        assert_eq!(state.tasks.len(), 1);
+        assert_eq!(state.tasks[0].id, task.id);
+        assert_eq!(state.tasks[0].status, TaskStatus::Pending);
+    }
+
+    #[tokio::test]
+    async fn cancel_only_pending_task() {
+        let queue = QueueManager::new();
+        let task = queue.enqueue(sample_args("a.epub", "a.out.epub")).await;
+        queue.cancel(&task.id).await.unwrap();
+        let state = queue.state().await;
+        assert_eq!(state.tasks[0].status, TaskStatus::Cancelled);
+    }
+
+    #[tokio::test]
+    async fn retry_resets_failed_task() {
+        let queue = QueueManager::new();
+        let task = queue.enqueue(sample_args("a.epub", "a.out.epub")).await;
+        queue.cancel(&task.id).await.unwrap();
+        queue.retry(&task.id).await.unwrap();
+        let state = queue.state().await;
+        assert_eq!(state.tasks[0].status, TaskStatus::Pending);
+        assert!(state.tasks[0].error.is_none());
+    }
+
+    #[tokio::test]
+    async fn remove_deletes_pending_task() {
+        let queue = QueueManager::new();
+        let task = queue.enqueue(sample_args("a.epub", "a.out.epub")).await;
+        queue.remove(&task.id).await.unwrap();
+        let state = queue.state().await;
+        assert!(state.tasks.is_empty());
+    }
+
+    #[tokio::test]
+    async fn reorder_changes_task_order() {
+        let queue = QueueManager::new();
+        let first = queue.enqueue(sample_args("a.epub", "a.out.epub")).await;
+        let second = queue.enqueue(sample_args("b.epub", "b.out.epub")).await;
+        queue.reorder(vec![second.id.clone(), first.id.clone()]).await.unwrap();
+        let state = queue.state().await;
+        assert_eq!(state.tasks[0].id, second.id);
+        assert_eq!(state.tasks[1].id, first.id);
+    }
+
+    #[tokio::test]
+    async fn start_and_pause_toggle_running() {
+        let queue = QueueManager::new();
+        queue.start().await;
+        assert!(queue.state().await.running);
+        queue.pause().await;
+        assert!(!queue.state().await.running);
+    }
+}
