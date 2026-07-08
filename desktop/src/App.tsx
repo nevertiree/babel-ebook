@@ -55,7 +55,7 @@ function initialGeneralFromLocalStorage(): GeneralSettings {
     ui_language:
       ui_language && targetLanguages.some((l) => l.code === ui_language) ? ui_language : "en",
     theme: ui_theme === "light" || ui_theme === "dark" ? ui_theme : "dark",
-    follow_system_language: localStorage.getItem("follow_system_language") === "true",
+    follow_system_language: localStorage.getItem("follow_system_language") !== "false",
   };
 }
 
