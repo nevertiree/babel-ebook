@@ -179,5 +179,18 @@
   "legal_title": "License",
   "legal_back": "Back",
   "legal_loading": "Loading license...",
-  "legal_load_error": "Could not load the license: {{error}}"
+  "legal_load_error": "Could not load the license: {{error}}",
+  "add_to_queue": "Добавить в очередь",
+  "cancel": "Отмена",
+  "pause_queue": "Приостановить очередь",
+  "queue_empty": "В очереди нет задач.",
+  "refresh": "Обновить",
+  "remove": "Удалить",
+  "retry": "Повторить",
+  "start_queue": "Запустить очередь",
+  "task_status_cancelled": "Отменено",
+  "task_status_completed": "Завершено",
+  "task_status_failed": "Ошибка",
+  "task_status_pending": "В ожидании",
+  "task_status_running": "Выполняется"
 }

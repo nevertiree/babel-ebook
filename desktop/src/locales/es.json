@@ -179,5 +179,18 @@
   "legal_title": "License",
   "legal_back": "Back",
   "legal_loading": "Loading license...",
-  "legal_load_error": "Could not load the license: {{error}}"
+  "legal_load_error": "Could not load the license: {{error}}",
+  "add_to_queue": "Añadir a la cola",
+  "cancel": "Cancelar",
+  "pause_queue": "Pausar cola",
+  "queue_empty": "No hay tareas en la cola.",
+  "refresh": "Actualizar",
+  "remove": "Eliminar",
+  "retry": "Reintentar",
+  "start_queue": "Iniciar cola",
+  "task_status_cancelled": "Cancelada",
+  "task_status_completed": "Completada",
+  "task_status_failed": "Fallida",
+  "task_status_pending": "Pendiente",
+  "task_status_running": "En ejecución"
 }
