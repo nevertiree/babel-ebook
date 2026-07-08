@@ -25,6 +25,9 @@ use tauri::{WebviewUrl, WebviewWindowBuilder};
 /// Panics if the Tauri application fails to start.
 #[cfg(not(test))]
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+// `tauri::generate_context!()` expands to a large static struct that triggers
+// `clippy::large_stack_frames`; this is a known Tauri macro behaviour.
+#[allow(clippy::large_stack_frames)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
