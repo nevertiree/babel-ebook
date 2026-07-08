@@ -14,6 +14,7 @@ mod args;
 mod commands;
 mod config;
 mod keyring;
+mod task;
 
 #[cfg(not(test))]
 use tauri::{WebviewUrl, WebviewWindowBuilder};
