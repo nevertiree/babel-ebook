@@ -4,7 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import "./App.css";
-import type { FormState, LogEntry, Page, ProgressState, ProviderConfig, ValidationResult } from "./types";
+import type { FormState, LogEntry, Page, ProgressState, ProviderConfig, QueueState, Task, ValidationResult } from "./types";
 import { defaults, recommendedModels, targetLanguages } from "./types";
 import TranslatePage from "./pages/TranslatePage";
 import ComputeSettingsPage from "./pages/ComputeSettingsPage";
@@ -16,6 +16,7 @@ import GeneralSettingsPage from "./pages/GeneralSettingsPage";
 import AboutPage from "./pages/AboutPage";
 import LegalPage from "./pages/LegalPage";
 import LogsPage from "./pages/LogsPage";
+import TasksPage from "./pages/TasksPage";
 import {
   loadGeneralSettings,
   loadSettings,
@@ -99,6 +100,73 @@ function ensureProvider(form: FormState, providerType: string): FormState {
   };
 }
 
+function applyProgressToTask(task: Task, payload: ProgressPayload): Task {
+  if (typeof payload === "string" && payload === "Completed") {
+    return { ...task, progress_percent: 100 };
+  }
+  if (typeof payload === "object" && "Started" in payload) {
+    return {
+      ...task,
+      progress_percent: 0,
+      status: "running",
+      chapter_total: payload.Started.total,
+    };
+  }
+  if (typeof payload === "object" && "ChapterStarted" in payload) {
+    const total = task.chapter_total ?? 0;
+    const percent =
+      total > 0
+        ? Math.round(((payload.ChapterStarted.index + 1) / total) * 100)
+        : task.progress_percent;
+    return { ...task, progress_percent: Math.min(99, percent), status: "running" };
+  }
+  if (typeof payload === "object" && "ChapterFinished" in payload) {
+    const total = task.chapter_total ?? 0;
+    const percent =
+      total > 0
+        ? Math.round(((payload.ChapterFinished.index + 1) / total) * 100)
+        : task.progress_percent;
+    return { ...task, progress_percent: Math.min(99, percent), status: "running" };
+  }
+  if (typeof payload === "object" && "Failed" in payload) {
+    return { ...task, message: payload.Failed.error };
+  }
+  return task;
+}
+
+function parseCommaList(value: string) {
+  return value
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+function buildTranslateArgs(form: FormState): object {
+  const provider = activeProvider(form);
+  if (!provider) throw new Error("no provider");
+  return {
+    ...form,
+    provider: provider.provider,
+    api_key: provider.api_key,
+    base_url: provider.use_custom_base_url ? provider.base_url || null : null,
+    system_prompt: form.system_prompt || null,
+    prompts: form.prompts,
+    output_font: form.output_font || null,
+    exclude_selectors: parseCommaList(form.exclude_selectors),
+    translate_attributes: parseCommaList(form.translate_attributes),
+    dry_run: !!form.dry_run,
+    preserve_classes: !!form.preserve_classes,
+    translate_body: !!form.translate_body,
+    translate_metadata: !!form.translate_metadata,
+    translate_toc: !!form.translate_toc,
+    translate_alt_text: !!form.translate_alt_text,
+    translate_image_captions: !!form.translate_image_captions,
+    translate_tables: !!form.translate_tables,
+    translate_footnotes: !!form.translate_footnotes,
+    translate_code: !!form.translate_code,
+  };
+}
+
 function App() {
   const { t, i18n } = useTranslation();
   const [form, setForm] = useState<FormState>(() => ({
@@ -114,6 +182,10 @@ function App() {
   });
   const [general, setGeneral] = useState<GeneralSettings>(initialGeneralFromLocalStorage);
   const [detectedLocale, setDetectedLocale] = useState<string>("en");
+  const [queue, setQueue] = useState<QueueState>({
+    tasks: [],
+    running: false,
+  });
 
   const completedRef = useRef(0);
   const totalRef = useRef(0);
@@ -225,6 +297,47 @@ function App() {
       void i18n.changeLanguage(general.ui_language);
     }
   }, [general.ui_language, general.follow_system_language, i18n]);
+
+  useEffect(() => {
+    void (async () => {
+      const initial = await invoke<QueueState>("get_queue_state").catch(() => ({
+        tasks: [],
+        running: false,
+      }));
+      setQueue(initial);
+    })();
+  }, []);
+
+  useEffect(() => {
+    const unlistenProgress = listen<{ task_id: string; event: ProgressPayload }>(
+      "task_progress",
+      (event) => {
+        const { task_id, event: progressEvent } = event.payload;
+        setQueue((prev) => {
+          const tasks = prev.tasks.map((t) => {
+            if (t.id !== task_id) return t;
+            return applyProgressToTask(t, progressEvent);
+          });
+          return { ...prev, tasks };
+        });
+      }
+    );
+
+    const unlistenChanged = listen<unknown>("queue_state_changed", () => {
+      void (async () => {
+        const state = await invoke<QueueState>("get_queue_state").catch(() => ({
+          tasks: [],
+          running: false,
+        }));
+        setQueue(state);
+      })();
+    });
+
+    return () => {
+      void unlistenProgress.then((f) => f());
+      void unlistenChanged.then((f) => f());
+    };
+  }, []);
 
   const validation: ValidationResult = useMemo(() => {
     const errors: ValidationResult["errors"] = {};
@@ -354,12 +467,6 @@ function App() {
     };
   }, [t]);
 
-  const parseCommaList = (value: string) =>
-    value
-      .split(",")
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
-
   async function handleStart() {
     if (!validation.valid) return;
 
@@ -381,28 +488,7 @@ function App() {
     setProgress({ percent: 0, message: t("started") });
     setLogs((prev) => [...prev, { id: generateId(), timestamp: Date.now(), kind: "info", message: t("started") }]);
 
-    const baseUrl = provider.use_custom_base_url ? provider.base_url : "";
-    const args = {
-      ...form,
-      provider: provider.provider,
-      api_key: provider.api_key,
-      base_url: baseUrl || null,
-      system_prompt: form.system_prompt || null,
-      prompts: form.prompts,
-      output_font: form.output_font || null,
-      exclude_selectors: parseCommaList(form.exclude_selectors),
-      translate_attributes: parseCommaList(form.translate_attributes),
-      dry_run: !!form.dry_run,
-      preserve_classes: !!form.preserve_classes,
-      translate_body: !!form.translate_body,
-      translate_metadata: !!form.translate_metadata,
-      translate_toc: !!form.translate_toc,
-      translate_alt_text: !!form.translate_alt_text,
-      translate_image_captions: !!form.translate_image_captions,
-      translate_tables: !!form.translate_tables,
-      translate_footnotes: !!form.translate_footnotes,
-      translate_code: !!form.translate_code,
-    };
+    const args = buildTranslateArgs(form);
 
     try {
       const result = await invoke<string>("translate_epub", { args });
@@ -444,6 +530,25 @@ function App() {
     }
   }
 
+  async function handleEnqueue() {
+    if (!validation.valid) return;
+    try {
+      const args = buildTranslateArgs(form);
+      await invoke("enqueue_task", { args });
+      setPage("tasks");
+    } catch (err) {
+      setLogs((prev) => [
+        ...prev,
+        {
+          id: generateId(),
+          timestamp: Date.now(),
+          kind: "error",
+          message: `${t("error")}: ${err}`,
+        },
+      ]);
+    }
+  }
+
   const updateForm = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((prev) => {
       const next = { ...prev, [key]: value } as FormState;
@@ -472,6 +577,47 @@ function App() {
 
   const clearLogs = () => setLogs([]);
 
+  const refreshQueue = async () => {
+    const state = await invoke<QueueState>("get_queue_state").catch(() => ({
+      tasks: [],
+      running: false,
+    }));
+    setQueue(state);
+  };
+
+  const enqueueTask = async (args: object) => {
+    await invoke("enqueue_task", { args });
+    await refreshQueue();
+  };
+
+  const removeTask = async (id: string) => {
+    await invoke("remove_task", { id });
+    await refreshQueue();
+  };
+
+  const retryTask = async (id: string) => {
+    await invoke("retry_task", { id });
+    await refreshQueue();
+  };
+
+  const cancelTask = async (id: string) => {
+    await invoke("cancel_task", { id });
+    await refreshQueue();
+  };
+
+  const startQueue = async () => {
+    await invoke("start_queue");
+    await refreshQueue();
+  };
+
+  const pauseQueue = async () => {
+    await invoke("pause_queue");
+    await refreshQueue();
+  };
+
+  // enqueueTask is reserved for the upcoming task-creation flow.
+  void enqueueTask;
+
   const renderPage = () => {
     switch (page) {
       case "translate":
@@ -480,6 +626,7 @@ function App() {
             form={form}
             setForm={updateForm}
             onStart={handleStart}
+            onEnqueue={handleEnqueue}
             loading={loading}
             progress={progress}
             validation={validation}
@@ -488,6 +635,18 @@ function App() {
         );
       case "logs":
         return <LogsPage entries={logs} onClear={clearLogs} />;
+      case "tasks":
+        return (
+          <TasksPage
+            queue={queue}
+            onRefresh={refreshQueue}
+            onRemove={removeTask}
+            onRetry={retryTask}
+            onCancel={cancelTask}
+            onStart={startQueue}
+            onPause={pauseQueue}
+          />
+        );
       case "settings-compute":
         return (
           <ComputeSettingsPage
@@ -545,6 +704,14 @@ function App() {
             onClick={() => setPage("logs")}
           >
             {t("nav_logs")}
+          </button>
+
+          <button
+            type="button"
+            className={`nav-item ${page === "tasks" ? "active" : ""}`}
+            onClick={() => setPage("tasks")}
+          >
+            {t("nav_tasks")}
           </button>
 
           <div className="nav-group">

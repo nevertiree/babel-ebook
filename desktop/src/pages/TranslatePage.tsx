@@ -61,6 +61,7 @@ interface TranslatePageProps {
   form: FormState;
   setForm: <K extends keyof FormState>(key: K, value: FormState[K]) => void;
   onStart: () => void;
+  onEnqueue: () => void;
   loading: boolean;
   progress: ProgressState;
   validation: ValidationResult;
@@ -71,6 +72,7 @@ export default function TranslatePage({
   form,
   setForm,
   onStart,
+  onEnqueue,
   loading,
   progress,
   validation,
@@ -229,15 +231,26 @@ export default function TranslatePage({
         </p>
       )}
 
-      <button
-        className="start-button"
-        type="button"
-        onClick={onStart}
-        disabled={loading || !validation.valid}
-        data-testid="start-button"
-      >
-        {loading ? t("loading") : t("start")}
-      </button>
+      <div className="start-row">
+        <button
+          className="start-button"
+          type="button"
+          onClick={onStart}
+          disabled={loading || !validation.valid}
+          data-testid="start-button"
+        >
+          {loading ? t("loading") : t("start")}
+        </button>
+
+        <button
+          type="button"
+          onClick={onEnqueue}
+          disabled={!validation.valid}
+          data-testid="enqueue-button"
+        >
+          {t("add_to_queue")}
+        </button>
+      </div>
 
       {(loading || progress.percent > 0 || progress.message) && (
         <section className="progress-section" data-testid="progress-section">
