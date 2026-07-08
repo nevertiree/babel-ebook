@@ -17,6 +17,7 @@ pub mod config;
 pub mod core;
 pub mod epub;
 pub mod html;
+pub mod input_formats;
 pub mod translator;
 
 pub use cache::TranslationCache;
@@ -32,6 +33,7 @@ pub use epub::{
     read_epub, should_translate_doc, write_epub, Chapter, EpubBook, EpubMetadata, Resource,
 };
 pub use html::{process_document, translate_text};
+pub use input_formats::{read_input_book, supported_extensions};
 pub use translator::{get_translator, TranslateContext, Translator};
 
 // Load translations from `crates/babel-ebook/locales`. The `i18n!` macro also

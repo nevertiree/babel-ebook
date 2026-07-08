@@ -1,7 +1,7 @@
 //! Tauri commands exposed to the desktop frontend.
 
 use babel_ebook::{
-    epub::read_epub, estimate_source_tokens, translatable_chapters,
+    estimate_source_tokens, read_input_book, translatable_chapters,
     translate_epub as translate_epub_core, translator::get_translator, ProgressCallback,
     ProgressEvent, ProviderConfig, TranslationCache, KNOWN_PROVIDERS,
 };
@@ -11,7 +11,7 @@ use tauri::Emitter;
 #[cfg(not(test))]
 use crate::args::E2EArgs;
 use crate::args::{TestConnectionArgs, TranslateArgs};
-use crate::config::{build_config, build_test_config, convert_to_epub};
+use crate::config::{build_config, build_test_config};
 
 /// Read E2E injection values from the environment.
 ///
@@ -70,18 +70,15 @@ pub async fn translate_epub_internal(
             .map_err(|e| e.to_string())?;
 
         rt.block_on(async {
-            let mut config = build_config(&args)?;
+            let config = build_config(&args)?;
             config.validate().map_err(|e| e.to_string())?;
             tracing::info!(
                 source = %config.source.display(),
                 output = %config.output.display(),
                 provider = %config.provider,
                 dry_run = config.dry_run,
-                "translating EPUB"
+                "translating ebook"
             );
-            let converted_source = convert_to_epub(&config.source.to_string_lossy())?;
-            tracing::info!(converted_source = %converted_source.display(), "source converted to EPUB");
-            config.source = converted_source;
 
             let progress_ref: Option<&dyn ProgressCallback> = progress
                 .as_ref()
@@ -96,7 +93,7 @@ pub async fn translate_epub_internal(
             .map_err(|e| e.to_string())?;
 
             if config.dry_run {
-                let book = read_epub(&config.source).map_err(|e| e.to_string())?;
+                let book = read_input_book(&config.source).map_err(|e| e.to_string())?;
                 let indices = translatable_chapters(&book, &config.skip_doc_patterns)
                     .map_err(|e| e.to_string())?;
                 let (tokens, docs) = estimate_source_tokens(&book, &indices);
@@ -262,6 +259,19 @@ pub async fn test_connection(args: TestConnectionArgs) -> Result<String, String>
     .await
     .map_err(|e| format!("health check task panicked: {e}"))?
     .map(|()| "connection ok".to_string())
+}
+
+/// Return the built-in default prompt templates for each translation style.
+#[allow(dead_code)]
+#[tauri::command]
+pub fn get_default_prompts() -> crate::args::PromptTemplates {
+    let core = babel_ebook::config::PromptTemplates::default();
+    crate::args::PromptTemplates {
+        default: core.default,
+        literary: core.literary,
+        technical: core.technical,
+        academic: core.academic,
+    }
 }
 
 /// Return the application version compiled from Cargo.

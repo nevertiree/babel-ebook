@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { invoke } from "@tauri-apps/api/core";
 import type { FormState, PromptTemplates } from "../types";
 
 interface PromptsPageProps {
@@ -14,9 +15,26 @@ const emptyPrompts: PromptTemplates = {
   academic: "",
 };
 
+function promptsAreEmpty(prompts: PromptTemplates): boolean {
+  return Object.values(prompts).every((v) => typeof v === "string" && v.trim() === "");
+}
+
 export default function PromptsPage({ form, setForm }: PromptsPageProps) {
   const { t } = useTranslation();
   const [focusedField, setFocusedField] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!promptsAreEmpty(form.prompts)) {
+      return;
+    }
+    invoke<PromptTemplates>("get_default_prompts")
+      .then((defaults) => {
+        if (promptsAreEmpty(form.prompts)) {
+          setForm("prompts", defaults);
+        }
+      })
+      .catch(() => undefined);
+  }, []);
 
   const baseStyle: React.CSSProperties = {
     padding: "0.55rem 0.75rem",
@@ -43,9 +61,14 @@ export default function PromptsPage({ form, setForm }: PromptsPageProps) {
     setForm("prompts", { ...form.prompts, [key]: value });
   };
 
-  const handleReset = () => {
+  const handleReset = async () => {
     setForm("system_prompt", "");
-    setForm("prompts", { ...emptyPrompts });
+    try {
+      const defaults = await invoke<PromptTemplates>("get_default_prompts");
+      setForm("prompts", defaults);
+    } catch {
+      setForm("prompts", { ...emptyPrompts });
+    }
   };
 
   const fields: { key: keyof PromptTemplates; labelKey: string }[] = [

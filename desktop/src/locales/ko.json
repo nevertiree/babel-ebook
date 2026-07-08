@@ -78,7 +78,7 @@
   "remember_api_key": "Remember API key securely",
   "exclude_selectors_help": "CSS selectors for elements that should not be translated (e.g. code blocks).",
   "translate_attributes_help": "HTML attributes whose values should also be translated.",
-  "concurrency_help": "Number of chapters translated in parallel. Higher is faster but costs more.",
+  "concurrency_help": "LLM에 동시에 전송되는 챕터 번역 요청 수. 값이 높을수록 전체 번역 속도가 빨라지지만 토큰 소모가 늘고 속도 제한에 걸릴 수 있습니다.",
   "max_input_tokens_help": "Maximum tokens sent to the model per request.",
   "max_output_tokens_help": "Maximum tokens the model may return per request.",
   "temperature_help": "Sampling temperature. Lower values produce more deterministic output.",

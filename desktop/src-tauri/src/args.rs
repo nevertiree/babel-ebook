@@ -1,9 +1,9 @@
 //! Argument types passed from the Tauri frontend to the Rust backend.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// Configurable prompt templates passed from the frontend.
-#[derive(Deserialize, Debug, Clone, Default)]
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
 #[serde(rename_all = "snake_case")]
 pub struct PromptTemplates {
     pub default: String,
