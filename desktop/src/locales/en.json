@@ -179,5 +179,17 @@
   "legal_title": "License",
   "legal_back": "Back",
   "legal_loading": "Loading license...",
-  "legal_load_error": "Could not load the license: {{error}}"
+  "legal_load_error": "Could not load the license: {{error}}",
+  "pause_queue": "Pause Queue",
+  "start_queue": "Start Queue",
+  "refresh": "Refresh",
+  "queue_empty": "No tasks in the queue.",
+  "task_status_pending": "Pending",
+  "task_status_running": "Running",
+  "task_status_completed": "Completed",
+  "task_status_failed": "Failed",
+  "task_status_cancelled": "Cancelled",
+  "cancel": "Cancel",
+  "retry": "Retry",
+  "remove": "Remove"
 }

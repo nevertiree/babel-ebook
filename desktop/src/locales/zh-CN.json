@@ -179,5 +179,17 @@
   "legal_title": "许可证",
   "legal_back": "返回",
   "legal_loading": "正在加载许可证...",
-  "legal_load_error": "无法加载许可证：{{error}}"
+  "legal_load_error": "无法加载许可证：{{error}}",
+  "pause_queue": "暂停队列",
+  "start_queue": "开始队列",
+  "refresh": "刷新",
+  "queue_empty": "队列中没有任务。",
+  "task_status_pending": "待处理",
+  "task_status_running": "运行中",
+  "task_status_completed": "已完成",
+  "task_status_failed": "失败",
+  "task_status_cancelled": "已取消",
+  "cancel": "取消",
+  "retry": "重试",
+  "remove": "移除"
 }

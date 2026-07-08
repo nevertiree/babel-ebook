@@ -822,3 +822,49 @@ button:disabled {
     width: 100%;
   }
 }
+
+.tasks-page .queue-controls {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.task-list {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.task-item {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+}
+
+.task-info {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.task-status {
+  font-size: 0.8rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  text-transform: uppercase;
+}
+
+.task-status-pending { background: #3b82f6; color: white; }
+.task-status-running { background: #f59e0b; color: white; }
+.task-status-completed { background: #10b981; color: white; }
+.task-status-failed { background: #ef4444; color: white; }
+.task-status-cancelled { background: #6b7280; color: white; }
+
+.task-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
