@@ -59,7 +59,7 @@
   "prompt_academic": "Academic Style Prompt",
   "prompt_academic_placeholder": "Academic prompt template",
   "prompts_help": "You can use {{source_lang}} and {{target_lang}} placeholders in prompts.",
-  "reset_prompts": "Reset to defaults",
+  "clear_prompts": "Reset to defaults",
   "select_file": "Seleccionar archivo",
   "save_as": "Guardar como...",
   "summary_title": "Resumen de configuración",

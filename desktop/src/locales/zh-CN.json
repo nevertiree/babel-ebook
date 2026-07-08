@@ -59,7 +59,7 @@
   "prompt_academic": "学术风格提示词",
   "prompt_academic_placeholder": "学术提示词模板",
   "prompts_help": "提示词中可使用 {{source_lang}} 和 {{target_lang}} 占位符。",
-  "reset_prompts": "恢复默认",
+  "clear_prompts": "清空自定义提示词",
   "select_file": "选择文件",
   "save_as": "保存到...",
   "summary_title": "配置摘要",

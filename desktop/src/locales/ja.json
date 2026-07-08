@@ -59,7 +59,7 @@
   "prompt_academic": "Academic Style Prompt",
   "prompt_academic_placeholder": "Academic prompt template",
   "prompts_help": "You can use {{source_lang}} and {{target_lang}} placeholders in prompts.",
-  "reset_prompts": "Reset to defaults",
+  "clear_prompts": "Reset to defaults",
   "select_file": "ファイルを選択",
   "save_as": "名前を付けて保存...",
   "summary_title": "設定の概要",

@@ -105,7 +105,7 @@ export default function PromptsPage({ form, setForm }: PromptsPageProps) {
         className="text-button danger"
         onClick={handleReset}
       >
-        {t("reset_prompts")}
+        {t("clear_prompts")}
       </button>
     </div>
   );

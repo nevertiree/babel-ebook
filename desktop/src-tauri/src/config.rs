@@ -102,10 +102,18 @@ pub fn build_config(args: &TranslateArgs) -> Result<Config, String> {
     config.dry_run = args.dry_run;
     config.verbose = false;
     config.system_prompt = args.system_prompt.clone().filter(|s| !s.is_empty());
-    config.prompts.default.clone_from(&args.prompts.default);
-    config.prompts.literary.clone_from(&args.prompts.literary);
-    config.prompts.technical.clone_from(&args.prompts.technical);
-    config.prompts.academic.clone_from(&args.prompts.academic);
+    if !args.prompts.default.is_empty() {
+        config.prompts.default.clone_from(&args.prompts.default);
+    }
+    if !args.prompts.literary.is_empty() {
+        config.prompts.literary.clone_from(&args.prompts.literary);
+    }
+    if !args.prompts.technical.is_empty() {
+        config.prompts.technical.clone_from(&args.prompts.technical);
+    }
+    if !args.prompts.academic.is_empty() {
+        config.prompts.academic.clone_from(&args.prompts.academic);
+    }
 
     Ok(config)
 }
@@ -201,5 +209,15 @@ mod tests {
         assert_eq!(config.prompts.literary, "literary prompt");
         assert_eq!(config.prompts.technical, "technical prompt");
         assert_eq!(config.prompts.academic, "academic prompt");
+    }
+
+    #[test]
+    fn build_config_keeps_default_prompts_when_empty() {
+        let args = sample_translate_args();
+        let config = build_config(&args).unwrap();
+        assert!(!config.prompts.default.is_empty());
+        assert!(!config.prompts.literary.is_empty());
+        assert!(!config.prompts.technical.is_empty());
+        assert!(!config.prompts.academic.is_empty());
     }
 }
