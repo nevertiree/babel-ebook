@@ -72,7 +72,15 @@ pub async fn translate_epub_internal(
         rt.block_on(async {
             let mut config = build_config(&args)?;
             config.validate().map_err(|e| e.to_string())?;
+            tracing::info!(
+                source = %config.source.display(),
+                output = %config.output.display(),
+                provider = %config.provider,
+                dry_run = config.dry_run,
+                "translating EPUB"
+            );
             let converted_source = convert_to_epub(&config.source.to_string_lossy())?;
+            tracing::info!(converted_source = %converted_source.display(), "source converted to EPUB");
             config.source = converted_source;
 
             let progress_ref: Option<&dyn ProgressCallback> = progress
@@ -106,7 +114,14 @@ pub async fn translate_epub_internal(
                 .await
                 .map_err(|e| e.to_string())?;
 
-            Ok("Translation completed".into())
+            tracing::info!(
+                output = %config.output.display(),
+                "translation command completed successfully"
+            );
+            Ok(format!(
+                "Translation completed: {}",
+                config.output.display()
+            ))
         })
     })
     .await

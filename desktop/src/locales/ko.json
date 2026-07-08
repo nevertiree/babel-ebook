@@ -113,6 +113,7 @@
   "hide": "Hide",
   "error_source_required": "Please select a source EPUB",
   "error_output_required": "Please select an output path",
+  "error_output_missing": "Output file was not created: {{path}}",
   "error_api_key_required": "Please enter an API key",
   "follow_system_active": "Following system language (detected: {{locale}}). Disable to choose manually.",
   "settings_compute": "Compute",

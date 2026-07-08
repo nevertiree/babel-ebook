@@ -112,6 +112,12 @@ pub async fn translate_epub(
     cache: Option<&TranslationCache>,
     progress: Option<&dyn ProgressCallback>,
 ) -> Result<(), BabelEbookError> {
+    tracing::info!(
+        source = %config.source.display(),
+        output = %config.output.display(),
+        "starting EPUB translation"
+    );
+
     let owned_cache = cache.map_or_else(
         || TranslationCache::new(config.cache_dir.clone()),
         TranslationCache::clone,
@@ -120,6 +126,11 @@ pub async fn translate_epub(
 
     let mut book = read_epub(&config.source)?;
     let translatable_indices = translatable_chapters(&book, &config.skip_doc_patterns)?;
+    tracing::info!(
+        total_chapters = book.chapters.len(),
+        translatable_chapters = translatable_indices.len(),
+        "EPUB loaded"
+    );
 
     if config.dry_run {
         run_dry_run(&book, &translatable_indices, progress);
@@ -145,7 +156,9 @@ pub async fn translate_epub(
     )
     .await?;
 
+    tracing::info!(output = %config.output.display(), "writing translated EPUB");
     write_epub(&book, &config.output)?;
+    tracing::info!(output = %config.output.display(), "EPUB written successfully");
     emit_progress(progress, ProgressEvent::Completed);
 
     if !failures.is_empty() {
@@ -197,6 +210,7 @@ async fn run_all_chapters(
         let content = &book.chapters[index].content;
         let href = book.chapters[index].href.clone();
         async move {
+            tracing::info!(index, href, "starting chapter translation");
             emit_progress(
                 progress,
                 ProgressEvent::ChapterStarted {
@@ -207,21 +221,27 @@ async fn run_all_chapters(
             let _permit = acquire_permit(semaphore).await?;
             let result = process_document(content, translator, config, cache, &href).await;
             match &result {
-                Ok(_) => emit_progress(
-                    progress,
-                    ProgressEvent::ChapterFinished {
-                        index,
-                        href: href.clone(),
-                    },
-                ),
-                Err(err) => emit_progress(
-                    progress,
-                    ProgressEvent::Failed {
-                        index,
-                        href: href.clone(),
-                        error: err.to_string(),
-                    },
-                ),
+                Ok(_) => {
+                    tracing::info!(index, href, "chapter translation finished");
+                    emit_progress(
+                        progress,
+                        ProgressEvent::ChapterFinished {
+                            index,
+                            href: href.clone(),
+                        },
+                    );
+                }
+                Err(err) => {
+                    tracing::error!(index, href, error = %err, "chapter translation failed");
+                    emit_progress(
+                        progress,
+                        ProgressEvent::Failed {
+                            index,
+                            href: href.clone(),
+                            error: err.to_string(),
+                        },
+                    );
+                }
             }
             Ok::<(usize, Result<Vec<u8>, BabelEbookError>), BabelEbookError>((index, result))
         }

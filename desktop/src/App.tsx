@@ -281,7 +281,6 @@ function App() {
           ];
         }
         if (typeof payload === "object" && "ChapterFinished" in payload) {
-          completedRef.current += 1;
           return [
             ...prev,
             {
@@ -331,7 +330,10 @@ function App() {
           completedRef.current += 1;
           const percent =
             totalRef.current > 0
-              ? Math.round((completedRef.current / totalRef.current) * 100)
+              ? Math.min(
+                  100,
+                  Math.round((completedRef.current / totalRef.current) * 100)
+                )
               : prev.percent;
           return {
             percent,
@@ -404,9 +406,28 @@ function App() {
 
     try {
       const result = await invoke<string>("translate_epub", { args });
-      if (form.dry_run && result.toLowerCase().includes("estimated source tokens")) {
+      if (form.dry_run) {
         setProgress({ percent: 100, message: result });
+        setLogs((prev) => [
+          ...prev,
+          { id: generateId(), timestamp: Date.now(), kind: "success", message: result },
+        ]);
+        return;
       }
+
+      if (!form.dry_run) {
+        const outputExists = await invoke<boolean>("check_file_exists", { path: form.output });
+        if (!outputExists) {
+          const message = `${t("error")}: ${t("error_output_missing", { path: form.output })}`;
+          setProgress({ percent: 0, message });
+          setLogs((prev) => [
+            ...prev,
+            { id: generateId(), timestamp: Date.now(), kind: "error", message },
+          ]);
+          return;
+        }
+      }
+
       setLogs((prev) => [
         ...prev,
         { id: generateId(), timestamp: Date.now(), kind: "success", message: `${t("completed")}: ${result}` },

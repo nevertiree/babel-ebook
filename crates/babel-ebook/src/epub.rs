@@ -228,6 +228,15 @@ fn xml_escape(text: &str) -> String {
 
 /// Write an EPUB using `zip::ZipWriter` and handwritten `content.opf`/`toc.ncx`.
 pub(crate) fn write_epub_zip(book: &EpubBook, path: &Path) -> Result<(), BabelEbookError> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| {
+            BabelEbookError::Anyhow(anyhow::anyhow!(
+                "failed to create output directory {}: {e}",
+                parent.display()
+            ))
+        })?;
+    }
+
     let file = File::create(path)
         .map_err(|e| BabelEbookError::Anyhow(anyhow::anyhow!("failed to create EPUB file: {e}")))?;
     let mut zip = ZipWriter::new(file);

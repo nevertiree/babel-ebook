@@ -113,6 +113,7 @@
   "hide": "隐藏",
   "error_source_required": "请选择源 EPUB",
   "error_output_required": "请选择输出路径",
+  "error_output_missing": "输出文件未生成：{{path}}",
   "error_api_key_required": "请输入 API 密钥",
   "follow_system_active": "正在跟随系统语言（检测到：{{locale}}）。关闭后可手动选择。",
   "settings_compute": "算力",
