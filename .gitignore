@@ -49,3 +49,4 @@ test_config.json
 node_modules/
 
 /.worktrees/
+/.superpowers/
