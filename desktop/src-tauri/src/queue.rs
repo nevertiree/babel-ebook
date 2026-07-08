@@ -348,7 +348,10 @@ mod tests {
         let queue = QueueManager::new();
         let first = queue.enqueue(sample_args("a.epub", "a.out.epub")).await;
         let second = queue.enqueue(sample_args("b.epub", "b.out.epub")).await;
-        queue.reorder(vec![second.id.clone(), first.id.clone()]).await.unwrap();
+        queue
+            .reorder(vec![second.id.clone(), first.id.clone()])
+            .await
+            .unwrap();
         let state = queue.state().await;
         assert_eq!(state.tasks[0].id, second.id);
         assert_eq!(state.tasks[1].id, first.id);
