@@ -128,6 +128,7 @@ async function writeSettingsFile(payload: VersionedSettings): Promise<void> {
  */
 function providersForStorage(providers: ProviderConfig[]): Omit<ProviderConfig, "api_key">[] {
   return providers.map((p) => ({
+    name: p.name,
     provider: p.provider,
     base_url: p.base_url,
     use_custom_base_url: p.use_custom_base_url,
@@ -185,8 +186,22 @@ async function migrateFromFlatSettings(versioned: VersionedSettings): Promise<Pa
   const oldBaseUrl = typeof raw.base_url === "string" ? raw.base_url : "";
   const oldApiKey = await invoke<string | null>("load_api_key", { provider: oldProvider }).catch(() => null);
 
+  const used = new Set<string>();
+  const makeUniqueName = (p: ProviderConfig) => {
+    const base = p.provider;
+    let candidate = base;
+    let index = 1;
+    while (used.has(candidate)) {
+      index += 1;
+      candidate = `${base} ${index}`;
+    }
+    used.add(candidate);
+    return candidate;
+  };
+
   migrated.providers = [
     {
+      name: makeUniqueName({ provider: oldProvider } as ProviderConfig),
       provider: oldProvider,
       api_key: oldApiKey ?? "",
       base_url: oldBaseUrl,

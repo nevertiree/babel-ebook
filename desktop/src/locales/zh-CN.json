@@ -114,6 +114,8 @@
   "default_base_url": "默认地址",
   "add_provider": "新增配置",
   "compute_settings_hint": "在这里添加并管理你的大模型 API 供应商。",
+  "provider_type": "算力源",
+  "provider_name": "配置名称",
   "settings_general": "通用",
   "source_lang": "原始语言",
   "source_lang_help": "原文语言，或选择自动检测。",

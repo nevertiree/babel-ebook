@@ -120,8 +120,8 @@ export default function TranslatePage({
                   onChange={(e) => setForm("active_provider", e.target.value)}
                 >
                   {form.providers.map((p) => (
-                    <option key={p.provider} value={p.provider}>
-                      {t(`provider_${p.provider}`)}
+                    <option key={p.name} value={p.name}>
+                      {p.name}
                     </option>
                   ))}
                 </select>

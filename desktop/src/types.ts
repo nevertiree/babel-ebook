@@ -5,6 +5,7 @@
  * keeps the non-secret parts in Tauri Store.
  */
 export interface ProviderConfig {
+  name: string;
   provider: string;
   api_key: string;
   base_url: string;

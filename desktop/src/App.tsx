@@ -62,25 +62,38 @@ function initialGeneralFromLocalStorage(): GeneralSettings {
 }
 
 function activeProvider(form: FormState): ProviderConfig | undefined {
-  return form.providers.find((p) => p.provider === form.active_provider);
+  return form.providers.find((p) => p.name === form.active_provider);
 }
 
-function ensureProvider(form: FormState, providerName: string): FormState {
-  if (form.providers.some((p) => p.provider === providerName)) {
+function uniqueProviderName(providers: ProviderConfig[], providerType: string): string {
+  const used = new Set(providers.map((p) => p.name));
+  let candidate = providerType;
+  let index = 1;
+  while (used.has(candidate)) {
+    index += 1;
+    candidate = `${providerType} ${index}`;
+  }
+  return candidate;
+}
+
+function ensureProvider(form: FormState, providerType: string): FormState {
+  if (form.providers.some((p) => p.provider === providerType)) {
     return form;
   }
+  const name = uniqueProviderName(form.providers, providerType);
   return {
     ...form,
     providers: [
       ...form.providers,
       {
-        provider: providerName,
+        name,
+        provider: providerType,
         api_key: "",
         base_url: "",
         use_custom_base_url: false,
       },
     ],
-    active_provider: providerName,
+    active_provider: name,
   };
 }
 
@@ -121,8 +134,8 @@ function App() {
         const defaultProvider = "deepseek";
         merged = ensureProvider(merged, defaultProvider);
       }
-      if (!merged.active_provider || !merged.providers.some((p) => p.provider === merged.active_provider)) {
-        merged = { ...merged, active_provider: merged.providers[0].provider };
+      if (!merged.active_provider || !merged.providers.some((p) => p.name === merged.active_provider)) {
+        merged = { ...merged, active_provider: merged.providers[0].name };
       }
 
       // If E2E injects an API key, apply it to the active provider.
@@ -130,7 +143,7 @@ function App() {
         merged = {
           ...merged,
           providers: merged.providers.map((p) =>
-            p.provider === merged.active_provider ? { ...p, api_key: e2e.api_key ?? "" } : p
+            p.name === merged.active_provider ? { ...p, api_key: e2e.api_key ?? "" } : p
           ),
         };
       }
@@ -410,8 +423,9 @@ function App() {
     setForm((prev) => {
       const next = { ...prev, [key]: value } as FormState;
       if (key === "active_provider") {
-        const providerName = value as string;
-        const models = recommendedModels[providerName] ?? [];
+        const active = next.providers.find((p) => p.name === value);
+        const providerType = active?.provider ?? (value as string);
+        const models = recommendedModels[providerType] ?? [];
         if (models.length > 0 && !models.some((m) => m.value === next.model)) {
           next.model = models[0].value;
         }
@@ -422,7 +436,7 @@ function App() {
 
   const updateProviders = (providers: ProviderConfig[]) => {
     setForm((prev) => {
-      const activeStillExists = providers.some((p) => p.provider === prev.active_provider);
+      const activeStillExists = providers.some((p) => p.name === prev.active_provider);
       return {
         ...prev,
         providers,

@@ -114,6 +114,8 @@
   "default_base_url": "Default URL",
   "add_provider": "Add provider",
   "compute_settings_hint": "Add and manage your LLM API providers here.",
+  "provider_type": "Provider",
+  "provider_name": "Config Name",
   "settings_general": "General",
   "source_lang": "Source Language",
   "source_lang_help": "Language of the original text, or Auto detect.",
