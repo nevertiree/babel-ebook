@@ -18,7 +18,10 @@ mod queue;
 mod task;
 
 #[cfg(not(test))]
-use tauri::{WebviewUrl, WebviewWindowBuilder};
+use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+
+#[cfg(not(test))]
+use crate::queue::QueueManager;
 
 #[cfg(not(test))]
 // `tauri::generate_context!()` expands to a large static struct that triggers
@@ -42,6 +45,10 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_fs::init())
         .setup(|app| {
+            let queue = QueueManager::new();
+            queue.clone().spawn_worker(app.handle().clone());
+            app.manage(queue);
+
             let mut builder =
                 WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                     .title("BabelEbook")
@@ -66,7 +73,15 @@ pub fn run() {
             commands::test_connection,
             commands::get_e2e_args,
             commands::get_app_version,
-            commands::get_default_prompts
+            commands::get_default_prompts,
+            commands::enqueue_task,
+            commands::remove_task,
+            commands::reorder_tasks,
+            commands::cancel_task,
+            commands::retry_task,
+            commands::start_queue,
+            commands::pause_queue,
+            commands::get_queue_state,
         ])
         .run(tauri_context())
         .expect("error while running tauri application");

@@ -12,6 +12,8 @@ use tauri::Emitter;
 use crate::args::E2EArgs;
 use crate::args::{TestConnectionArgs, TranslateArgs};
 use crate::config::{build_config, build_test_config};
+use crate::queue::{QueueManager, QueueState};
+use crate::task::Task;
 
 /// Read E2E injection values from the environment.
 ///
@@ -278,6 +280,70 @@ pub fn get_default_prompts() -> crate::args::PromptTemplates {
 #[tauri::command]
 pub fn get_app_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
+}
+
+/// Add a book to the translation queue using the current form arguments.
+#[allow(dead_code)]
+#[tauri::command]
+pub async fn enqueue_task(
+    args: TranslateArgs,
+    queue: tauri::State<'_, QueueManager>,
+) -> Result<Task, String> {
+    Ok(queue.enqueue(args).await)
+}
+
+/// Remove a pending or finished task from the queue.
+#[allow(dead_code)]
+#[tauri::command]
+pub async fn remove_task(id: String, queue: tauri::State<'_, QueueManager>) -> Result<(), String> {
+    queue.remove(&id).await
+}
+
+/// Reorder pending tasks to match the provided list of ids.
+#[allow(dead_code)]
+#[tauri::command]
+pub async fn reorder_tasks(
+    ids: Vec<String>,
+    queue: tauri::State<'_, QueueManager>,
+) -> Result<(), String> {
+    queue.reorder(ids).await
+}
+
+/// Cancel a pending task.
+#[allow(dead_code)]
+#[tauri::command]
+pub async fn cancel_task(id: String, queue: tauri::State<'_, QueueManager>) -> Result<(), String> {
+    queue.cancel(&id).await
+}
+
+/// Retry a failed or cancelled task.
+#[allow(dead_code)]
+#[tauri::command]
+pub async fn retry_task(id: String, queue: tauri::State<'_, QueueManager>) -> Result<(), String> {
+    queue.retry(&id).await
+}
+
+/// Start processing the queue.
+#[allow(dead_code)]
+#[tauri::command]
+pub async fn start_queue(queue: tauri::State<'_, QueueManager>) -> Result<(), String> {
+    queue.start().await;
+    Ok(())
+}
+
+/// Pause after the current task finishes.
+#[allow(dead_code)]
+#[tauri::command]
+pub async fn pause_queue(queue: tauri::State<'_, QueueManager>) -> Result<(), String> {
+    queue.pause().await;
+    Ok(())
+}
+
+/// Return the current queue state.
+#[allow(dead_code)]
+#[tauri::command]
+pub async fn get_queue_state(queue: tauri::State<'_, QueueManager>) -> Result<QueueState, String> {
+    Ok(queue.state().await)
 }
 
 #[cfg(test)]
