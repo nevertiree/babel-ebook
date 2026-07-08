@@ -4,10 +4,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import "./App.css";
-import type { FormState, LogEntry, Page, ProgressState, ValidationResult } from "./types";
-import { defaults, providerDefaultBaseUrl, recommendedModels, targetLanguages } from "./types";
+import type { FormState, LogEntry, Page, ProgressState, ProviderConfig, ValidationResult } from "./types";
+import { defaults, recommendedModels, targetLanguages } from "./types";
 import TranslatePage from "./pages/TranslatePage";
 import ComputeSettingsPage from "./pages/ComputeSettingsPage";
+import ModelParamsPage from "./pages/ModelParamsPage";
 import TranslationSettingsPage from "./pages/TranslationSettingsPage";
 import OutputSettingsPage from "./pages/OutputSettingsPage";
 import GeneralSettingsPage from "./pages/GeneralSettingsPage";
@@ -39,6 +40,7 @@ type ProgressPayload =
 
 const settingsPages: { page: Page; labelKey: string }[] = [
   { page: "settings-compute", labelKey: "settings_compute" },
+  { page: "settings-model", labelKey: "settings_model" },
   { page: "settings-translation", labelKey: "settings_translation" },
   { page: "settings-output", labelKey: "settings_output" },
   { page: "settings-general", labelKey: "settings_general" },
@@ -59,6 +61,29 @@ function initialGeneralFromLocalStorage(): GeneralSettings {
   };
 }
 
+function activeProvider(form: FormState): ProviderConfig | undefined {
+  return form.providers.find((p) => p.provider === form.active_provider);
+}
+
+function ensureProvider(form: FormState, providerName: string): FormState {
+  if (form.providers.some((p) => p.provider === providerName)) {
+    return form;
+  }
+  return {
+    ...form,
+    providers: [
+      ...form.providers,
+      {
+        provider: providerName,
+        api_key: "",
+        base_url: "",
+        use_custom_base_url: false,
+      },
+    ],
+    active_provider: providerName,
+  };
+}
+
 function App() {
   const { t, i18n } = useTranslation();
   const [form, setForm] = useState<FormState>(() => ({
@@ -75,7 +100,6 @@ function App() {
   const [general, setGeneral] = useState<GeneralSettings>(initialGeneralFromLocalStorage);
   const [detectedLocale, setDetectedLocale] = useState<string>("en");
 
-
   const completedRef = useRef(0);
   const totalRef = useRef(0);
 
@@ -89,23 +113,35 @@ function App() {
       ]);
       setGeneral(generalSettings);
 
-      const remember = settings.remember_api_key ?? true;
-      const provider = settings.provider ?? form.provider;
-      const apiKey = remember
-        ? await invoke<string | null>("load_api_key", { provider }).catch(() => null)
-        : null;
+      let merged = { ...form, ...settings } as FormState;
 
-      setForm((prev) => ({
-        ...prev,
-        ...settings,
-        // If no target language was saved, default to the UI language.
-        target_lang: settings.target_lang ?? generalSettings.ui_language ?? prev.target_lang,
-        api_key: apiKey ?? e2e.api_key ?? "",
-        remember_api_key: remember,
-        ...(e2e.source && { source: e2e.source }),
-        ...(e2e.output && { output: e2e.output }),
-        ...(e2e.dry_run !== undefined && { dry_run: e2e.dry_run }),
-      }));
+      // If no providers exist (fresh install), seed a default provider config so
+      // the UI is never in a broken state. E2E can override the API key below.
+      if (!merged.providers || merged.providers.length === 0) {
+        const defaultProvider = "deepseek";
+        merged = ensureProvider(merged, defaultProvider);
+      }
+      if (!merged.active_provider || !merged.providers.some((p) => p.provider === merged.active_provider)) {
+        merged = { ...merged, active_provider: merged.providers[0].provider };
+      }
+
+      // If E2E injects an API key, apply it to the active provider.
+      if (e2e.api_key) {
+        merged = {
+          ...merged,
+          providers: merged.providers.map((p) =>
+            p.provider === merged.active_provider ? { ...p, api_key: e2e.api_key ?? "" } : p
+          ),
+        };
+      }
+
+      // If no target language was saved, default to the UI language.
+      if (!settings.target_lang) {
+        merged = { ...merged, target_lang: generalSettings.ui_language ?? merged.target_lang };
+      }
+
+      setForm(merged);
+
       if (e2e.ui_language) {
         void i18n.changeLanguage(e2e.ui_language);
       } else if (!generalSettings.follow_system_language) {
@@ -115,32 +151,14 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Save settings when form changes (debounced) and sync the API key with the OS credential store.
+  // Save settings when form changes (debounced). API keys are persisted to the
+  // OS keyring inside saveSettings.
   useEffect(() => {
     const timer = setTimeout(() => {
       void saveSettings(form);
-      if (form.remember_api_key && form.api_key) {
-        void invoke("store_api_key", { provider: form.provider, apiKey: form.api_key });
-      } else if (!form.remember_api_key) {
-        void invoke("delete_api_key", { provider: form.provider }).catch(() => undefined);
-      }
     }, 500);
     return () => clearTimeout(timer);
   }, [form]);
-
-  // Load the remembered API key when the provider changes.
-  useEffect(() => {
-    if (!form.remember_api_key) return;
-    void (async () => {
-      const apiKey = await invoke<string | null>("load_api_key", { provider: form.provider }).catch(
-        () => null
-      );
-      if (apiKey) {
-        setForm((prev) => ({ ...prev, api_key: apiKey }));
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.provider]);
 
   // Auto-suggest the output path whenever the source file or output naming
   // settings change. The user can still override it with the "Save as" dialog.
@@ -177,6 +195,16 @@ function App() {
     void saveGeneralSettings(general);
   }, [general]);
 
+  // Force re-render on window resize so flex/grid layouts recalculate.
+  const [, setWindowSize] = useState({ width: window.innerWidth, height: window.innerHeight });
+  useEffect(() => {
+    const handleResize = () => {
+      setWindowSize({ width: window.innerWidth, height: window.innerHeight });
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
   // System language detection.
   useEffect(() => {
     void invoke<string>("get_system_locale").then((locale) => {
@@ -195,16 +223,22 @@ function App() {
 
   const validation: ValidationResult = useMemo(() => {
     const errors: ValidationResult["errors"] = {};
+    const provider = activeProvider(form);
+
     if (!form.source) errors.source = t("error_source_required");
     if (!form.output) errors.output = t("error_output_required");
-    if (form.provider !== "ollama" && !form.api_key) {
+    if (!provider) {
+      errors.api_key = t("error_no_provider");
+    } else if (provider.provider !== "ollama" && !provider.api_key) {
       errors.api_key = t("error_api_key_required");
     }
 
     let reason: string | undefined;
     if (!form.source || !form.output) {
       reason = t("error_required");
-    } else if (form.provider !== "ollama" && !form.api_key) {
+    } else if (!provider) {
+      reason = t("error_no_provider");
+    } else if (provider.provider !== "ollama" && !provider.api_key) {
       reason = t("error_api_key");
     }
 
@@ -322,6 +356,9 @@ function App() {
   async function handleStart() {
     if (!validation.valid) return;
 
+    const provider = activeProvider(form);
+    if (!provider) return;
+
     if (!form.dry_run) {
       const exists = await invoke<boolean>("check_file_exists", { path: form.output });
       if (exists) {
@@ -336,15 +373,30 @@ function App() {
     setLoading(true);
     setProgress({ percent: 0, message: t("started") });
     setLogs((prev) => [...prev, { id: generateId(), timestamp: Date.now(), kind: "info", message: t("started") }]);
+
+    const baseUrl = provider.use_custom_base_url ? provider.base_url : "";
+    const args = {
+      ...form,
+      provider: provider.provider,
+      api_key: provider.api_key,
+      base_url: baseUrl || null,
+      output_font: form.output_font || null,
+      exclude_selectors: parseCommaList(form.exclude_selectors),
+      translate_attributes: parseCommaList(form.translate_attributes),
+      dry_run: !!form.dry_run,
+      preserve_classes: !!form.preserve_classes,
+      translate_body: !!form.translate_body,
+      translate_metadata: !!form.translate_metadata,
+      translate_toc: !!form.translate_toc,
+      translate_alt_text: !!form.translate_alt_text,
+      translate_image_captions: !!form.translate_image_captions,
+      translate_tables: !!form.translate_tables,
+      translate_footnotes: !!form.translate_footnotes,
+      translate_code: !!form.translate_code,
+    };
+
     try {
-      const result = await invoke<string>("translate_epub", {
-        args: {
-          ...form,
-          base_url: form.base_url || null,
-          exclude_selectors: parseCommaList(form.exclude_selectors),
-          translate_attributes: parseCommaList(form.translate_attributes),
-        },
-      });
+      const result = await invoke<string>("translate_epub", { args });
       if (form.dry_run && result.toLowerCase().includes("estimated source tokens")) {
         setProgress({ percent: 100, message: result });
       }
@@ -353,9 +405,11 @@ function App() {
         { id: generateId(), timestamp: Date.now(), kind: "success", message: `${t("completed")}: ${result}` },
       ]);
     } catch (err) {
+      const message = `${t("error")}: ${err}`;
+      setProgress({ percent: 0, message });
       setLogs((prev) => [
         ...prev,
-        { id: generateId(), timestamp: Date.now(), kind: "error", message: `${t("error")}: ${err}` },
+        { id: generateId(), timestamp: Date.now(), kind: "error", message },
       ]);
     } finally {
       setLoading(false);
@@ -364,15 +418,26 @@ function App() {
 
   const updateForm = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((prev) => {
-      const next = { ...prev, [key]: value };
-      if (key === "provider") {
-        const models = recommendedModels[next.provider] ?? [];
+      const next = { ...prev, [key]: value } as FormState;
+      if (key === "active_provider") {
+        const providerName = value as string;
+        const models = recommendedModels[providerName] ?? [];
         if (models.length > 0 && !models.some((m) => m.value === next.model)) {
           next.model = models[0].value;
         }
-        next.base_url = providerDefaultBaseUrl(next.provider);
       }
       return next;
+    });
+  };
+
+  const updateProviders = (providers: ProviderConfig[]) => {
+    setForm((prev) => {
+      const activeStillExists = providers.some((p) => p.provider === prev.active_provider);
+      return {
+        ...prev,
+        providers,
+        active_provider: activeStillExists ? prev.active_provider : providers[0]?.provider ?? "",
+      };
     });
   };
 
@@ -397,11 +462,14 @@ function App() {
       case "settings-compute":
         return (
           <ComputeSettingsPage
-            form={form}
-            setForm={updateForm}
-            onTestConnection={() => undefined}
+            providers={form.providers}
+            activeProvider={form.active_provider}
+            onChangeProviders={updateProviders}
+            onChangeActiveProvider={(provider) => updateForm("active_provider", provider)}
           />
         );
+      case "settings-model":
+        return <ModelParamsPage form={form} setForm={updateForm} />;
       case "settings-translation":
         return <TranslationSettingsPage form={form} setForm={updateForm} />;
       case "settings-output":

@@ -1,20 +1,25 @@
 /**
+ * A single provider/API configuration.
+ *
+ * API keys are stored in the OS keyring keyed by `provider`; this struct only
+ * keeps the non-secret parts in Tauri Store.
+ */
+export interface ProviderConfig {
+  provider: string;
+  api_key: string;
+  base_url: string;
+  use_custom_base_url: boolean;
+}
+
+/**
  * Shared form state used across the desktop application.
  */
 export interface FormState {
   source: string;
   output: string;
-  provider: string;
-  api_key: string;
-  model: string;
-  concurrency: number;
-  max_input_tokens: number;
-  max_output_tokens: number;
-  temperature: number;
   source_lang: string;
   target_lang: string;
   dry_run: boolean;
-  base_url: string;
   output_mode: string;
   style: string;
   preserve_classes: boolean;
@@ -31,6 +36,17 @@ export interface FormState {
   translate_code: boolean;
   output_font: string;
   output_filename_template: string;
+
+  // Provider management
+  providers: ProviderConfig[];
+  active_provider: string;
+
+  // Model parameters (moved out of the provider tab)
+  model: string;
+  concurrency: number;
+  max_input_tokens: number;
+  max_output_tokens: number;
+  temperature: number;
 }
 
 /**
@@ -40,6 +56,7 @@ export type Page =
   | "translate"
   | "logs"
   | "settings-compute"
+  | "settings-model"
   | "settings-translation"
   | "settings-output"
   | "settings-general"
@@ -89,17 +106,9 @@ export interface ValidationResult {
 export const defaults: FormState = {
   source: "",
   output: "",
-  provider: "deepseek",
-  api_key: "",
-  model: "deepseek-chat",
-  concurrency: 3,
-  max_input_tokens: 4000,
-  max_output_tokens: 2000,
-  temperature: 0.3,
   source_lang: "en",
   target_lang: "zh-CN",
   dry_run: false,
-  base_url: "",
   output_mode: "bilingual",
   style: "default",
   preserve_classes: false,
@@ -116,6 +125,15 @@ export const defaults: FormState = {
   translate_code: false,
   output_font: '"Noto Serif CJK SC", "Source Han Serif SC", "SimSun", serif',
   output_filename_template: "{stem}_{target_lang}",
+
+  providers: [],
+  active_provider: "",
+
+  model: "deepseek-chat",
+  concurrency: 3,
+  max_input_tokens: 4000,
+  max_output_tokens: 2000,
+  temperature: 0.3,
 };
 
 export const providers = ["deepseek", "openai", "anthropic", "ollama"] as const;
