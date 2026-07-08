@@ -90,6 +90,9 @@ impl QueueManager {
                 };
 
                 self.set_current_task(Some(task.id.clone())).await;
+                if let Some(w) = app_handle.get_webview_window("main") {
+                    let _ = w.emit("queue_state_changed", ());
+                }
                 let task_id = task.id.clone();
                 let window = app_handle.get_webview_window("main");
                 let progress = window.clone().map(|w| {

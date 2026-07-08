@@ -15,6 +15,7 @@ export interface Task {
   error?: string;
   created_at: number;
   completed_at?: number;
+  chapter_total?: number;
 }
 
 export interface QueueState {

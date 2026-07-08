@@ -105,12 +105,31 @@ function applyProgressToTask(task: Task, payload: ProgressPayload): Task {
     return { ...task, progress_percent: 100 };
   }
   if (typeof payload === "object" && "Started" in payload) {
-    return { ...task, progress_percent: 0, status: "running" };
+    return {
+      ...task,
+      progress_percent: 0,
+      status: "running",
+      chapter_total: payload.Started.total,
+    };
+  }
+  if (typeof payload === "object" && "ChapterStarted" in payload) {
+    const total = task.chapter_total ?? 0;
+    const percent =
+      total > 0
+        ? Math.round(((payload.ChapterStarted.index + 1) / total) * 100)
+        : task.progress_percent;
+    return { ...task, progress_percent: Math.min(99, percent), status: "running" };
   }
   if (typeof payload === "object" && "ChapterFinished" in payload) {
-    const total = (payload as { ChapterFinished: { index: number } }).ChapterFinished.index + 1;
-    // The backend does not send total here; keep previous percent or estimate.
-    return { ...task, progress_percent: Math.max(task.progress_percent, Math.min(99, total)) };
+    const total = task.chapter_total ?? 0;
+    const percent =
+      total > 0
+        ? Math.round(((payload.ChapterFinished.index + 1) / total) * 100)
+        : task.progress_percent;
+    return { ...task, progress_percent: Math.min(99, percent), status: "running" };
+  }
+  if (typeof payload === "object" && "Failed" in payload) {
+    return { ...task, message: payload.Failed.error };
   }
   return task;
 }
