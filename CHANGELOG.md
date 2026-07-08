@@ -2,7 +2,35 @@
 
 ## [0.1.2] - 2026-07-08
 
-- Release version 0.1.2.
+### Added
+
+- New **Prompts** settings tab for customizing the system prompt and the prompt
+  templates used by each translation style (default, literary, technical, academic).
+  Templates support `{source_lang}` and `{target_lang}` placeholders and are sent
+  to the translation backend.
+- Backend diagnostics for the translation pipeline: source/output paths, EPUB load
+  summary, per-chapter start/finish/failure events, and EPUB write confirmation.
+- Frontend verification that the output EPUB file exists after translation; a clear
+  error is shown if it is missing.
+
+### Changed
+
+- Model selection has moved from the **Model Parameters** settings tab to the main
+  translate page, next to the active provider.
+- **Compute** settings were redesigned to support multiple named provider configs
+  with an inline row layout.
+- Settings are now persisted under `Documents/BabelEbook/settings.json` so they
+  survive app reinstallation.
+
+### Fixed
+
+- Progress bar no longer exceeds 100%; the counter was being incremented twice per
+  chapter, and the percentage is now capped at 100%.
+- Translated EPUBs are now written even when the output directory does not exist;
+  the directory is created automatically.
+- **Test Connection** no longer depends on a selected model and works for any
+  configured provider.
+- Empty custom prompt templates no longer overwrite the built-in defaults.
 
 ## [0.1.1] - 2026-07-06
 
