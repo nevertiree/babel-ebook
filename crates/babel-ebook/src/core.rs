@@ -8,8 +8,9 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use crate::cache::TranslationCache;
 use crate::chunking::count_tokens;
 use crate::config::Config;
-use crate::epub::{read_epub, should_translate_doc, write_epub};
+use crate::epub::{should_translate_doc, write_epub};
 use crate::html::{process_document, translate_text};
+use crate::input_formats::read_input_book;
 use crate::t;
 use crate::translator::Translator;
 
@@ -124,7 +125,7 @@ pub async fn translate_epub(
     );
     let cache = &owned_cache;
 
-    let mut book = read_epub(&config.source)?;
+    let mut book = read_input_book(&config.source)?;
     let translatable_indices = translatable_chapters(&book, &config.skip_doc_patterns)?;
     tracing::info!(
         total_chapters = book.chapters.len(),
@@ -179,6 +180,8 @@ fn run_dry_run(
     indices: &[usize],
     progress: Option<&dyn ProgressCallback>,
 ) {
+    // `run_dry_run` receives an already-loaded book; the caller uses
+    // `read_input_book` before invoking it.
     emit_progress(
         progress,
         ProgressEvent::Started {

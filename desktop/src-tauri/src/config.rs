@@ -1,47 +1,10 @@
 //! Build `babel_ebook::Config` instances from frontend arguments.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use babel_ebook::{Config, OutputMode, TranslationScope, TranslationStyle};
 
 use crate::args::{TestConnectionArgs, TranslateArgs};
-
-/// Convert a non-EPUB ebook to EPUB using Calibre's `ebook-convert`.
-/// EPUB sources are returned unchanged.
-pub fn convert_to_epub(source: &str) -> Result<PathBuf, String> {
-    let source_path = Path::new(source);
-    let ext = source_path
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("")
-        .to_lowercase();
-
-    if ext == "epub" {
-        return Ok(source_path.to_path_buf());
-    }
-
-    let temp_dir = std::env::temp_dir().join(format!("babel_ebook_{}", std::process::id()));
-    std::fs::create_dir_all(&temp_dir).map_err(|e| e.to_string())?;
-
-    let stem = source_path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("book");
-    let output = temp_dir.join(format!("{stem}.epub"));
-
-    let result = std::process::Command::new("ebook-convert")
-        .arg(source)
-        .arg(&output)
-        .output()
-        .map_err(|e| format!("ebook-convert not found or failed to start: {e}"))?;
-
-    if !result.status.success() {
-        let stderr = String::from_utf8_lossy(&result.stderr);
-        return Err(format!("ebook-convert failed: {stderr}"));
-    }
-
-    Ok(output)
-}
 
 pub fn build_config(args: &TranslateArgs) -> Result<Config, String> {
     // Start from a JSON skeleton so that Config's serde defaults (skip patterns,

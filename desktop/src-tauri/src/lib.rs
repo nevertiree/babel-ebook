@@ -63,7 +63,8 @@ pub fn run() {
             commands::suggest_output_path,
             commands::test_connection,
             commands::get_e2e_args,
-            commands::get_app_version
+            commands::get_app_version,
+            commands::get_default_prompts
         ])
         .run(tauri_context())
         .expect("error while running tauri application");

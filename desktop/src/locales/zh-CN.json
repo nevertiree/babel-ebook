@@ -78,7 +78,7 @@
   "remember_api_key": "安全记住 API 密钥",
   "exclude_selectors_help": "不应被翻译的元素的 CSS 选择器（如代码块）。",
   "translate_attributes_help": "还需要翻译值的 HTML 属性。",
-  "concurrency_help": "并行翻译的章节数。数值越大越快，但费用越高。",
+  "concurrency_help": "同时向 LLM 发送的章节翻译请求数量。数值越大整体翻译越快，但会消耗更多 token 并可能触发接口速率限制。",
   "max_input_tokens_help": "每次请求发送给模型的最大 token 数。",
   "max_output_tokens_help": "模型每次请求最多返回的 token 数。",
   "temperature_help": "采样温度。数值越低输出越稳定。",
