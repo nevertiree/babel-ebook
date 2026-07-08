@@ -1,3 +1,28 @@
+export type TaskStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export interface Task {
+  id: string;
+  source_path: string;
+  output_path: string;
+  status: TaskStatus;
+  progress_percent: number;
+  message: string;
+  error?: string;
+  created_at: number;
+  completed_at?: number;
+}
+
+export interface QueueState {
+  tasks: Task[];
+  running: boolean;
+  current_task_id?: string;
+}
+
 /**
  * A single provider/API configuration.
  *
@@ -67,6 +92,7 @@ export interface FormState {
  */
 export type Page =
   | "translate"
+  | "tasks"
   | "logs"
   | "settings-compute"
   | "settings-model"

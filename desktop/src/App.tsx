@@ -4,7 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import "./App.css";
-import type { FormState, LogEntry, Page, ProgressState, ProviderConfig, ValidationResult } from "./types";
+import type { FormState, LogEntry, Page, ProgressState, ProviderConfig, QueueState, Task, ValidationResult } from "./types";
 import { defaults, recommendedModels, targetLanguages } from "./types";
 import TranslatePage from "./pages/TranslatePage";
 import ComputeSettingsPage from "./pages/ComputeSettingsPage";
@@ -16,6 +16,7 @@ import GeneralSettingsPage from "./pages/GeneralSettingsPage";
 import AboutPage from "./pages/AboutPage";
 import LegalPage from "./pages/LegalPage";
 import LogsPage from "./pages/LogsPage";
+import TasksPage from "./pages/TasksPage";
 import {
   loadGeneralSettings,
   loadSettings,
@@ -99,6 +100,21 @@ function ensureProvider(form: FormState, providerType: string): FormState {
   };
 }
 
+function applyProgressToTask(task: Task, payload: ProgressPayload): Task {
+  if (typeof payload === "string" && payload === "Completed") {
+    return { ...task, progress_percent: 100 };
+  }
+  if (typeof payload === "object" && "Started" in payload) {
+    return { ...task, progress_percent: 0, status: "running" };
+  }
+  if (typeof payload === "object" && "ChapterFinished" in payload) {
+    const total = (payload as { ChapterFinished: { index: number } }).ChapterFinished.index + 1;
+    // The backend does not send total here; keep previous percent or estimate.
+    return { ...task, progress_percent: Math.max(task.progress_percent, Math.min(99, total)) };
+  }
+  return task;
+}
+
 function App() {
   const { t, i18n } = useTranslation();
   const [form, setForm] = useState<FormState>(() => ({
@@ -114,6 +130,10 @@ function App() {
   });
   const [general, setGeneral] = useState<GeneralSettings>(initialGeneralFromLocalStorage);
   const [detectedLocale, setDetectedLocale] = useState<string>("en");
+  const [queue, setQueue] = useState<QueueState>({
+    tasks: [],
+    running: false,
+  });
 
   const completedRef = useRef(0);
   const totalRef = useRef(0);
@@ -225,6 +245,47 @@ function App() {
       void i18n.changeLanguage(general.ui_language);
     }
   }, [general.ui_language, general.follow_system_language, i18n]);
+
+  useEffect(() => {
+    void (async () => {
+      const initial = await invoke<QueueState>("get_queue_state").catch(() => ({
+        tasks: [],
+        running: false,
+      }));
+      setQueue(initial);
+    })();
+  }, []);
+
+  useEffect(() => {
+    const unlistenProgress = listen<{ task_id: string; event: ProgressPayload }>(
+      "task_progress",
+      (event) => {
+        const { task_id, event: progressEvent } = event.payload;
+        setQueue((prev) => {
+          const tasks = prev.tasks.map((t) => {
+            if (t.id !== task_id) return t;
+            return applyProgressToTask(t, progressEvent);
+          });
+          return { ...prev, tasks };
+        });
+      }
+    );
+
+    const unlistenChanged = listen<unknown>("queue_state_changed", () => {
+      void (async () => {
+        const state = await invoke<QueueState>("get_queue_state").catch(() => ({
+          tasks: [],
+          running: false,
+        }));
+        setQueue(state);
+      })();
+    });
+
+    return () => {
+      void unlistenProgress.then((f) => f());
+      void unlistenChanged.then((f) => f());
+    };
+  }, []);
 
   const validation: ValidationResult = useMemo(() => {
     const errors: ValidationResult["errors"] = {};
@@ -472,6 +533,47 @@ function App() {
 
   const clearLogs = () => setLogs([]);
 
+  const refreshQueue = async () => {
+    const state = await invoke<QueueState>("get_queue_state").catch(() => ({
+      tasks: [],
+      running: false,
+    }));
+    setQueue(state);
+  };
+
+  const enqueueTask = async (args: object) => {
+    await invoke("enqueue_task", { args });
+    await refreshQueue();
+  };
+
+  const removeTask = async (id: string) => {
+    await invoke("remove_task", { id });
+    await refreshQueue();
+  };
+
+  const retryTask = async (id: string) => {
+    await invoke("retry_task", { id });
+    await refreshQueue();
+  };
+
+  const cancelTask = async (id: string) => {
+    await invoke("cancel_task", { id });
+    await refreshQueue();
+  };
+
+  const startQueue = async () => {
+    await invoke("start_queue");
+    await refreshQueue();
+  };
+
+  const pauseQueue = async () => {
+    await invoke("pause_queue");
+    await refreshQueue();
+  };
+
+  // enqueueTask is reserved for the upcoming task-creation flow.
+  void enqueueTask;
+
   const renderPage = () => {
     switch (page) {
       case "translate":
@@ -488,6 +590,18 @@ function App() {
         );
       case "logs":
         return <LogsPage entries={logs} onClear={clearLogs} />;
+      case "tasks":
+        return (
+          <TasksPage
+            queue={queue}
+            onRefresh={refreshQueue}
+            onRemove={removeTask}
+            onRetry={retryTask}
+            onCancel={cancelTask}
+            onStart={startQueue}
+            onPause={pauseQueue}
+          />
+        );
       case "settings-compute":
         return (
           <ComputeSettingsPage
@@ -545,6 +659,14 @@ function App() {
             onClick={() => setPage("logs")}
           >
             {t("nav_logs")}
+          </button>
+
+          <button
+            type="button"
+            className={`nav-item ${page === "tasks" ? "active" : ""}`}
+            onClick={() => setPage("tasks")}
+          >
+            {t("nav_tasks")}
           </button>
 
           <div className="nav-group">
