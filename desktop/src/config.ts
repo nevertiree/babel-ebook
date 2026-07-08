@@ -78,7 +78,7 @@ const OLD_FLAT_KEYS: Array<keyof FormState> = [
 const DEFAULT_GENERAL: GeneralSettings = {
   ui_language: "en",
   theme: "dark",
-  follow_system_language: false,
+  follow_system_language: true,
 };
 
 async function withStore<T>(fn: (store: Store) => Promise<T>): Promise<T> {
