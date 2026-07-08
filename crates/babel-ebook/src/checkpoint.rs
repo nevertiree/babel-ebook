@@ -151,4 +151,17 @@ mod tests {
         assert!(loaded.chapters[0].content.is_some());
         assert_eq!(loaded.chapters[1].status, ChapterStatus::Failed);
     }
+
+    #[test]
+    fn generate_job_id_properties() {
+        let source_a = Path::new("input/book-a.epub");
+        let id_a = CheckpointStore::generate_job_id(source_a);
+        assert!(!id_a.is_empty());
+        assert!(id_a.chars().all(|c| c.is_ascii_hexdigit()));
+
+        let source_b = Path::new("input/book-b.epub");
+        let id_b = CheckpointStore::generate_job_id(source_b);
+        assert_ne!(id_a, id_b);
+        assert!(id_b.chars().all(|c| c.is_ascii_hexdigit()));
+    }
 }
