@@ -12,6 +12,7 @@
 #![allow(clippy::missing_errors_doc)]
 
 pub mod cache;
+pub mod checkpoint;
 pub mod chunking;
 pub mod config;
 pub mod core;
