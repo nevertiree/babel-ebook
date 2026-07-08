@@ -5,7 +5,7 @@ import type { FormState, ProviderConfig } from "./types";
 
 const SETTINGS_DIR = "BabelEbook";
 const SETTINGS_FILE = "settings.json";
-const SETTINGS_VERSION = 2;
+const SETTINGS_VERSION = 3;
 
 /**
  * Settings that are not part of the translation form and are stored under the
@@ -39,6 +39,8 @@ const TRANSLATION_KEYS: Array<keyof FormState> = [
   "target_lang",
   "output_mode",
   "style",
+  "system_prompt",
+  "prompts",
   "exclude_selectors",
   "translate_attributes",
   "preserve_classes",
