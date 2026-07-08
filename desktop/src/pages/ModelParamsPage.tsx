@@ -1,6 +1,5 @@
 import { useTranslation } from "react-i18next";
 import type { FormState } from "../types";
-import { recommendedModels } from "../types";
 
 interface ModelParamsPageProps {
   form: FormState;
@@ -10,52 +9,9 @@ interface ModelParamsPageProps {
 export default function ModelParamsPage({ form, setForm }: ModelParamsPageProps) {
   const { t } = useTranslation();
 
-  const activeProvider = form.providers.find((p) => p.provider === form.active_provider);
-  const models = activeProvider ? recommendedModels[activeProvider.provider] ?? [] : [];
-  const modelIsCustom = !models.some((m) => m.value === form.model);
-
-  const handleModelChange = (value: string) => {
-    if (value === "__custom__") {
-      setForm("model", "");
-    } else {
-      setForm("model", value);
-    }
-  };
-
   return (
     <div className="page settings-page">
       <h2>{t("settings_model")}</h2>
-
-      <label>
-        {t("model")}
-        {models.length > 0 && !modelIsCustom ? (
-          <select value={form.model} onChange={(e) => handleModelChange(e.target.value)}>
-            {models.map((m) => (
-              <option key={m.value} value={m.value}>
-                {m.label}
-              </option>
-            ))}
-            <option value="__custom__">{t("model_custom")}</option>
-          </select>
-        ) : (
-          <input
-            type="text"
-            value={form.model}
-            onChange={(e) => setForm("model", e.target.value)}
-            placeholder={t("model_custom_placeholder")}
-          />
-        )}
-      </label>
-
-      {modelIsCustom && models.length > 0 && (
-        <button
-          type="button"
-          className="text-button"
-          onClick={() => handleModelChange(models[0]?.value ?? "")}
-        >
-          {t("use_recommended_model")}
-        </button>
-      )}
 
       <div className="row">
         <label>

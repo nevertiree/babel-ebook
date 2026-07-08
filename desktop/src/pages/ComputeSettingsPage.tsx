@@ -93,8 +93,6 @@ export default function ComputeSettingsPage({
           provider: p.provider,
           api_key: p.api_key,
           base_url: p.use_custom_base_url ? p.base_url || null : null,
-          model: "",
-          temperature: 0.3,
         },
       });
       setTestResults((prev) => ({

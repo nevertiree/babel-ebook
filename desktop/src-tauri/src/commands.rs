@@ -203,9 +203,6 @@ fn validate_connection_args(args: &TestConnectionArgs) -> Result<(), String> {
     if !KNOWN_PROVIDERS.contains(&provider.as_str()) {
         return Err(format!("unknown provider: {}", args.provider));
     }
-    if args.model.trim().is_empty() {
-        return Err("model cannot be empty".into());
-    }
     if args.api_key.trim().is_empty() && provider != "ollama" {
         return Err("api_key is required".into());
     }
@@ -217,9 +214,6 @@ fn validate_connection_args(args: &TestConnectionArgs) -> Result<(), String> {
                 return Err("base_url must use http or https scheme".into());
             }
         }
-    }
-    if !(0.0..=2.0).contains(&args.temperature) {
-        return Err("temperature must be between 0.0 and 2.0".into());
     }
     if provider == "openai-compatible" && args.base_url.as_ref().is_none_or(|u| u.trim().is_empty())
     {
@@ -272,8 +266,6 @@ mod tests {
             provider: "deepseek".to_string(),
             api_key: String::new(),
             base_url: None,
-            model: "deepseek-chat".to_string(),
-            temperature: 0.3,
         };
         let err = validate_connection_args(&args).unwrap_err();
         assert!(err.contains("api_key is required"));

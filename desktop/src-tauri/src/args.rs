@@ -55,6 +55,4 @@ pub struct TestConnectionArgs {
     pub provider: String,
     pub api_key: String,
     pub base_url: Option<String>,
-    pub model: String,
-    pub temperature: f32,
 }

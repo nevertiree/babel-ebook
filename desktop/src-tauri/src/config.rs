@@ -118,8 +118,8 @@ pub fn build_test_config(args: &TestConnectionArgs) -> Result<Config, String> {
         Some(args.api_key.clone())
     };
     config.base_url = args.base_url.clone().filter(|url| !url.is_empty());
-    config.model.clone_from(&args.model);
-    config.temperature = args.temperature;
+    // Connection health checks do not depend on a specific model.
+    config.model = "default".to_string();
     config.dry_run = false;
     config.verbose = false;
 
