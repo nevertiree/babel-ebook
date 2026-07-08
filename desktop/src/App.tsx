@@ -195,16 +195,6 @@ function App() {
     void saveGeneralSettings(general);
   }, [general]);
 
-  // Force re-render on window resize so flex/grid layouts recalculate.
-  const [, setWindowSize] = useState({ width: window.innerWidth, height: window.innerHeight });
-  useEffect(() => {
-    const handleResize = () => {
-      setWindowSize({ width: window.innerWidth, height: window.innerHeight });
-    };
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
-
   // System language detection.
   useEffect(() => {
     void invoke<string>("get_system_locale").then((locale) => {
