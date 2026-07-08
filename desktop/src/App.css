@@ -41,6 +41,7 @@ body {
 
 .app-shell {
   display: flex;
+  width: 100vw;
   height: 100vh;
   overflow: hidden;
 }
@@ -711,6 +712,63 @@ button:disabled {
 .text-button:hover {
   background: transparent;
   text-decoration: underline;
+}
+
+.text-button.danger {
+  color: var(--danger);
+}
+
+.test-result {
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.test-result-ok {
+  color: #4ade80;
+}
+
+.test-result-error {
+  color: var(--danger);
+}
+
+.provider-config {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.provider-config.active {
+  border-color: var(--accent);
+}
+
+.provider-config-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.provider-config-header select {
+  width: auto;
+  min-width: 140px;
+}
+
+.provider-config-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.active-provider-label {
+  color: #4ade80;
+  cursor: default;
+}
+
+.active-provider-label:hover {
+  text-decoration: none;
 }
 
 .scope-fieldset {

@@ -3,8 +3,6 @@ import { useTranslation } from "react-i18next";
 import type { FormState, Page, ProgressState, ValidationResult } from "../types";
 import {
   outputModes,
-  providers,
-  recommendedModels,
   sourceLanguages,
   targetLanguages,
 } from "../types";
@@ -30,8 +28,8 @@ export default function TranslatePage({
 }: TranslatePageProps) {
   const { t } = useTranslation();
 
-  const modelList = recommendedModels[form.provider] ?? [];
-  const modelIsCustom = !modelList.some((m) => m.value === form.model);
+  const hasProviders = form.providers.length > 0;
+  const activeProvider = form.providers.find((p) => p.provider === form.active_provider);
 
   const selectSource = async () => {
     const path = await open({
@@ -57,57 +55,27 @@ export default function TranslatePage({
     }
   };
 
-  const handleModelChange = (value: string) => {
-    if (value === "__custom__") {
-      setForm("model", "");
-    } else {
-      setForm("model", value);
-    }
-  };
-
   return (
     <div className="page translate-page">
       <h2>{t("nav_translate")}</h2>
 
       <section className="quick-settings">
         <div className="row">
-          <label>
-            {t("provider")}
-            <select
-              value={form.provider}
-              onChange={(e) => setForm("provider", e.target.value)}
-            >
-              {providers.map((p) => (
-                <option key={p} value={p}>
-                  {t(`provider_${p}`)}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label>
-            {t("model")}
-            {!modelIsCustom ? (
+          {hasProviders && activeProvider && (
+            <label>
+              {t("provider")}
               <select
-                value={form.model}
-                onChange={(e) => handleModelChange(e.target.value)}
+                value={form.active_provider}
+                onChange={(e) => setForm("active_provider", e.target.value)}
               >
-                {modelList.map((m) => (
-                  <option key={m.value} value={m.value}>
-                    {m.label}
+                {form.providers.map((p) => (
+                  <option key={p.provider} value={p.provider}>
+                    {t(`provider_${p.provider}`)}
                   </option>
                 ))}
-                <option value="__custom__">{t("model_custom")}</option>
               </select>
-            ) : (
-              <input
-                type="text"
-                value={form.model}
-                onChange={(e) => setForm("model", e.target.value)}
-                placeholder={t("model_custom_placeholder")}
-              />
-            )}
-          </label>
+            </label>
+          )}
 
           <label>
             {t("source_lang")}
@@ -117,7 +85,7 @@ export default function TranslatePage({
             >
               {sourceLanguages.map((lang) => (
                 <option key={lang.code} value={lang.code}>
-                  {lang.label}
+                  {t(`target_lang_${lang.code}`)}
                 </option>
               ))}
             </select>
@@ -131,7 +99,7 @@ export default function TranslatePage({
             >
               {targetLanguages.map((lang) => (
                 <option key={lang.code} value={lang.code}>
-                  {lang.label}
+                  {t(`target_lang_${lang.code}`)}
                 </option>
               ))}
             </select>
@@ -152,6 +120,15 @@ export default function TranslatePage({
           </label>
         </div>
       </section>
+
+      {!hasProviders && (
+        <div className="empty-state">
+          <p>{t("no_provider_configured")}</p>
+          <button type="button" onClick={() => onPageChange("settings-compute")}>
+            {t("configure_provider")}
+          </button>
+        </div>
+      )}
 
       <section className="file-section">
         <div className="file-row">
@@ -219,7 +196,6 @@ export default function TranslatePage({
           <p className="progress-message" data-testid="progress-message">{progress.message}</p>
         </section>
       )}
-
     </div>
   );
 }
