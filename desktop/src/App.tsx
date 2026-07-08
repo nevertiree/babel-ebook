@@ -10,6 +10,7 @@ import TranslatePage from "./pages/TranslatePage";
 import ComputeSettingsPage from "./pages/ComputeSettingsPage";
 import ModelParamsPage from "./pages/ModelParamsPage";
 import TranslationSettingsPage from "./pages/TranslationSettingsPage";
+import PromptsPage from "./pages/PromptsPage";
 import OutputSettingsPage from "./pages/OutputSettingsPage";
 import GeneralSettingsPage from "./pages/GeneralSettingsPage";
 import AboutPage from "./pages/AboutPage";
@@ -42,6 +43,7 @@ const settingsPages: { page: Page; labelKey: string }[] = [
   { page: "settings-compute", labelKey: "settings_compute" },
   { page: "settings-model", labelKey: "settings_model" },
   { page: "settings-translation", labelKey: "settings_translation" },
+  { page: "settings-prompts", labelKey: "settings_prompts" },
   { page: "settings-output", labelKey: "settings_output" },
   { page: "settings-general", labelKey: "settings_general" },
 ];
@@ -383,6 +385,8 @@ function App() {
       provider: provider.provider,
       api_key: provider.api_key,
       base_url: baseUrl || null,
+      system_prompt: form.system_prompt || null,
+      prompts: form.prompts,
       output_font: form.output_font || null,
       exclude_selectors: parseCommaList(form.exclude_selectors),
       translate_attributes: parseCommaList(form.translate_attributes),
@@ -476,6 +480,8 @@ function App() {
         return <ModelParamsPage form={form} setForm={updateForm} />;
       case "settings-translation":
         return <TranslationSettingsPage form={form} setForm={updateForm} />;
+      case "settings-prompts":
+        return <PromptsPage form={form} setForm={updateForm} />;
       case "settings-output":
         return <OutputSettingsPage form={form} setForm={updateForm} />;
       case "settings-general":
