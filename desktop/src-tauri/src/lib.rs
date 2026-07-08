@@ -25,6 +25,7 @@ use tauri::{WebviewUrl, WebviewWindowBuilder};
 /// Panics if the Tauri application fails to start.
 #[cfg(not(test))]
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+#[allow(clippy::large_stack_frames)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -136,6 +137,8 @@ mod tests {
             translate_footnotes: true,
             translate_code: false,
             output_font: None,
+            system_prompt: None,
+            prompts: crate::args::PromptTemplates::default(),
         }
     }
 
@@ -183,5 +186,47 @@ mod tests {
         args.api_key = "test-key".to_string();
         let err = translate_epub_internal(args, None).await.unwrap_err();
         assert!(err.contains("concurrency must be greater than 0"));
+    }
+
+    #[test]
+    fn build_config_propagates_system_prompt() {
+        let temp_dir = tempfile::tempdir().expect("create temp dir");
+        let source = create_sample_fixture(temp_dir.path());
+        let output = temp_dir.path().join("out.epub");
+        let mut args = sample_translate_args(&source, &output);
+        args.system_prompt = Some("custom system prompt".to_string());
+        let config = build_config(&args).unwrap();
+        assert_eq!(
+            config.system_prompt,
+            Some("custom system prompt".to_string())
+        );
+    }
+
+    #[test]
+    fn build_config_ignores_empty_system_prompt() {
+        let temp_dir = tempfile::tempdir().expect("create temp dir");
+        let source = create_sample_fixture(temp_dir.path());
+        let output = temp_dir.path().join("out.epub");
+        let mut args = sample_translate_args(&source, &output);
+        args.system_prompt = Some(String::new());
+        let config = build_config(&args).unwrap();
+        assert_eq!(config.system_prompt, None);
+    }
+
+    #[test]
+    fn build_config_propagates_prompt_templates() {
+        let temp_dir = tempfile::tempdir().expect("create temp dir");
+        let source = create_sample_fixture(temp_dir.path());
+        let output = temp_dir.path().join("out.epub");
+        let mut args = sample_translate_args(&source, &output);
+        args.prompts.default = "default prompt".to_string();
+        args.prompts.literary = "literary prompt".to_string();
+        args.prompts.technical = "technical prompt".to_string();
+        args.prompts.academic = "academic prompt".to_string();
+        let config = build_config(&args).unwrap();
+        assert_eq!(config.prompts.default, "default prompt");
+        assert_eq!(config.prompts.literary, "literary prompt");
+        assert_eq!(config.prompts.technical, "technical prompt");
+        assert_eq!(config.prompts.academic, "academic prompt");
     }
 }

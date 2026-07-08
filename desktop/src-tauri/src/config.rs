@@ -101,6 +101,11 @@ pub fn build_config(args: &TranslateArgs) -> Result<Config, String> {
     config.target_lang.clone_from(&args.target_lang);
     config.dry_run = args.dry_run;
     config.verbose = false;
+    config.system_prompt = args.system_prompt.clone().filter(|s| !s.is_empty());
+    config.prompts.default.clone_from(&args.prompts.default);
+    config.prompts.literary.clone_from(&args.prompts.literary);
+    config.prompts.technical.clone_from(&args.prompts.technical);
+    config.prompts.academic.clone_from(&args.prompts.academic);
 
     Ok(config)
 }

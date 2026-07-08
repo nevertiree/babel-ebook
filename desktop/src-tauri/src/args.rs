@@ -2,6 +2,16 @@
 
 use serde::Deserialize;
 
+/// Configurable prompt templates passed from the frontend.
+#[derive(Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "snake_case")]
+pub struct PromptTemplates {
+    pub default: String,
+    pub literary: String,
+    pub technical: String,
+    pub academic: String,
+}
+
 /// Optional values injected via environment variables for automated E2E tests.
 #[cfg(not(test))]
 #[derive(Deserialize, serde::Serialize, Debug, Clone, Default)]
@@ -46,6 +56,11 @@ pub struct TranslateArgs {
     pub translate_footnotes: bool,
     pub translate_code: bool,
     pub output_font: Option<String>,
+    /// Optional custom system prompt override. When provided, it replaces the
+    /// style-based prompt entirely.
+    pub system_prompt: Option<String>,
+    /// Configurable prompt templates for each translation style.
+    pub prompts: PromptTemplates,
 }
 
 /// Arguments for testing a provider connection without running a full translation.
