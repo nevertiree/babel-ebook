@@ -32,6 +32,7 @@
   "temperature": "Temperature",
   "target_lang": "Target Language",
   "start": "Start Translation",
+  "add_to_queue": "Add to Queue",
   "loading": "Translating...",
   "waiting": "Waiting for action...",
   "started": "Starting translation...",

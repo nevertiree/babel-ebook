@@ -115,6 +115,39 @@ function applyProgressToTask(task: Task, payload: ProgressPayload): Task {
   return task;
 }
 
+function parseCommaList(value: string) {
+  return value
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+function buildTranslateArgs(form: FormState): object {
+  const provider = activeProvider(form);
+  if (!provider) throw new Error("no provider");
+  return {
+    ...form,
+    provider: provider.provider,
+    api_key: provider.api_key,
+    base_url: provider.use_custom_base_url ? provider.base_url || null : null,
+    system_prompt: form.system_prompt || null,
+    prompts: form.prompts,
+    output_font: form.output_font || null,
+    exclude_selectors: parseCommaList(form.exclude_selectors),
+    translate_attributes: parseCommaList(form.translate_attributes),
+    dry_run: !!form.dry_run,
+    preserve_classes: !!form.preserve_classes,
+    translate_body: !!form.translate_body,
+    translate_metadata: !!form.translate_metadata,
+    translate_toc: !!form.translate_toc,
+    translate_alt_text: !!form.translate_alt_text,
+    translate_image_captions: !!form.translate_image_captions,
+    translate_tables: !!form.translate_tables,
+    translate_footnotes: !!form.translate_footnotes,
+    translate_code: !!form.translate_code,
+  };
+}
+
 function App() {
   const { t, i18n } = useTranslation();
   const [form, setForm] = useState<FormState>(() => ({
@@ -415,12 +448,6 @@ function App() {
     };
   }, [t]);
 
-  const parseCommaList = (value: string) =>
-    value
-      .split(",")
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
-
   async function handleStart() {
     if (!validation.valid) return;
 
@@ -442,28 +469,7 @@ function App() {
     setProgress({ percent: 0, message: t("started") });
     setLogs((prev) => [...prev, { id: generateId(), timestamp: Date.now(), kind: "info", message: t("started") }]);
 
-    const baseUrl = provider.use_custom_base_url ? provider.base_url : "";
-    const args = {
-      ...form,
-      provider: provider.provider,
-      api_key: provider.api_key,
-      base_url: baseUrl || null,
-      system_prompt: form.system_prompt || null,
-      prompts: form.prompts,
-      output_font: form.output_font || null,
-      exclude_selectors: parseCommaList(form.exclude_selectors),
-      translate_attributes: parseCommaList(form.translate_attributes),
-      dry_run: !!form.dry_run,
-      preserve_classes: !!form.preserve_classes,
-      translate_body: !!form.translate_body,
-      translate_metadata: !!form.translate_metadata,
-      translate_toc: !!form.translate_toc,
-      translate_alt_text: !!form.translate_alt_text,
-      translate_image_captions: !!form.translate_image_captions,
-      translate_tables: !!form.translate_tables,
-      translate_footnotes: !!form.translate_footnotes,
-      translate_code: !!form.translate_code,
-    };
+    const args = buildTranslateArgs(form);
 
     try {
       const result = await invoke<string>("translate_epub", { args });
@@ -502,6 +508,25 @@ function App() {
       ]);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleEnqueue() {
+    if (!validation.valid) return;
+    try {
+      const args = buildTranslateArgs(form);
+      await invoke("enqueue_task", { args });
+      setPage("tasks");
+    } catch (err) {
+      setLogs((prev) => [
+        ...prev,
+        {
+          id: generateId(),
+          timestamp: Date.now(),
+          kind: "error",
+          message: `${t("error")}: ${err}`,
+        },
+      ]);
     }
   }
 
@@ -582,6 +607,7 @@ function App() {
             form={form}
             setForm={updateForm}
             onStart={handleStart}
+            onEnqueue={handleEnqueue}
             loading={loading}
             progress={progress}
             validation={validation}

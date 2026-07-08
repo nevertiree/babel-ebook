@@ -32,6 +32,7 @@
   "temperature": "温度",
   "target_lang": "目标语言",
   "start": "开始翻译",
+  "add_to_queue": "加入队列",
   "loading": "翻译中...",
   "waiting": "等待操作...",
   "started": "开始翻译...",
