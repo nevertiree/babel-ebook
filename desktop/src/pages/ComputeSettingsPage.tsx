@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import type { ProviderConfig } from "../types";
-import { providerApiKeyHints, providerDefaultBaseUrl, providers as knownProviders } from "../types";
+import { providerApiKeyHints, providers as knownProviders } from "../types";
 
 interface ComputeSettingsPageProps {
   providers: ProviderConfig[];
@@ -22,10 +22,22 @@ export default function ComputeSettingsPage({
   const [testingFor, setTestingFor] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<Record<string, { ok: boolean; message: string }>>({});
 
-  const updateProvider = (providerName: string, patch: Partial<ProviderConfig>) => {
+  const usedNames = new Set(providers.map((p) => p.name));
+
+  const updateProvider = (name: string, patch: Partial<ProviderConfig>) => {
     onChangeProviders(
-      providers.map((p) => (p.provider === providerName ? { ...p, ...patch } : p))
+      providers.map((p) => (p.name === name ? { ...p, ...patch } : p))
     );
+  };
+
+  const makeUniqueName = (base: string): string => {
+    let candidate = base;
+    let index = 1;
+    while (usedNames.has(candidate)) {
+      index += 1;
+      candidate = `${base} ${index}`;
+    }
+    return candidate;
   };
 
   const addProvider = () => {
@@ -33,58 +45,57 @@ export default function ComputeSettingsPage({
     const remaining = knownProviders.find((p) => !configured.has(p));
     if (!remaining) return;
 
+    const name = makeUniqueName(remaining);
     const newProvider: ProviderConfig = {
+      name,
       provider: remaining,
       api_key: "",
       base_url: "",
       use_custom_base_url: false,
     };
     onChangeProviders([...providers, newProvider]);
-    onChangeActiveProvider(remaining);
+    onChangeActiveProvider(name);
   };
 
-  const removeProvider = (providerName: string) => {
-    const next = providers.filter((p) => p.provider !== providerName);
+  const removeProvider = (name: string) => {
+    const next = providers.filter((p) => p.name !== name);
     onChangeProviders(next);
-    if (activeProvider === providerName && next.length > 0) {
-      onChangeActiveProvider(next[0].provider);
+    if (activeProvider === name && next.length > 0) {
+      onChangeActiveProvider(next[0].name);
     }
     setTestResults((prev) => {
       const copy = { ...prev };
-      delete copy[providerName];
+      delete copy[name];
       return copy;
     });
   };
 
-  const handleProviderTypeChange = (oldName: string, newName: string) => {
-    if (oldName === newName) return;
-    if (providers.some((p) => p.provider === newName)) return;
+  const handleProviderTypeChange = (name: string, newProviderType: string) => {
+    const p = providers.find((x) => x.name === name);
+    if (!p || p.provider === newProviderType) return;
 
     onChangeProviders(
-      providers.map((p) =>
-        p.provider === oldName
+      providers.map((x) =>
+        x.name === name
           ? {
-              ...p,
-              provider: newName,
+              ...x,
+              provider: newProviderType,
               base_url: "",
               use_custom_base_url: false,
             }
-          : p
+          : x
       )
     );
-    if (activeProvider === oldName) {
-      onChangeActiveProvider(newName);
-    }
   };
 
-  const runTest = async (providerName: string) => {
-    const p = providers.find((x) => x.provider === providerName);
+  const runTest = async (name: string) => {
+    const p = providers.find((x) => x.name === name);
     if (!p) return;
 
-    setTestingFor(providerName);
+    setTestingFor(name);
     setTestResults((prev) => ({
       ...prev,
-      [providerName]: { ok: false, message: t("testing_connection") },
+      [name]: { ok: false, message: t("testing_connection") },
     }));
 
     try {
@@ -93,25 +104,22 @@ export default function ComputeSettingsPage({
           provider: p.provider,
           api_key: p.api_key,
           base_url: p.use_custom_base_url ? p.base_url || null : null,
-          model: "",
-          temperature: 0.3,
         },
       });
       setTestResults((prev) => ({
         ...prev,
-        [providerName]: { ok: true, message: t("connection_ok") },
+        [name]: { ok: true, message: t("connection_ok") },
       }));
     } catch (err) {
       setTestResults((prev) => ({
         ...prev,
-        [providerName]: { ok: false, message: `${t("connection_failed")}: ${err}` },
+        [name]: { ok: false, message: `${t("connection_failed")}: ${err}` },
       }));
     } finally {
       setTestingFor(null);
     }
   };
 
-  const configuredProviders = new Set(providers.map((p) => p.provider));
   const canAddProvider = providers.length < knownProviders.length;
 
   return (
@@ -125,122 +133,128 @@ export default function ComputeSettingsPage({
       )}
 
       {providers.map((p) => {
-        const isActive = activeProvider === p.provider;
+        const isActive = activeProvider === p.name;
         const expectedPrefix = providerApiKeyHints[p.provider];
         const keyLooksWrong =
           expectedPrefix && p.api_key && !p.api_key.startsWith(expectedPrefix);
-        const result = testResults[p.provider];
+        const result = testResults[p.name];
 
         return (
           <div
-            key={p.provider}
+            key={p.name}
             className={`provider-config ${isActive ? "active" : ""}`}
           >
-            <div className="provider-config-header">
-              <select
-                value={p.provider}
-                onChange={(e) => handleProviderTypeChange(p.provider, e.target.value)}
-              >
-                {knownProviders.map((kp) => (
-                  <option
-                    key={kp}
-                    value={kp}
-                    disabled={kp !== p.provider && configuredProviders.has(kp)}
-                  >
-                    {t(`provider_${kp}`)}
-                  </option>
-                ))}
-              </select>
-
-              <div className="provider-config-actions">
-                <button
-                  type="button"
-                  className={`text-button ${isActive ? "active-provider-label" : ""}`}
-                  onClick={() => onChangeActiveProvider(p.provider)}
-                  disabled={isActive}
+            <div className="provider-row">
+              <label className="provider-type-label">
+                <span>{t("provider_type")}</span>
+                <select
+                  value={p.provider}
+                  onChange={(e) => handleProviderTypeChange(p.name, e.target.value)}
                 >
-                  {isActive ? t("active_provider") : t("set_active_provider")}
-                </button>
-                <button
-                  type="button"
-                  className="text-button danger"
-                  onClick={() => removeProvider(p.provider)}
-                >
-                  {t("remove_provider")}
-                </button>
-              </div>
-            </div>
-
-            <label>
-              {t("api_key")}
-              <div className="input-with-toggle">
-                <input
-                  type={showKeyFor === p.provider ? "text" : "password"}
-                  value={p.api_key}
-                  onChange={(e) => updateProvider(p.provider, { api_key: e.target.value })}
-                  placeholder="sk-..."
-                />
-                <button
-                  type="button"
-                  className="input-toggle"
-                  onClick={() =>
-                    setShowKeyFor((prev) => (prev === p.provider ? null : p.provider))
-                  }
-                  title={showKeyFor === p.provider ? t("hide") : t("show")}
-                >
-                  {showKeyFor === p.provider ? "🙈" : "👁"}
-                </button>
-              </div>
-              {keyLooksWrong && <span className="format-hint">{t("api_key_format_hint")}</span>}
-            </label>
-
-            <label className="checkbox">
-              <input
-                type="checkbox"
-                checked={p.use_custom_base_url}
-                onChange={(e) =>
-                  updateProvider(p.provider, {
-                    use_custom_base_url: e.target.checked,
-                    base_url: e.target.checked ? p.base_url : "",
-                  })
-                }
-              />
-              {t("use_custom_base_url")}
-            </label>
-
-            {p.use_custom_base_url && (
-              <label>
-                {t("base_url")}
-                <input
-                  type="text"
-                  value={p.base_url}
-                  onChange={(e) => updateProvider(p.provider, { base_url: e.target.value })}
-                  placeholder={t("base_url_placeholder")}
-                />
+                  {knownProviders.map((kp) => (
+                    <option key={kp} value={kp}>
+                      {t(`provider_${kp}`)}
+                    </option>
+                  ))}
+                </select>
               </label>
-            )}
 
-            {!p.use_custom_base_url && (
-              <div className="hint">
-                {t("default_base_url")}: {providerDefaultBaseUrl(p.provider)}
-              </div>
-            )}
+              <label className="provider-api-key">
+                <span>{t("api_key")}</span>
+                <div className="input-with-toggle">
+                  <input
+                    type={showKeyFor === p.name ? "text" : "password"}
+                    value={p.api_key}
+                    onChange={(e) => updateProvider(p.name, { api_key: e.target.value })}
+                    placeholder="sk-..."
+                  />
+                  <button
+                    type="button"
+                    className="input-toggle"
+                    onClick={() =>
+                      setShowKeyFor((prev) => (prev === p.name ? null : p.name))
+                    }
+                    title={showKeyFor === p.name ? t("hide") : t("show")}
+                  >
+                    {showKeyFor === p.name ? "🙈" : "👁"}
+                  </button>
+                </div>
+                {keyLooksWrong && <span className="format-hint">{t("api_key_format_hint")}</span>}
+              </label>
 
-            <div className="field-row">
               <button
                 type="button"
-                onClick={() => runTest(p.provider)}
-                disabled={testingFor === p.provider}
+                onClick={() => runTest(p.name)}
+                disabled={testingFor === p.name}
               >
-                {testingFor === p.provider ? t("testing_connection") : t("test_connection")}
+                {testingFor === p.name ? t("testing_connection") : t("test_connection")}
               </button>
-              {result && (
-                <span
-                  className={`test-result ${result.ok ? "test-result-ok" : "test-result-error"}`}
-                >
-                  {result.message}
-                </span>
+            </div>
+
+            {result && (
+              <span
+                className={`test-result ${result.ok ? "test-result-ok" : "test-result-error"}`}
+              >
+                {result.message}
+              </span>
+            )}
+
+            <div className="provider-row provider-meta-row">
+              <label>
+                <span>{t("provider_name")}</span>
+                <input
+                  type="text"
+                  value={p.name}
+                  onChange={(e) => updateProvider(p.name, { name: e.target.value })}
+                />
+              </label>
+
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={p.use_custom_base_url}
+                  onChange={(e) =>
+                    updateProvider(p.name, {
+                      use_custom_base_url: e.target.checked,
+                      base_url: e.target.checked ? p.base_url : "",
+                    })
+                  }
+                />
+                {t("use_custom_base_url")}
+              </label>
+
+              {p.use_custom_base_url && (
+                <label>
+                  <span>{t("base_url")}</span>
+                  <input
+                    type="text"
+                    value={p.base_url}
+                    onChange={(e) => updateProvider(p.name, { base_url: e.target.value })}
+                    placeholder={t("base_url_placeholder")}
+                  />
+                </label>
               )}
+
+              {!p.use_custom_base_url && (
+                <span className="hint">{t("default_base_url")}</span>
+              )}
+
+              <button
+                type="button"
+                className="text-button danger"
+                onClick={() => removeProvider(p.name)}
+              >
+                {t("remove_provider")}
+              </button>
+
+              <button
+                type="button"
+                className={`text-button ${isActive ? "active-provider-label" : ""}`}
+                onClick={() => onChangeActiveProvider(p.name)}
+                disabled={isActive}
+              >
+                {isActive ? t("active_provider") : t("set_active_provider")}
+              </button>
             </div>
           </div>
         );
@@ -252,9 +266,7 @@ export default function ComputeSettingsPage({
         </button>
       )}
 
-      <div className="hint">
-        {t("compute_settings_hint")}
-      </div>
+      <div className="hint">{t("compute_settings_hint")}</div>
     </div>
   );
 }

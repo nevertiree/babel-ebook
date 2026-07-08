@@ -3,9 +3,59 @@ import { useTranslation } from "react-i18next";
 import type { FormState, Page, ProgressState, ValidationResult } from "../types";
 import {
   outputModes,
+  recommendedModels,
   sourceLanguages,
   targetLanguages,
 } from "../types";
+
+interface ModelSelectProps {
+  provider: string;
+  model: string;
+  onChange: (value: string) => void;
+}
+
+function ModelSelect({ provider, model, onChange }: ModelSelectProps) {
+  const { t } = useTranslation();
+  const models = recommendedModels[provider] ?? [];
+  const isCustom = !models.some((m) => m.value === model);
+
+  if (models.length === 0) {
+    return (
+      <label>
+        {t("model")}
+        <input
+          type="text"
+          value={model}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={t("model_custom_placeholder")}
+        />
+      </label>
+    );
+  }
+
+  return (
+    <label>
+      {t("model")}
+      {isCustom ? (
+        <input
+          type="text"
+          value={model}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={t("model_custom_placeholder")}
+        />
+      ) : (
+        <select value={model} onChange={(e) => onChange(e.target.value)}>
+          {models.map((m) => (
+            <option key={m.value} value={m.value}>
+              {m.label}
+            </option>
+          ))}
+          <option value="__custom__">{t("model_custom")}</option>
+        </select>
+      )}
+    </label>
+  );
+}
 
 interface TranslatePageProps {
   form: FormState;
@@ -62,19 +112,27 @@ export default function TranslatePage({
       <section className="quick-settings">
         <div className="row">
           {hasProviders && activeProvider && (
-            <label>
-              {t("provider")}
-              <select
-                value={form.active_provider}
-                onChange={(e) => setForm("active_provider", e.target.value)}
-              >
-                {form.providers.map((p) => (
-                  <option key={p.provider} value={p.provider}>
-                    {t(`provider_${p.provider}`)}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <>
+              <label>
+                {t("provider")}
+                <select
+                  value={form.active_provider}
+                  onChange={(e) => setForm("active_provider", e.target.value)}
+                >
+                  {form.providers.map((p) => (
+                    <option key={p.name} value={p.name}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <ModelSelect
+                provider={activeProvider.provider}
+                model={form.model}
+                onChange={(value) => setForm("model", value)}
+              />
+            </>
           )}
 
           <label>

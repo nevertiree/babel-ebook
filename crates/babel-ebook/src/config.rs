@@ -166,6 +166,9 @@ pub struct Config {
     /// Per-chapter custom system prompts keyed by chapter href.
     #[serde(default)]
     pub chapter_prompts: HashMap<String, String>,
+    /// Configurable prompt templates for each translation style.
+    #[serde(default)]
+    pub prompts: PromptTemplates,
     /// Glossary of terms with preferred translations.
     #[serde(default)]
     pub glossary: Vec<GlossaryEntry>,
@@ -181,6 +184,51 @@ pub struct Config {
     /// Optional font-family CSS injected into every translated XHTML document.
     #[serde(default)]
     pub output_font: Option<String>,
+}
+
+/// Configurable prompt templates for each translation style.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct PromptTemplates {
+    /// Template used for the default translation style.
+    #[serde(default = "default_prompt_default")]
+    pub default: String,
+    /// Template used for the literary translation style.
+    #[serde(default = "default_prompt_literary")]
+    pub literary: String,
+    /// Template used for the technical translation style.
+    #[serde(default = "default_prompt_technical")]
+    pub technical: String,
+    /// Template used for the academic translation style.
+    #[serde(default = "default_prompt_academic")]
+    pub academic: String,
+}
+
+impl Default for PromptTemplates {
+    fn default() -> Self {
+        Self {
+            default: default_prompt_default(),
+            literary: default_prompt_literary(),
+            technical: default_prompt_technical(),
+            academic: default_prompt_academic(),
+        }
+    }
+}
+
+fn default_prompt_default() -> String {
+    include_str!("../prompts/default.md").into()
+}
+
+fn default_prompt_literary() -> String {
+    include_str!("../prompts/literary.md").into()
+}
+
+fn default_prompt_technical() -> String {
+    include_str!("../prompts/technical.md").into()
+}
+
+fn default_prompt_academic() -> String {
+    include_str!("../prompts/academic.md").into()
 }
 
 /// Provider-specific configuration.
@@ -547,12 +595,12 @@ impl Config {
 
     fn style_prompt(&self) -> String {
         match &self.style {
-            TranslationStyle::Default => include_str!("../prompts/default.md").into(),
-            TranslationStyle::Literary => include_str!("../prompts/literary.md").into(),
-            TranslationStyle::Technical => include_str!("../prompts/technical.md").into(),
-            TranslationStyle::Academic => include_str!("../prompts/academic.md").into(),
+            TranslationStyle::Default => self.prompts.default.clone(),
+            TranslationStyle::Literary => self.prompts.literary.clone(),
+            TranslationStyle::Technical => self.prompts.technical.clone(),
+            TranslationStyle::Academic => self.prompts.academic.clone(),
             TranslationStyle::Custom(name) => std::fs::read_to_string(format!("prompts/{name}.md"))
-                .unwrap_or_else(|_| include_str!("../prompts/default.md").into()),
+                .unwrap_or_else(|_| self.prompts.default.clone()),
         }
     }
 

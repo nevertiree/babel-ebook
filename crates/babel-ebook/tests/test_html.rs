@@ -58,6 +58,7 @@ fn test_config() -> Config {
         preserve_classes: false,
         output_font: None,
         providers: std::collections::HashMap::new(),
+        prompts: babel_ebook::config::PromptTemplates::default(),
     }
 }
 

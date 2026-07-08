@@ -18,6 +18,14 @@ mod keyring;
 #[cfg(not(test))]
 use tauri::{WebviewUrl, WebviewWindowBuilder};
 
+#[cfg(not(test))]
+// `tauri::generate_context!()` expands to a large static struct that triggers
+// `clippy::large_stack_frames`; this is a known Tauri macro behaviour.
+#[allow(clippy::large_stack_frames)]
+fn tauri_context() -> tauri::Context {
+    tauri::generate_context!()
+}
+
 /// Run the Tauri desktop application.
 ///
 /// # Panics
@@ -30,6 +38,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::default().build())
+        .plugin(tauri_plugin_fs::init())
         .setup(|app| {
             let mut builder =
                 WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
@@ -56,7 +65,7 @@ pub fn run() {
             commands::get_e2e_args,
             commands::get_app_version
         ])
-        .run(tauri::generate_context!())
+        .run(tauri_context())
         .expect("error while running tauri application");
 }
 
@@ -68,7 +77,6 @@ mod tests {
 
     use crate::args::TranslateArgs;
     use crate::commands::{get_app_version, translate_epub_internal};
-    use crate::config::build_config;
 
     fn create_sample_fixture(dir: &std::path::Path) -> PathBuf {
         let path = dir.join("sample.epub");
@@ -135,6 +143,8 @@ mod tests {
             translate_footnotes: true,
             translate_code: false,
             output_font: None,
+            system_prompt: None,
+            prompts: crate::args::PromptTemplates::default(),
         }
     }
 
@@ -165,7 +175,7 @@ mod tests {
         let mut args = sample_translate_args(&source, &output);
         args.concurrency = 0;
         args.api_key = "test-key".to_string();
-        let config = build_config(&args).unwrap();
+        let config = crate::config::build_config(&args).unwrap();
         let err = config.validate().unwrap_err();
         assert!(err
             .to_string()

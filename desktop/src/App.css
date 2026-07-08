@@ -26,8 +26,15 @@
   box-sizing: border-box;
 }
 
-body {
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
   margin: 0;
+}
+
+body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
     Arial, "Noto Sans CJK SC", "Noto Sans CJK TC", "Noto Sans CJK JP",
     "Noto Sans CJK KR", "WenQuanYi Micro Hei", "WenQuanYi Zen Hei", sans-serif;
@@ -35,14 +42,10 @@ body {
   color: var(--text);
 }
 
-#root {
-  height: 100vh;
-}
-
 .app-shell {
   display: flex;
-  width: 100vw;
-  height: 100vh;
+  width: 100%;
+  height: 100%;
   overflow: hidden;
 }
 
@@ -744,22 +747,46 @@ button:disabled {
   border-color: var(--accent);
 }
 
-.provider-config-header {
+.provider-row {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  align-items: flex-end;
   gap: 1rem;
+  flex-wrap: wrap;
 }
 
-.provider-config-header select {
-  width: auto;
-  min-width: 140px;
+.provider-row label {
+  margin: 0;
 }
 
-.provider-config-actions {
-  display: flex;
+.provider-type-label {
+  flex: 0 0 auto;
+  min-width: 160px;
+}
+
+.provider-type-label span,
+.provider-api-key span {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-bottom: 0.25rem;
+}
+
+.provider-api-key {
+  flex: 1 1 280px;
+  min-width: 200px;
+}
+
+.provider-api-key input {
+  width: 100%;
+}
+
+.provider-meta-row {
   align-items: center;
-  gap: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+
+.provider-meta-row label {
+  flex: 0 0 auto;
 }
 
 .active-provider-label {

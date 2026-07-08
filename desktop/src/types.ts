@@ -5,10 +5,21 @@
  * keeps the non-secret parts in Tauri Store.
  */
 export interface ProviderConfig {
+  name: string;
   provider: string;
   api_key: string;
   base_url: string;
   use_custom_base_url: boolean;
+}
+
+/**
+ * Custom prompt templates for each translation style.
+ */
+export interface PromptTemplates {
+  default: string;
+  literary: string;
+  technical: string;
+  academic: string;
 }
 
 /**
@@ -17,6 +28,8 @@ export interface ProviderConfig {
 export interface FormState {
   source: string;
   output: string;
+  system_prompt: string;
+  prompts: PromptTemplates;
   source_lang: string;
   target_lang: string;
   dry_run: boolean;
@@ -59,6 +72,7 @@ export type Page =
   | "settings-model"
   | "settings-translation"
   | "settings-output"
+  | "settings-prompts"
   | "settings-general"
   | "about"
   | "legal";
@@ -106,6 +120,13 @@ export interface ValidationResult {
 export const defaults: FormState = {
   source: "",
   output: "",
+  system_prompt: "",
+  prompts: {
+    default: "",
+    literary: "",
+    technical: "",
+    academic: "",
+  },
   source_lang: "en",
   target_lang: "zh-CN",
   dry_run: false,
