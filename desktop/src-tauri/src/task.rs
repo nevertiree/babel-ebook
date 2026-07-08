@@ -7,6 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// Lifecycle status of a queued translation task.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[allow(dead_code)]
 pub enum TaskStatus {
     Pending,
     Running,
@@ -17,6 +18,7 @@ pub enum TaskStatus {
 
 /// A single queued translation job.
 #[derive(Debug, Clone, Serialize)]
+#[allow(dead_code)]
 pub struct Task {
     pub id: String,
     pub source_path: String,
@@ -31,6 +33,7 @@ pub struct Task {
     pub completed_at: Option<u64>,
 }
 
+#[allow(dead_code)]
 impl Task {
     /// Create a new pending task from the translation arguments captured at enqueue time.
     pub fn new(args: TranslateArgs) -> Self {
