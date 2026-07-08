@@ -1,8 +1,10 @@
-import { Store } from "@tauri-apps/plugin-store";
 import { invoke } from "@tauri-apps/api/core";
+import { documentDir } from "@tauri-apps/api/path";
+import { readTextFile, writeTextFile, mkdir, exists } from "@tauri-apps/plugin-fs";
 import type { FormState, ProviderConfig } from "./types";
 
-const STORE_NAME = "settings.json";
+const SETTINGS_DIR = "BabelEbook";
+const SETTINGS_FILE = "settings.json";
 const SETTINGS_VERSION = 2;
 
 /**
@@ -87,13 +89,38 @@ const DEFAULT_GENERAL: GeneralSettings = {
   follow_system_language: true,
 };
 
-async function withStore<T>(fn: (store: Store) => Promise<T>): Promise<T> {
-  const store = await Store.load(STORE_NAME);
-  try {
-    return await fn(store);
-  } finally {
-    // `Store.load` caches the instance; explicit cleanup is not required.
+async function settingsPath(): Promise<string> {
+  const docs = await documentDir();
+  return `${docs}${SETTINGS_DIR}/${SETTINGS_FILE}`;
+}
+
+async function ensureSettingsDir(): Promise<void> {
+  const docs = await documentDir();
+  const dirPath = `${docs}${SETTINGS_DIR}`;
+  const dirExists = await exists(dirPath);
+  if (!dirExists) {
+    await mkdir(dirPath, { recursive: true });
   }
+}
+
+async function readSettingsFile(): Promise<VersionedSettings | null> {
+  const path = await settingsPath();
+  const fileExists = await exists(path);
+  if (!fileExists) {
+    return null;
+  }
+  try {
+    const text = await readTextFile(path);
+    return JSON.parse(text) as VersionedSettings;
+  } catch {
+    return null;
+  }
+}
+
+async function writeSettingsFile(payload: VersionedSettings): Promise<void> {
+  await ensureSettingsDir();
+  const path = await settingsPath();
+  await writeTextFile(path, JSON.stringify(payload, null, 2));
 }
 
 /**
@@ -135,10 +162,13 @@ async function hydrateApiKeys(providers: ProviderConfig[]): Promise<ProviderConf
 /**
  * Migrate legacy flat settings to the provider-array layout.
  */
-async function migrateFromFlatSettings(store: Store): Promise<Partial<FormState>> {
+async function migrateFromFlatSettings(versioned: VersionedSettings): Promise<Partial<FormState>> {
   const raw: Record<string, unknown> = {};
+  // The old flat layout stored keys directly under the root of the JSON object.
+  // If we encounter such a layout, the versioned.translation object will contain
+  // those flat keys (with the exception of provider/base_url handled below).
   for (const key of OLD_FLAT_KEYS) {
-    const value = await store.get<unknown>(key);
+    const value = (versioned.translation as Record<string, unknown>)[key];
     if (value !== null && value !== undefined) {
       raw[key] = value;
     }
@@ -172,79 +202,63 @@ async function migrateFromFlatSettings(store: Store): Promise<Partial<FormState>
  * Load the translation-related subset of FormState from persistent storage.
  */
 export async function loadSettings(): Promise<Partial<FormState>> {
-  return withStore(async (store) => {
-    const versioned = await store.get<VersionedSettings>("settings");
+  const versioned = await readSettingsFile();
 
-    if (versioned?.version === SETTINGS_VERSION) {
-      const translation = versioned.translation ?? {};
-      if (Array.isArray(translation.providers)) {
-        translation.providers = await hydrateApiKeys(translation.providers);
-      }
-      return translation;
+  if (versioned?.version === SETTINGS_VERSION) {
+    const translation = versioned.translation ?? {};
+    if (Array.isArray(translation.providers)) {
+      translation.providers = await hydrateApiKeys(translation.providers);
     }
+    return translation;
+  }
 
-    // Migration from the old flat key-value layout.
-    const migrated = await migrateFromFlatSettings(store);
-    await saveVersioned(store, migrated, await loadGeneralSettingsRaw(store));
-    for (const key of OLD_FLAT_KEYS) {
-      await store.delete(key);
-    }
-    await store.save();
-
-    return migrated;
+  // Migration from the old flat key-value layout.
+  const migrated = await migrateFromFlatSettings(versioned ?? { version: 1, translation: {}, general: DEFAULT_GENERAL });
+  await writeSettingsFile({
+    version: SETTINGS_VERSION,
+    translation: migrated,
+    general: versioned?.general ?? DEFAULT_GENERAL,
   });
+
+  return migrated;
 }
 
 /**
  * Persist the translation-related subset of FormState.
  */
 export async function saveSettings(form: FormState): Promise<void> {
-  return withStore(async (store) => {
-    const translation: Partial<FormState> = {};
-    for (const key of TRANSLATION_KEYS) {
-      if (key === "providers") {
-        translation.providers = providersForStorage(form.providers) as ProviderConfig[];
-      } else {
-        (translation[key] as FormState[typeof key]) = form[key];
-      }
-    }
+  const versioned = await readSettingsFile();
 
-    const general = await loadGeneralSettingsRaw(store);
-    await saveVersioned(store, translation, general);
-    await store.save();
-    await saveApiKeys(form.providers);
+  const translation: Partial<FormState> = {};
+  for (const key of TRANSLATION_KEYS) {
+    if (key === "providers") {
+      translation.providers = providersForStorage(form.providers) as ProviderConfig[];
+    } else {
+      (translation[key] as FormState[typeof key]) = form[key];
+    }
+  }
+
+  await writeSettingsFile({
+    version: SETTINGS_VERSION,
+    translation,
+    general: versioned?.general ?? DEFAULT_GENERAL,
   });
+  await saveApiKeys(form.providers);
 }
 
 /**
  * Load general UI settings from persistent storage.
  */
 export async function loadGeneralSettings(): Promise<GeneralSettings> {
-  return withStore((store) => loadGeneralSettingsRaw(store));
-}
-
-/**
- * Persist general UI settings.
- */
-export async function saveGeneralSettings(general: GeneralSettings): Promise<void> {
-  return withStore(async (store) => {
-    const translation = (await loadSettingsFromStore(store)).translation;
-    await saveVersioned(store, translation, general);
-    await store.save();
-  });
-}
-
-async function loadGeneralSettingsRaw(store: Store): Promise<GeneralSettings> {
-  const versioned = await store.get<VersionedSettings>("settings");
-  if (versioned?.version === SETTINGS_VERSION && versioned.general) {
+  const versioned = await readSettingsFile();
+  if (versioned?.general) {
     return { ...DEFAULT_GENERAL, ...versioned.general };
   }
 
   // Fall back to localStorage for users upgrading from pre-versioned builds.
   const ui_language = localStorage.getItem("ui_language") ?? DEFAULT_GENERAL.ui_language;
   const theme = (localStorage.getItem("ui_theme") as "light" | "dark" | null) ?? DEFAULT_GENERAL.theme;
-  const follow_system_language =
-    localStorage.getItem("follow_system_language") !== "false";
+  const follow_system_language = localStorage.getItem("follow_system_language") !== "false";
 
   return {
     ui_language,
@@ -253,27 +267,14 @@ async function loadGeneralSettingsRaw(store: Store): Promise<GeneralSettings> {
   };
 }
 
-async function loadSettingsFromStore(store: Store): Promise<VersionedSettings> {
-  const versioned = await store.get<VersionedSettings>("settings");
-  if (versioned?.version === SETTINGS_VERSION) {
-    return versioned;
-  }
-  return {
+/**
+ * Persist general UI settings.
+ */
+export async function saveGeneralSettings(general: GeneralSettings): Promise<void> {
+  const versioned = (await readSettingsFile()) ?? {
     version: SETTINGS_VERSION,
     translation: {},
     general: DEFAULT_GENERAL,
   };
-}
-
-async function saveVersioned(
-  store: Store,
-  translation: Partial<FormState>,
-  general: GeneralSettings
-): Promise<void> {
-  const payload: VersionedSettings = {
-    version: SETTINGS_VERSION,
-    translation,
-    general,
-  };
-  await store.set("settings", payload);
+  await writeSettingsFile({ ...versioned, general });
 }
