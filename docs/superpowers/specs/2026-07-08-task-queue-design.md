@@ -6,7 +6,9 @@ Approved approach: **B — backend in-memory queue + worker**.
 
 ## Goal
 
-Allow users to add multiple books to a translation queue, view and manage the queue, and let the application process the books sequentially in the background while the user continues to interact with the app.
+Allow users to add multiple books to a translation queue, view and manage the queue,
+and let the application process the books sequentially in the background while the user
+continues to interact with the app.
 
 ## Background
 
@@ -16,7 +18,8 @@ The current desktop app only supports translating one book at a time:
 - `commands.rs` runs the full translation synchronously inside a `spawn_blocking` task.
 - Progress is emitted through a single `translation_progress` event with no task identity.
 
-This design keeps the core translation engine untouched and builds the queue management layer entirely inside the Tauri desktop crate.
+This design keeps the core translation engine untouched and builds the queue management
+layer entirely inside the Tauri desktop crate.
 
 ## Architecture
 
@@ -107,7 +110,8 @@ export interface QueueState {
 }
 ```
 
-The `TranslateArgs` snapshot captured at enqueue time is opaque to the frontend queue view, but is required by the worker to run the task independently of the current form state.
+The `TranslateArgs` snapshot captured at enqueue time is opaque to the frontend queue
+view, but is required by the worker to run the task independently of the current form state.
 
 ## Backend Components
 
@@ -213,14 +217,18 @@ Add an **“Add to queue”** button next to the existing **“Start”** button
 
 ### State Management
 
-Queue state lives in React state at the `App` level. It is loaded on demand via `get_queue_state` when the Tasks page opens and kept in sync by `task_progress` events.
+Queue state lives in React state at the `App` level. It is loaded on demand via
+`get_queue_state` when the Tasks page opens and kept in sync by `task_progress` events.
 
 No queue state is persisted to disk in this iteration.
 
 ## Concurrency
 
-- **Book-level concurrency**: `max_parallel_tasks = 1` for the first version. The worker runs one book at a time.
-- **Chapter-level concurrency**: unchanged. Inside a running book, the existing `concurrency` setting still controls how many chapter requests are sent to the LLM in parallel.
+- **Book-level concurrency**: `max_parallel_tasks = 1` for the first version. The worker
+  runs one book at a time.
+- **Chapter-level concurrency**: unchanged. Inside a running book, the existing
+  `concurrency` setting still controls how many chapter requests are sent to the LLM in
+  parallel.
 
 This keeps provider rate-limit risk low and avoids changing the core engine.
 
@@ -228,7 +236,8 @@ This keeps provider rate-limit risk low and avoids changing the core engine.
 
 - A failed task remains in the queue with `status: Failed` and `error` populated.
 - Users can click **Retry** to reset the task to `Pending`.
-- **Cancel** only affects `Pending` tasks. Cancelling a `Running` task is not supported in this iteration because the core translator does not expose a cancellation token.
+- **Cancel** only affects `Pending` tasks. Cancelling a `Running` task is not supported in
+  this iteration because the core translator does not expose a cancellation token.
 
 ## i18n
 
@@ -273,4 +282,6 @@ Manual verification:
 
 ## Stop Rule
 
-If it becomes clear that task-level progress or cancellation cannot be implemented without a large refactor of the core translation engine, stop and report the blocker instead of modifying core code.
+If it becomes clear that task-level progress or cancellation cannot be implemented
+without a large refactor of the core translation engine, stop and report the blocker
+instead of modifying core code.
