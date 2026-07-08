@@ -336,15 +336,26 @@ function App() {
     setLoading(true);
     setProgress({ percent: 0, message: t("started") });
     setLogs((prev) => [...prev, { id: generateId(), timestamp: Date.now(), kind: "info", message: t("started") }]);
+    const args = {
+      ...form,
+      dry_run: !!form.dry_run,
+      preserve_classes: !!form.preserve_classes,
+      translate_body: !!form.translate_body,
+      translate_metadata: !!form.translate_metadata,
+      translate_toc: !!form.translate_toc,
+      translate_alt_text: !!form.translate_alt_text,
+      translate_image_captions: !!form.translate_image_captions,
+      translate_tables: !!form.translate_tables,
+      translate_footnotes: !!form.translate_footnotes,
+      translate_code: !!form.translate_code,
+      base_url: form.base_url || null,
+      output_font: form.output_font || null,
+      exclude_selectors: parseCommaList(form.exclude_selectors),
+      translate_attributes: parseCommaList(form.translate_attributes),
+    };
+
     try {
-      const result = await invoke<string>("translate_epub", {
-        args: {
-          ...form,
-          base_url: form.base_url || null,
-          exclude_selectors: parseCommaList(form.exclude_selectors),
-          translate_attributes: parseCommaList(form.translate_attributes),
-        },
-      });
+      const result = await invoke<string>("translate_epub", { args });
       if (form.dry_run && result.toLowerCase().includes("estimated source tokens")) {
         setProgress({ percent: 100, message: result });
       }
@@ -353,9 +364,11 @@ function App() {
         { id: generateId(), timestamp: Date.now(), kind: "success", message: `${t("completed")}: ${result}` },
       ]);
     } catch (err) {
+      const message = `${t("error")}: ${err}`;
+      setProgress({ percent: 0, message });
       setLogs((prev) => [
         ...prev,
-        { id: generateId(), timestamp: Date.now(), kind: "error", message: `${t("error")}: ${err}` },
+        { id: generateId(), timestamp: Date.now(), kind: "error", message },
       ]);
     } finally {
       setLoading(false);
