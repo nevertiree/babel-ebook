@@ -217,14 +217,7 @@ async fn translate_element_text_and_attributes(
     if should_translate_element_text(tag_name, &config.translation_scope) {
         let text = normalize_text(node);
         if is_translatable_text(&text) {
-            let translated =
-                match translate_text(&text, translator, config, cache, chapter_href).await {
-                    Ok(t) => t,
-                    Err(err) => {
-                        tracing::error!("Failed to translate element <{}>: {err}", tag_name);
-                        String::new()
-                    }
-                };
+            let translated = translate_text(&text, translator, config, cache, chapter_href).await?;
 
             if !translated.is_empty() {
                 let target_lang = &config.target_lang;
