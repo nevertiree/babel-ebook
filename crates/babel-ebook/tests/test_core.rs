@@ -120,6 +120,7 @@ fn test_config(source: PathBuf, output: PathBuf, cache_dir: PathBuf) -> Config {
         output_font: None,
         providers: std::collections::HashMap::new(),
         prompts: babel_ebook::config::PromptTemplates::default(),
+        refine: false,
     }
 }
 

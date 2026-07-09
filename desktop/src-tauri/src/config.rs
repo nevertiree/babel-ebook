@@ -64,6 +64,9 @@ pub fn build_config(args: &TranslateArgs) -> Result<Config, String> {
     config.target_lang.clone_from(&args.target_lang);
     config.dry_run = args.dry_run;
     config.verbose = false;
+    config.refine = args.refine;
+    config.checkpoint_dir = PathBuf::from(&args.checkpoint_dir);
+    config.resume_job_id.clone_from(&args.resume);
     config.system_prompt = args.system_prompt.clone().filter(|s| !s.is_empty());
     if !args.prompts.default.is_empty() {
         config.prompts.default.clone_from(&args.prompts.default);
@@ -138,6 +141,9 @@ mod tests {
             output_font: None,
             system_prompt: None,
             prompts: PromptTemplates::default(),
+            refine: false,
+            checkpoint_dir: ".babel_ebook_checkpoints".to_string(),
+            resume: None,
         }
     }
 

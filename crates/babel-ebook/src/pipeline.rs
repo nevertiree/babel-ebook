@@ -368,6 +368,7 @@ mod tests {
             translate_attributes: vec![],
             preserve_classes: false,
             output_font: None,
+            refine: false,
         }
     }
 

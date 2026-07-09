@@ -97,6 +97,7 @@ pub struct GlossaryEntry {
 
 /// Runtime configuration for the babel-ebook translation pipeline.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct Config {
     /// Path to the source EPUB file.
     pub source: PathBuf,
@@ -190,6 +191,9 @@ pub struct Config {
     /// Optional font-family CSS injected into every translated XHTML document.
     #[serde(default)]
     pub output_font: Option<String>,
+    /// If `true`, refine an existing translation instead of translating from scratch.
+    #[serde(default)]
+    pub refine: bool,
 }
 
 /// Configurable prompt templates for each translation style.
