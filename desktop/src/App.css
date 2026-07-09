@@ -1135,7 +1135,7 @@ button:disabled {
 .backup-restore-section {
   margin-top: 2rem;
   padding-top: 1rem;
-  border-top: 1px solid var(--border-color, #444);
+  border-top: 1px solid var(--border);
 }
 
 .backup-restore-actions {
