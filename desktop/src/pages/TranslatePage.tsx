@@ -1,6 +1,8 @@
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { invoke } from "@tauri-apps/api/core";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { FormState, Page, ProgressState, ValidationResult } from "../types";
+import type { CheckpointInfo, FormState, Page, ProgressState, ValidationResult } from "../types";
 import {
   outputModes,
   recommendedModels,
@@ -79,21 +81,53 @@ export default function TranslatePage({
   onPageChange,
 }: TranslatePageProps) {
   const { t } = useTranslation();
+  const [checkpoints, setCheckpoints] = useState<CheckpointInfo[]>([]);
+  const [showCheckpoints, setShowCheckpoints] = useState(false);
 
   const hasProviders = form.providers.length > 0;
   const activeProvider = form.providers.find((p) => p.provider === form.active_provider);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      if (!form.checkpoint_dir) {
+        setCheckpoints([]);
+        return;
+      }
+      try {
+        const list = await invoke<CheckpointInfo[]>("list_checkpoints", {
+          checkpoint_dir: form.checkpoint_dir,
+        });
+        if (!cancelled) {
+          setCheckpoints(list);
+        }
+      } catch {
+        if (!cancelled) {
+          setCheckpoints([]);
+        }
+      }
+    }
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [form.checkpoint_dir, form.resume, showCheckpoints]);
 
   const selectSource = async () => {
     const path = await open({
       filters: [
         {
           name: t("ebook_files"),
-          extensions: ["epub", "mobi", "azw3", "txt"],
+          extensions: ["epub", "mobi", "azw3", "txt", "srt", "docx"],
         },
       ],
     });
     if (path) {
       setForm("source", path);
+      // Clear any previous resume selection when a new source is chosen.
+      if (form.resume) {
+        setForm("resume", "");
+      }
     }
   };
 
@@ -219,6 +253,77 @@ export default function TranslatePage({
           <button type="button" onClick={selectOutput} disabled={loading}>
             {t("save_as")}
           </button>
+        </div>
+      </section>
+
+      <section className="advanced-section">
+        <div className="row">
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={form.refine}
+              onChange={(e) => setForm("refine", e.target.checked)}
+            />
+            {t("refine_translation")}
+          </label>
+        </div>
+
+        <div className="checkpoint-section">
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => setShowCheckpoints((prev) => !prev)}
+            disabled={!form.checkpoint_dir}
+          >
+            {showCheckpoints ? t("hide_checkpoints") : t("show_checkpoints")}
+          </button>
+
+          {showCheckpoints && (
+            <div className="checkpoint-list">
+              {checkpoints.length === 0 ? (
+                <p className="checkpoint-empty">{t("no_checkpoints")}</p>
+              ) : (
+                <>
+                  <p className="checkpoint-hint">{t("checkpoint_hint")}</p>
+                  {checkpoints.map((cp) => (
+                    <div
+                      key={cp.job_id}
+                      className={`checkpoint-item ${form.resume === cp.job_id ? "selected" : ""}`}
+                      onClick={() => setForm("resume", cp.job_id)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          setForm("resume", cp.job_id);
+                        }
+                      }}
+                    >
+                      <div className="checkpoint-meta">
+                        <span className="checkpoint-id">{cp.job_id}</span>
+                        <span className="checkpoint-progress">
+                          {cp.completed}/{cp.total} {t("chapters_done")}
+                        </span>
+                      </div>
+                      {cp.failed > 0 && (
+                        <span className="checkpoint-failed">
+                          {cp.failed} {t("chapters_failed")}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                  {form.resume && (
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => setForm("resume", "")}
+                    >
+                      {t("clear_resume_selection")}
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          )}
         </div>
       </section>
 

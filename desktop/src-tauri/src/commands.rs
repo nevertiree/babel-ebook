@@ -5,6 +5,52 @@ use babel_ebook::{
     translate_epub as translate_epub_core, translator::get_translator, ProgressCallback,
     ProgressEvent, ProviderConfig, TranslationCache, KNOWN_PROVIDERS,
 };
+
+/// Summary of a translation checkpoint returned to the frontend.
+#[derive(serde::Serialize, Debug, Clone)]
+#[serde(rename_all = "snake_case")]
+pub struct CheckpointInfo {
+    /// Checkpoint job id.
+    pub job_id: String,
+    /// Hash of the source file used to detect changes.
+    pub source_hash: String,
+    /// Path to the source file, inferred from the job id when missing.
+    pub source_path: String,
+    /// Number of completed chapters.
+    pub completed: usize,
+    /// Total number of chapters.
+    pub total: usize,
+    /// Number of failed chapters.
+    pub failed: usize,
+    /// Number of pending chapters.
+    pub pending: usize,
+}
+
+impl CheckpointInfo {
+    fn from_checkpoint(cp: &babel_ebook::checkpoint::Checkpoint) -> Self {
+        use babel_ebook::checkpoint::ChapterStatus;
+        let completed = cp
+            .chapters
+            .iter()
+            .filter(|c| c.status == ChapterStatus::Completed)
+            .count();
+        let failed = cp
+            .chapters
+            .iter()
+            .filter(|c| c.status == ChapterStatus::Failed)
+            .count();
+        let total = cp.chapters.len();
+        Self {
+            job_id: cp.job_id.clone(),
+            source_hash: cp.source_hash.clone(),
+            source_path: String::new(),
+            completed,
+            total,
+            failed,
+            pending: total.saturating_sub(completed + failed),
+        }
+    }
+}
 #[cfg(not(test))]
 use tauri::Emitter;
 
@@ -345,6 +391,49 @@ pub async fn pause_queue(queue: tauri::State<'_, QueueManager>) -> Result<(), St
 #[tauri::command]
 pub async fn get_queue_state(queue: tauri::State<'_, QueueManager>) -> Result<QueueState, String> {
     Ok(queue.state().await)
+}
+
+/// List translation checkpoints stored in `checkpoint_dir`.
+#[allow(dead_code)]
+#[tauri::command]
+pub async fn list_checkpoints(checkpoint_dir: String) -> Result<Vec<CheckpointInfo>, String> {
+    let dir = std::path::PathBuf::from(checkpoint_dir);
+    if !dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut entries = tokio::task::spawn_blocking(move || {
+        let mut checkpoints = Vec::new();
+        let read_dir = std::fs::read_dir(&dir).map_err(|e| format!("read checkpoint dir: {e}"))?;
+        for entry in read_dir.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            let Ok(cp) = serde_json::from_str::<babel_ebook::checkpoint::Checkpoint>(&text) else {
+                continue;
+            };
+            let mut info = CheckpointInfo::from_checkpoint(&cp);
+            if info.source_path.is_empty() {
+                // Fallback: store the source file name in the first chapter href if available.
+                info.source_path = cp
+                    .chapters
+                    .first()
+                    .map(|c| c.href.clone())
+                    .unwrap_or_default();
+            }
+            checkpoints.push(info);
+        }
+        Ok::<Vec<CheckpointInfo>, String>(checkpoints)
+    })
+    .await
+    .map_err(|e| format!("checkpoint listing task panicked: {e}"))??;
+
+    entries.sort_by(|a, b| a.job_id.cmp(&b.job_id));
+    Ok(entries)
 }
 
 #[cfg(test)]

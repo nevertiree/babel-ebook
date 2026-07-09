@@ -164,6 +164,9 @@ function buildTranslateArgs(form: FormState): object {
     translate_tables: !!form.translate_tables,
     translate_footnotes: !!form.translate_footnotes,
     translate_code: !!form.translate_code,
+    refine: !!form.refine,
+    checkpoint_dir: form.checkpoint_dir,
+    resume: form.resume || null,
   };
 }
 

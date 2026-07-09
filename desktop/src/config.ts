@@ -5,7 +5,8 @@ import type { FormState, ProviderConfig } from "./types";
 
 const SETTINGS_DIR = "BabelEbook";
 const SETTINGS_FILE = "settings.json";
-const SETTINGS_VERSION = 3;
+const SETTINGS_VERSION = 4;
+const DEFAULT_CHECKPOINT_DIR = "BabelEbook/checkpoints";
 
 /**
  * Settings that are not part of the translation form and are stored under the
@@ -60,6 +61,9 @@ const TRANSLATION_KEYS: Array<keyof FormState> = [
   "translate_code",
   "output_font",
   "output_filename_template",
+  "checkpoint_dir",
+  "resume",
+  "refine",
 ];
 
 /**
@@ -226,11 +230,31 @@ export async function loadSettings(): Promise<Partial<FormState>> {
     if (Array.isArray(translation.providers)) {
       translation.providers = await hydrateApiKeys(translation.providers);
     }
+    const docs = await documentDir();
+    if (!translation.checkpoint_dir || typeof translation.checkpoint_dir !== "string" || translation.checkpoint_dir.trim().length === 0) {
+      translation.checkpoint_dir = `${docs}${DEFAULT_CHECKPOINT_DIR}`;
+    }
+    if (typeof translation.refine !== "boolean") {
+      translation.refine = false;
+    }
+    if (typeof translation.resume !== "string") {
+      translation.resume = "";
+    }
     return translation;
   }
 
   // Migration from the old flat key-value layout.
   const migrated = await migrateFromFlatSettings(versioned ?? { version: 1, translation: {}, general: DEFAULT_GENERAL });
+  const docs = await documentDir();
+  if (!migrated.checkpoint_dir || migrated.checkpoint_dir.trim().length === 0) {
+    migrated.checkpoint_dir = `${docs}${DEFAULT_CHECKPOINT_DIR}`;
+  }
+  if (migrated.refine === undefined) {
+    migrated.refine = false;
+  }
+  if (migrated.resume === undefined) {
+    migrated.resume = "";
+  }
   await writeSettingsFile({
     version: SETTINGS_VERSION,
     translation: migrated,

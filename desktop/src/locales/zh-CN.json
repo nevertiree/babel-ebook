@@ -60,7 +60,9 @@
   "prompt_technical_placeholder": "技术提示词模板",
   "prompt_academic": "学术风格提示词",
   "prompt_academic_placeholder": "学术提示词模板",
-  "prompts_help": "提示词中可使用 {{source_lang}} 和 {{target_lang}} 占位符。",
+  "prompt_refine": "润色风格提示词",
+  "prompt_refine_placeholder": "二轮润色提示词模板",
+  "prompts_help": "提示词中可使用 {{source_lang}} 和 {{target_lang}} 占位符。", 
   "clear_prompts": "清空自定义提示词",
   "select_file": "选择文件",
   "save_as": "保存到...",
@@ -192,5 +194,13 @@
   "task_status_completed": "已完成",
   "task_status_failed": "失败",
   "task_status_pending": "待执行",
-  "task_status_running": "执行中"
+  "task_status_running": "执行中",
+  "refine_translation": "二轮润色（refine）",
+  "show_checkpoints": "显示可恢复任务",
+  "hide_checkpoints": "隐藏可恢复任务",
+  "no_checkpoints": "暂无可恢复任务",
+  "checkpoint_hint": "点击任务以继续翻译",
+  "chapters_done": "章已完成",
+  "chapters_failed": "章失败",
+  "clear_resume_selection": "清除选择"
 }

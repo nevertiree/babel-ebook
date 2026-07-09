@@ -868,3 +868,124 @@ button:disabled {
   gap: 0.5rem;
   margin-top: 0.5rem;
 }
+
+/* Advanced options on translate page */
+
+.advanced-section {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.advanced-section .row {
+  display: flex;
+  align-items: center;
+}
+
+.checkbox-label {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.checkbox-label input {
+  width: auto;
+  cursor: pointer;
+}
+
+.checkpoint-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.checkpoint-section .secondary-button {
+  align-self: flex-start;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.85rem;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.checkpoint-section .secondary-button:hover:not(:disabled) {
+  background: rgba(56, 189, 248, 0.1);
+}
+
+.checkpoint-section .secondary-button:disabled {
+  opacity: 0.5;
+}
+
+.checkpoint-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.checkpoint-empty,
+.checkpoint-hint {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.checkpoint-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.checkpoint-item:hover {
+  background: rgba(56, 189, 248, 0.08);
+}
+
+.checkpoint-item.selected {
+  border-color: var(--accent);
+  background: rgba(56, 189, 248, 0.12);
+}
+
+.checkpoint-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.checkpoint-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.checkpoint-progress {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.checkpoint-failed {
+  font-size: 0.8rem;
+  color: var(--danger);
+}
+
+.start-row {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.start-row .start-button {
+  flex: 1;
+  margin-bottom: 0;
+}

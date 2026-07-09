@@ -82,6 +82,7 @@ pub fn run() {
             commands::start_queue,
             commands::pause_queue,
             commands::get_queue_state,
+            commands::list_checkpoints,
         ])
         .run(tauri_context())
         .expect("error while running tauri application");

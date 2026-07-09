@@ -46,6 +46,7 @@ export interface PromptTemplates {
   literary: string;
   technical: string;
   academic: string;
+  refine: string;
 }
 
 /**
@@ -75,6 +76,11 @@ export interface FormState {
   translate_code: boolean;
   output_font: string;
   output_filename_template: string;
+
+  // Checkpoint / resume
+  checkpoint_dir: string;
+  resume: string;
+  refine: boolean;
 
   // Provider management
   providers: ProviderConfig[];
@@ -110,6 +116,19 @@ export type Page =
 export interface ProgressState {
   percent: number;
   message: string;
+}
+
+/**
+ * Summary of a translation checkpoint exposed to the frontend.
+ */
+export interface CheckpointInfo {
+  job_id: string;
+  source_hash: string;
+  source_path: string;
+  completed: number;
+  total: number;
+  failed: number;
+  pending: number;
 }
 
 /**
@@ -153,6 +172,7 @@ export const defaults: FormState = {
     literary: "",
     technical: "",
     academic: "",
+    refine: "",
   },
   source_lang: "en",
   target_lang: "zh-CN",
@@ -173,6 +193,10 @@ export const defaults: FormState = {
   translate_code: false,
   output_font: '"Noto Serif CJK SC", "Source Han Serif SC", "SimSun", serif',
   output_filename_template: "{stem}_{target_lang}",
+
+  checkpoint_dir: "",
+  resume: "",
+  refine: false,
 
   providers: [],
   active_provider: "",
