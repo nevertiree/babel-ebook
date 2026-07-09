@@ -24,7 +24,9 @@
 
 ## 开发流程
 
-- 从 `develop` 分支创建功能分支。
+- **所有功能开发必须在 `develop` 分支上进行**；禁止从 `master` 切功能分支。
+- 从 `develop` 创建功能分支，例如 `feat/<short-description>` 或 `docs/<short-description>`。
+- `master` 和 `develop` 是受保护分支，**禁止直接推送和删除**。
 - 保持提交聚焦，并尽量使用约定式提交风格（`feat:`、`fix:`、`chore:`）。
 - 提交 Pull Request 前运行质量门：
 
@@ -47,8 +49,10 @@
 ## Pull Request 流程
 
 1. 确保所有测试和检查通过。
-2. 如果改动影响用户可见的行为，更新 `docs/README.md` 和 `CHANGELOG.md`。
-3. 保持 diff 范围与当前功能或修复相关。
+2. 功能分支的 PR **必须以 `develop` 为 base**，禁止直接合并到 `master`。
+3. 如果改动影响用户可见的行为，更新 `docs/README.md` 和 `CHANGELOG.md`。
+4. 保持 diff 范围与当前功能或修复相关。
+5. `master` 仅用于保存带 tag 的文档/发布序列，不接受功能代码直接合并。
 
 ## 行为准则
 
