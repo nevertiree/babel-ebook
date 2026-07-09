@@ -5,6 +5,7 @@ use std::path::Path;
 use crate::core::BabelEbookError;
 use crate::epub::{Chapter, EpubBook, EpubMetadata};
 
+pub mod docx;
 pub mod srt;
 
 /// Supported input ebook formats.
@@ -19,7 +20,7 @@ pub enum InputFormat {
     Text,
     /// SubRip subtitle format.
     Srt,
-    /// Microsoft Word Open XML document (planned).
+    /// Microsoft Word Open XML document.
     Docx,
 }
 
@@ -48,7 +49,7 @@ impl InputFormat {
             Self::Mobi => "MOBI/AZW",
             Self::Text => "Plain text",
             Self::Srt => "SRT subtitles",
-            Self::Docx => "DOCX (planned)",
+            Self::Docx => "DOCX",
         }
     }
 }
@@ -62,7 +63,7 @@ impl InputFormat {
 pub fn read_input_book(path: &Path) -> Result<EpubBook, BabelEbookError> {
     let format = InputFormat::from_path(path).ok_or_else(|| {
         BabelEbookError::Configuration(format!(
-            "unsupported input format: {}. Supported formats: epub, mobi, azw, azw3, prc, txt, srt",
+            "unsupported input format: {}. Supported formats: epub, mobi, azw, azw3, prc, txt, srt, docx",
             path.display()
         ))
     })?;
@@ -72,9 +73,7 @@ pub fn read_input_book(path: &Path) -> Result<EpubBook, BabelEbookError> {
         InputFormat::Mobi => read_mobi(path),
         InputFormat::Text => read_text(path),
         InputFormat::Srt => srt::read_srt(path),
-        InputFormat::Docx => Err(BabelEbookError::Configuration(
-            "DOCX input is not yet supported".into(),
-        )),
+        InputFormat::Docx => docx::read_docx(path),
     }
 }
 
@@ -239,5 +238,5 @@ fn html_escape(text: &str) -> String {
 /// Return a list of supported input file extensions for UI filters.
 #[must_use]
 pub const fn supported_extensions() -> &'static [&'static str] {
-    &["epub", "mobi", "azw", "azw3", "prc", "txt", "srt"]
+    &["epub", "mobi", "azw", "azw3", "prc", "txt", "srt", "docx"]
 }
