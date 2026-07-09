@@ -4,10 +4,20 @@ import { readTextFile, writeTextFile, mkdir, exists } from "@tauri-apps/plugin-f
 import type { FormState, ProviderConfig, ThemeId } from "./types";
 import { themes } from "./types";
 
+declare const __APP_VERSION__: string;
+
 const SETTINGS_DIR = "BabelEbook";
 const SETTINGS_FILE = "settings.json";
 const SETTINGS_VERSION = 5;
 const DEFAULT_CHECKPOINT_DIR = "BabelEbook/checkpoints";
+
+export interface ExportedSettings {
+  version: number;
+  exported_at: string;
+  app_version: string;
+  translation: Partial<FormState>;
+  general: GeneralSettings;
+}
 
 /**
  * Settings that are not part of the translation form and are stored under the
@@ -330,4 +340,60 @@ export async function saveGeneralSettings(general: GeneralSettings): Promise<voi
     general: DEFAULT_GENERAL,
   };
   await writeSettingsFile({ ...versioned, general });
+}
+
+export async function exportSettings(path: string): Promise<void> {
+  const [translation, general] = await Promise.all([
+    loadSettings(),
+    loadGeneralSettings(),
+  ]);
+
+  // TODO: wire to build version
+  const appVersion =
+    typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "0.2.0";
+
+  const payload: ExportedSettings = {
+    version: SETTINGS_VERSION,
+    exported_at: new Date().toISOString(),
+    app_version: appVersion,
+    translation,
+    general,
+  };
+
+  await writeTextFile(path, JSON.stringify(payload, null, 2));
+}
+
+export async function importSettings(path: string): Promise<ExportedSettings> {
+  const text = await readTextFile(path);
+  let payload: unknown;
+  try {
+    payload = JSON.parse(text);
+  } catch {
+    throw new Error("invalid_json");
+  }
+
+  if (!isExportedSettings(payload)) {
+    throw new Error("invalid_backup");
+  }
+
+  if (payload.version !== SETTINGS_VERSION) {
+    throw new Error(`version_mismatch:${payload.version}:${SETTINGS_VERSION}`);
+  }
+
+  return payload;
+}
+
+function isExportedSettings(value: unknown): value is ExportedSettings {
+  const p = value as Record<string, unknown> | undefined;
+  return (
+    !!p &&
+    typeof p.version === "number" &&
+    typeof p.exported_at === "string" &&
+    typeof p.app_version === "string" &&
+    typeof p.translation === "object" &&
+    p.translation !== null &&
+    Array.isArray((p.translation as Record<string, unknown>).providers) &&
+    typeof p.general === "object" &&
+    p.general !== null
+  );
 }
