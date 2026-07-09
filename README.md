@@ -48,7 +48,8 @@ It produces bilingual e-books where each translated paragraph is followed by
 - [Rust](https://rustup.rs/) 1.88 或更新版本
 - [Node.js](https://nodejs.org/) 20 或更新版本
 - [pnpm](https://pnpm.io/) 9 或更新版本（或启用 corepack：`corepack enable`）
-- **Windows 用户**：需要安装 [Visual Studio Build Tools 2022](https://visualstudio.microsoft.com/downloads/?q=build+tools) 的 **"C++ build tools"** 工作负载，以及 WebView2 Runtime
+- **Windows 用户**：需要安装 [Visual Studio Build Tools 2022](https://visualstudio.microsoft.com/downloads/?q=build+tools)
+  的 **"C++ build tools"** 工作负载，以及 WebView2 Runtime
 
 ### 构建与运行
 

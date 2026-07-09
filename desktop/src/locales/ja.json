@@ -210,5 +210,16 @@
   "checkpoint_dir": "チェックポイントディレクトリ",
   "checkpoint_dir_help": "翻訳チェックポイントファイルを保存するディレクトリ。空にすると再開を無効化します。",
   "checkpoint_dir_placeholder": "例: /path/to/checkpoints",
-  "select_directory": "ディレクトリを選択"
+  "select_directory": "ディレクトリを選択",
+  "settings_backup_restore": "Backup & Restore",
+  "export_settings": "Export Settings",
+  "import_settings": "Import Settings",
+  "export_settings_warning": "The exported file contains your API keys. Store it securely and do not share it.",
+  "import_settings_confirm": "Importing will overwrite your current settings. Continue?",
+  "export_success": "Settings exported successfully",
+  "import_success": "Settings imported successfully",
+  "error_invalid_backup": "Backup file is corrupted",
+  "error_version_mismatch": "Backup file version is incompatible (expected {{expected}}, got {{actual}})",
+  "error_export_failed": "Failed to export settings: {{message}}",
+  "error_import_failed": "Failed to import settings: {{message}}"
 }

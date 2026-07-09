@@ -210,5 +210,16 @@
   "checkpoint_dir": "Directorio de checkpoints",
   "checkpoint_dir_help": "Directorio donde se guardan los archivos de checkpoint. Déjelo vacío para deshabilitar la reanudación.",
   "checkpoint_dir_placeholder": "p. ej. /ruta/a/checkpoints",
-  "select_directory": "Seleccionar directorio"
+  "select_directory": "Seleccionar directorio",
+  "settings_backup_restore": "Backup & Restore",
+  "export_settings": "Export Settings",
+  "import_settings": "Import Settings",
+  "export_settings_warning": "The exported file contains your API keys. Store it securely and do not share it.",
+  "import_settings_confirm": "Importing will overwrite your current settings. Continue?",
+  "export_success": "Settings exported successfully",
+  "import_success": "Settings imported successfully",
+  "error_invalid_backup": "Backup file is corrupted",
+  "error_version_mismatch": "Backup file version is incompatible (expected {{expected}}, got {{actual}})",
+  "error_export_failed": "Failed to export settings: {{message}}",
+  "error_import_failed": "Failed to import settings: {{message}}"
 }

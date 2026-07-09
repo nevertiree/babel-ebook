@@ -45,6 +45,9 @@ Thumbs.db
 # Local test configs with secrets
 test_config.json
 
+# Exported settings backups (may contain plaintext API keys)
+.babel-ebook-settings*.json
+
 # JavaScript dependencies
 node_modules/
 

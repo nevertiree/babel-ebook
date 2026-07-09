@@ -20,6 +20,7 @@ import TasksPage from "./pages/TasksPage";
 import {
   loadGeneralSettings,
   loadSettings,
+  normalizeTheme,
   saveGeneralSettings,
   saveSettings,
   type GeneralSettings,
@@ -181,7 +182,7 @@ function App() {
 
   const [progress, setProgress] = useState<ProgressState>({
     percent: 0,
-    message: t("waiting"),
+    message: "",
   });
   const [general, setGeneral] = useState<GeneralSettings>(initialGeneralFromLocalStorage);
   const [detectedLocale, setDetectedLocale] = useState<string>("en");
@@ -650,6 +651,23 @@ function App() {
             general={general}
             setGeneral={setGeneral}
             detectedLocale={detectedLocale}
+            onImport={async (settings) => {
+              const merged = { ...form, ...settings.translation } as FormState;
+              if (
+                !merged.active_provider ||
+                !merged.providers.some((p) => p.name === merged.active_provider)
+              ) {
+                merged.active_provider = merged.providers[0]?.name ?? "";
+              }
+              const general = {
+                ...settings.general,
+                theme: normalizeTheme(settings.general.theme),
+              };
+              setForm(merged);
+              setGeneral(general);
+              await saveSettings(merged);
+              await saveGeneralSettings(general);
+            }}
           />
         );
       case "about":

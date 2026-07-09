@@ -341,15 +341,6 @@ export default function TranslatePage({
         </div>
       </section>
 
-      {validation.reason && (
-        <p className="next-step">
-          {validation.reason}{" "}
-          <span onClick={() => onPageChange("settings-compute")}>
-            {t("open_settings")}
-          </span>
-        </p>
-      )}
-
       <div className="start-row">
         <button
           className="start-button"
@@ -362,21 +353,21 @@ export default function TranslatePage({
         </button>
       </div>
 
-      {(progress.percent > 0 || (progress.message && progress.message !== t("waiting"))) && (
-        <section className="progress-section" data-testid="progress-section">
-          <div className="progress-header">
-            <span>{t("progress")}</span>
-            <span>{progress.percent}%</span>
-          </div>
-          <div className="progress-bar">
-            <div
-              className="progress-fill"
-              style={{ width: `${progress.percent}%` }}
-            />
-          </div>
-          <p className="progress-message" data-testid="progress-message">{progress.message}</p>
-        </section>
-      )}
+      <section className="progress-section" data-testid="progress-section">
+        <div className="progress-header">
+          <span>{t("progress")}</span>
+          <span>{progress.percent}%</span>
+        </div>
+        <div className="progress-bar">
+          <div
+            className="progress-fill"
+            style={{ width: `${progress.percent}%` }}
+          />
+        </div>
+        <p className="progress-message" data-testid="progress-message">
+          {progress.message || t("waiting")}
+        </p>
+      </section>
     </div>
   );
 }

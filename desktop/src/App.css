@@ -310,18 +310,21 @@ button:disabled {
 
 .file-section {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: stretch;
   gap: 0.75rem;
   margin-bottom: 1.25rem;
 }
 
 .file-row {
+  flex: 1;
   display: flex;
   align-items: center;
   gap: 1rem;
   background: var(--elevated);
   padding: 0.75rem 1rem;
   border-radius: var(--radius);
+  min-width: 0;
 }
 
 .file-row > button {
@@ -1130,4 +1133,16 @@ button:disabled {
 .start-row .start-button {
   flex: 1;
   margin-bottom: 0;
+}
+
+.backup-restore-section {
+  margin-top: 2rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.backup-restore-actions {
+  display: flex;
+  gap: 1rem;
+  margin-top: 0.5rem;
 }
