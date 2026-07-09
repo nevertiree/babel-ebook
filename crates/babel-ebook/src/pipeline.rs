@@ -86,15 +86,15 @@ pub async fn run_ordered_pipeline(
                 Err(err) => Err(err),
             };
 
-            update_checkpoint_entry(&checkpoint, index, &result, store.as_ref(), &job_id);
+            update_checkpoint_entry(&checkpoint, index, &result, store.as_ref(), &job_id)?;
 
-            (index, result)
+            Ok::<(usize, Result<Vec<u8>, BabelEbookError>), BabelEbookError>((index, result))
         });
     }
 
     let mut results = Vec::with_capacity(pending_indices.len());
     while let Some(item) = futures.next().await {
-        results.push(item);
+        results.push(item?);
     }
     results.sort_by_key(|(index, _)| *index);
 
@@ -214,6 +214,13 @@ fn restore_completed_chapters(
                 book.chapters[index].content = content;
                 emit_progress(
                     progress,
+                    ProgressEvent::ChapterStarted {
+                        index,
+                        href: book.chapters[index].href.clone(),
+                    },
+                );
+                emit_progress(
+                    progress,
                     ProgressEvent::ChapterFinished {
                         index,
                         href: book.chapters[index].href.clone(),
@@ -231,7 +238,7 @@ fn update_checkpoint_entry(
     result: &Result<Vec<u8>, BabelEbookError>,
     store: Option<&CheckpointStore>,
     job_id: &str,
-) {
+) -> Result<(), BabelEbookError> {
     let mut cp = checkpoint
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -250,8 +257,12 @@ fn update_checkpoint_entry(
     }
     let save_result = store.map(|s| s.save(&cp));
     drop(cp);
-    if let Some(Err(err)) = save_result {
-        tracing::warn!(job_id, error = %err, "failed to save checkpoint");
+    match save_result {
+        Some(Err(err)) => {
+            tracing::warn!(job_id, error = %err, "failed to save checkpoint");
+            Err(err)
+        }
+        _ => Ok(()),
     }
 }
 
