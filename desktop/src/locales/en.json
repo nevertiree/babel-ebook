@@ -202,5 +202,10 @@
   "checkpoint_hint": "Click a task to resume translation",
   "chapters_done": "chapters done",
   "chapters_failed": "chapters failed",
-  "clear_resume_selection": "Clear selection"
+  "chapters_pending": "pending",
+  "clear_resume_selection": "Clear selection",
+  "checkpoint_dir": "Checkpoint directory",
+  "checkpoint_dir_help": "Directory where translation checkpoint files are saved. Leave empty to disable resume.",
+  "checkpoint_dir_placeholder": "e.g. /path/to/checkpoints",
+  "select_directory": "Select directory"
 }

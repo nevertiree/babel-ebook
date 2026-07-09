@@ -1,3 +1,4 @@
+import { open } from "@tauri-apps/plugin-dialog";
 import { useTranslation } from "react-i18next";
 import type { FormState } from "../types";
 import { defaultFonts } from "../types";
@@ -15,6 +16,16 @@ export default function OutputSettingsPage({
 }: OutputSettingsPageProps) {
   const { t } = useTranslation();
 
+  const selectCheckpointDir = async () => {
+    const path = await open({
+      directory: true,
+      defaultPath: form.checkpoint_dir || undefined,
+    });
+    if (path) {
+      setForm("checkpoint_dir", path);
+    }
+  };
+
   return (
     <div className="page settings-page">
       <h2>{t("settings_output")}</h2>
@@ -26,6 +37,27 @@ export default function OutputSettingsPage({
           onChange={(e) => setForm("dry_run", e.target.checked)}
         />
         {t("dry_run")}
+      </label>
+
+      <label>
+        <span className="field-row">
+          {t("checkpoint_dir")}
+          <span className="field-info" data-tooltip={t("checkpoint_dir_help")}>
+            ⓘ
+          </span>
+        </span>
+        <div className="file-row">
+          <input
+            type="text"
+            value={form.checkpoint_dir}
+            onChange={(e) => setForm("checkpoint_dir", e.target.value)}
+            placeholder={t("checkpoint_dir_placeholder")}
+            style={{ flex: 1 }}
+          />
+          <button type="button" onClick={selectCheckpointDir}>
+            {t("select_directory")}
+          </button>
+        </div>
       </label>
 
       <label>

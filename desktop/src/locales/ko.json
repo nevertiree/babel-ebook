@@ -59,6 +59,8 @@
   "prompt_technical_placeholder": "Technical prompt template",
   "prompt_academic": "Academic Style Prompt",
   "prompt_academic_placeholder": "Academic prompt template",
+  "prompt_refine": "Refine Style Prompt",
+  "prompt_refine_placeholder": "Second-pass refinement prompt template",
   "prompts_help": "You can use {{source_lang}} and {{target_lang}} placeholders in prompts.",
   "clear_prompts": "Reset to defaults",
   "select_file": "파일 선택",
@@ -192,5 +194,18 @@
   "task_status_completed": "완료됨",
   "task_status_failed": "실패",
   "task_status_pending": "대기 중",
-  "task_status_running": "실행 중"
+  "task_status_running": "실행 중",
+  "refine_translation": "번역 다듬기 (2차)",
+  "show_checkpoints": "재개 가능한 작업 표시",
+  "hide_checkpoints": "재개 가능한 작업 숨기기",
+  "no_checkpoints": "재개 가능한 작업이 없습니다",
+  "checkpoint_hint": "작업을 클릭하여 번역 재개",
+  "chapters_done": "장 완료",
+  "chapters_failed": "장 실패",
+  "chapters_pending": "대기 중",
+  "clear_resume_selection": "선택 해제",
+  "checkpoint_dir": "체크포인트 디렉터리",
+  "checkpoint_dir_help": "번역 체크포인트 파일이 저장되는 디렉터리입니다. 비워두면 재개가 비활성화됩니다.",
+  "checkpoint_dir_placeholder": "예: /path/to/checkpoints",
+  "select_directory": "디렉터리 선택"
 }

@@ -111,7 +111,8 @@ export default function TranslatePage({
     return () => {
       cancelled = true;
     };
-  }, [form.checkpoint_dir, form.resume, showCheckpoints]);
+    // Reload when a translation run finishes so newly created checkpoints appear.
+  }, [form.checkpoint_dir, form.resume, showCheckpoints, loading]);
 
   const selectSource = async () => {
     const path = await open({
@@ -139,6 +140,11 @@ export default function TranslatePage({
     if (path) {
       setForm("output", path);
     }
+  };
+
+  const basename = (path: string) => {
+    const sep = path.includes("/") ? "/" : "\\";
+    return path.split(sep).pop() || path;
   };
 
   return (
@@ -263,6 +269,7 @@ export default function TranslatePage({
               type="checkbox"
               checked={form.refine}
               onChange={(e) => setForm("refine", e.target.checked)}
+              data-testid="refine-checkbox"
             />
             {t("refine_translation")}
           </label>
@@ -274,12 +281,13 @@ export default function TranslatePage({
             className="secondary-button"
             onClick={() => setShowCheckpoints((prev) => !prev)}
             disabled={!form.checkpoint_dir}
+            data-testid="toggle-checkpoints"
           >
             {showCheckpoints ? t("hide_checkpoints") : t("show_checkpoints")}
           </button>
 
           {showCheckpoints && (
-            <div className="checkpoint-list">
+            <div className="checkpoint-list" data-testid="checkpoint-list">
               {checkpoints.length === 0 ? (
                 <p className="checkpoint-empty">{t("no_checkpoints")}</p>
               ) : (
@@ -292,23 +300,32 @@ export default function TranslatePage({
                       onClick={() => setForm("resume", cp.job_id)}
                       role="button"
                       tabIndex={0}
+                      data-testid={`checkpoint-item-${cp.job_id}`}
                       onKeyDown={(e) => {
                         if (e.key === "Enter" || e.key === " ") {
                           setForm("resume", cp.job_id);
                         }
                       }}
+                      title={cp.source_path}
                     >
                       <div className="checkpoint-meta">
-                        <span className="checkpoint-id">{cp.job_id}</span>
+                        <span className="checkpoint-id">{basename(cp.source_path)}</span>
                         <span className="checkpoint-progress">
                           {cp.completed}/{cp.total} {t("chapters_done")}
                         </span>
                       </div>
-                      {cp.failed > 0 && (
-                        <span className="checkpoint-failed">
-                          {cp.failed} {t("chapters_failed")}
-                        </span>
-                      )}
+                      <div className="checkpoint-stats">
+                        {cp.pending > 0 && (
+                          <span className="checkpoint-pending">
+                            {cp.pending} {t("chapters_pending")}
+                          </span>
+                        )}
+                        {cp.failed > 0 && (
+                          <span className="checkpoint-failed">
+                            {cp.failed} {t("chapters_failed")}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   ))}
                   {form.resume && (
@@ -316,6 +333,7 @@ export default function TranslatePage({
                       type="button"
                       className="secondary-button"
                       onClick={() => setForm("resume", "")}
+                      data-testid="clear-resume-selection"
                     >
                       {t("clear_resume_selection")}
                     </button>

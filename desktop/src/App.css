@@ -979,6 +979,17 @@ button:disabled {
   color: var(--danger);
 }
 
+.checkpoint-pending {
+  font-size: 0.8rem;
+  color: var(--warning, #f59e0b);
+}
+
+.checkpoint-stats {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
 .start-row {
   display: flex;
   gap: 0.75rem;

@@ -202,5 +202,10 @@
   "checkpoint_hint": "点击任务以继续翻译",
   "chapters_done": "章已完成",
   "chapters_failed": "章失败",
-  "clear_resume_selection": "清除选择"
+  "chapters_pending": "待处理",
+  "clear_resume_selection": "清除选择",
+  "checkpoint_dir": "检查点目录",
+  "checkpoint_dir_help": "保存翻译检查点文件的目录。留空则禁用续译。",
+  "checkpoint_dir_placeholder": "例如 /path/to/checkpoints",
+  "select_directory": "选择目录"
 }
