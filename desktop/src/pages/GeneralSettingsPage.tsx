@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
-import { languages } from "../types";
+import { languages, themes } from "../types";
+import type { ThemeId } from "../types";
 import type { GeneralSettings } from "../config";
 
 interface GeneralSettingsPageProps {
@@ -24,7 +25,7 @@ export default function GeneralSettingsPage({
     setGeneral({ ...general, follow_system_language: checked });
   };
 
-  const setTheme = (theme: "light" | "dark") => {
+  const setTheme = (theme: ThemeId) => {
     setGeneral({ ...general, theme });
   };
 
@@ -66,10 +67,13 @@ export default function GeneralSettingsPage({
         {t("theme")}
         <select
           value={general.theme}
-          onChange={(e) => setTheme(e.target.value as "light" | "dark")}
+          onChange={(e) => setTheme(e.target.value as ThemeId)}
         >
-          <option value="light">{t("theme_light")}</option>
-          <option value="dark">{t("theme_dark")}</option>
+          {themes.map((theme) => (
+            <option key={theme} value={theme}>
+              {t(`theme_${theme.replace("-", "_")}`)}
+            </option>
+          ))}
         </select>
       </label>
     </div>

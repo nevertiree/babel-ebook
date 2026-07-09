@@ -1,25 +1,125 @@
 :root {
+  --radius: 8px;
+  --sidebar-width: 220px;
+
+  /* Default dark theme */
   --bg: #0f172a;
   --surface: #1e293b;
+  --elevated: #334155;
   --text: #e2e8f0;
   --muted: #94a3b8;
   --accent: #38bdf8;
   --accent-hover: #0ea5e9;
+  --accent-text: #02101a;
   --danger: #f87171;
-  --border: var(--border);
-  --radius: 8px;
-  --sidebar-width: 220px;
+  --warning: #f59e0b;
+  --success: #4ade80;
+  --info: #3b82f6;
+  --border: #334155;
+  --input-bg: #0b1220;
+  --input-border: var(--border);
+  --hover-bg: rgba(56, 189, 248, 0.1);
+  --selected-bg: rgba(56, 189, 248, 0.12);
+}
+
+[data-theme="dark"] {
+  --bg: #0f172a;
+  --surface: #1e293b;
+  --elevated: #334155;
+  --text: #e2e8f0;
+  --muted: #94a3b8;
+  --accent: #38bdf8;
+  --accent-hover: #0ea5e9;
+  --accent-text: #02101a;
+  --danger: #f87171;
+  --warning: #f59e0b;
+  --success: #4ade80;
+  --info: #3b82f6;
+  --border: #334155;
+  --input-bg: #0b1220;
+  --input-border: var(--border);
+  --hover-bg: rgba(56, 189, 248, 0.1);
+  --selected-bg: rgba(56, 189, 248, 0.12);
 }
 
 [data-theme="light"] {
   --bg: #f8fafc;
   --surface: #ffffff;
+  --elevated: #f1f5f9;
   --text: #0f172a;
   --muted: #64748b;
   --accent: #2563eb;
   --accent-hover: #1d4ed8;
+  --accent-text: #ffffff;
   --danger: #dc2626;
-  --border: #e2e8f0;
+  --warning: #d97706;
+  --success: #16a34a;
+  --info: #2563eb;
+  --border: #cbd5e1;
+  --input-bg: #ffffff;
+  --input-border: #cbd5e1;
+  --hover-bg: rgba(37, 99, 235, 0.08);
+  --selected-bg: rgba(37, 99, 235, 0.12);
+}
+
+[data-theme="midnight"] {
+  --bg: #020617;
+  --surface: #0f172a;
+  --elevated: #1e293b;
+  --text: #e2e8f0;
+  --muted: #94a3b8;
+  --accent: #60a5fa;
+  --accent-hover: #3b82f6;
+  --accent-text: #020617;
+  --danger: #f87171;
+  --warning: #fbbf24;
+  --success: #34d399;
+  --info: #60a5fa;
+  --border: #1e293b;
+  --input-bg: #020617;
+  --input-border: #334155;
+  --hover-bg: rgba(96, 165, 250, 0.1);
+  --selected-bg: rgba(96, 165, 250, 0.15);
+}
+
+[data-theme="solarized"] {
+  --bg: #002b36;
+  --surface: #073642;
+  --elevated: #083c4a;
+  --text: #eee8d5;
+  --muted: #93a1a1;
+  --accent: #268bd2;
+  --accent-hover: #2aa198;
+  --accent-text: #fdf6e3;
+  --danger: #dc322f;
+  --warning: #b58900;
+  --success: #859900;
+  --info: #268bd2;
+  --border: #586e75;
+  --input-bg: #002b36;
+  --input-border: #586e75;
+  --hover-bg: rgba(38, 139, 210, 0.15);
+  --selected-bg: rgba(38, 139, 210, 0.2);
+}
+
+[data-theme="high-contrast"] {
+  --bg: #000000;
+  --surface: #000000;
+  --elevated: #000000;
+  --text: #ffffff;
+  --muted: #cccccc;
+  --accent: #ffff00;
+  --accent-hover: #ffea00;
+  --accent-text: #000000;
+  --danger: #ff0000;
+  --warning: #ffff00;
+  --success: #00ff00;
+  --info: #00ffff;
+  --border: #ffffff;
+  --input-bg: #000000;
+  --input-border: #ffffff;
+  --hover-bg: rgba(255, 255, 255, 0.2);
+  --selected-bg: rgba(255, 255, 0, 0.3);
 }
 
 * {
@@ -114,12 +214,12 @@ nav {
 }
 
 .nav-item:hover {
-  background: rgba(56, 189, 248, 0.1);
+  background: var(--hover-bg);
 }
 
 .nav-item.active {
   background: var(--accent);
-  color: #02101a;
+  color: var(--accent-text);
 }
 
 .main-content {
@@ -151,7 +251,7 @@ select {
   padding: 0.55rem 0.75rem;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: #0b1220;
+  background: var(--input-bg);
   color: var(--text);
   font-size: 0.95rem;
   outline: none;
@@ -184,7 +284,7 @@ button {
   border: none;
   border-radius: var(--radius);
   background: var(--accent);
-  color: #02101a;
+  color: var(--accent-text);
   font-weight: 600;
   cursor: pointer;
   transition: background 0.15s ease;
@@ -322,7 +422,7 @@ button:disabled {
 
 .progress-bar {
   height: 0.6rem;
-  background: #0b1220;
+  background: var(--input-bg);
   border-radius: 999px;
   overflow: hidden;
 }
@@ -432,7 +532,7 @@ button:disabled {
 }
 
 .legal-header button:hover {
-  background: rgba(56, 189, 248, 0.1);
+  background: var(--hover-bg);
 }
 
 .legal-document {
@@ -567,7 +667,7 @@ button:disabled {
 }
 
 .log-entry.success {
-  color: #4ade80;
+  color: var(--success);
 }
 
 .log-entry.error {
@@ -612,7 +712,7 @@ button:disabled {
   bottom: 125%;
   left: 50%;
   transform: translateX(-50%);
-  background: #0b1220;
+  background: var(--input-bg);
   border: 1px solid var(--border);
   padding: 0.4rem 0.6rem;
   border-radius: var(--radius);
@@ -639,7 +739,7 @@ button:disabled {
 }
 
 .example-chips button:hover {
-  background: #475569;
+  background: var(--muted);
 }
 
 .input-with-toggle {
@@ -705,7 +805,7 @@ button:disabled {
 }
 
 .connection-status.ok {
-  background: #4ade80;
+  background: var(--success);
 }
 
 .connection-status.error {
@@ -737,7 +837,7 @@ button:disabled {
 }
 
 .test-result-ok {
-  color: #4ade80;
+  color: var(--success);
 }
 
 .test-result-error {
@@ -820,7 +920,7 @@ button:disabled {
 }
 
 .active-provider-label {
-  color: #4ade80;
+  color: var(--success);
   cursor: default;
 }
 
@@ -887,11 +987,11 @@ button:disabled {
   text-transform: uppercase;
 }
 
-.task-status-pending { background: #3b82f6; color: white; }
-.task-status-running { background: #f59e0b; color: white; }
-.task-status-completed { background: #10b981; color: white; }
-.task-status-failed { background: #ef4444; color: white; }
-.task-status-cancelled { background: #6b7280; color: white; }
+.task-status-pending { background: var(--info); color: var(--accent-text); }
+.task-status-running { background: var(--warning); color: var(--accent-text); }
+.task-status-completed { background: var(--success); color: var(--accent-text); }
+.task-status-failed { background: var(--danger); color: var(--accent-text); }
+.task-status-cancelled { background: var(--muted); color: var(--accent-text); }
 
 .task-actions {
   display: flex;
@@ -946,7 +1046,7 @@ button:disabled {
 }
 
 .checkpoint-section .secondary-button:hover:not(:disabled) {
-  background: rgba(56, 189, 248, 0.1);
+  background: var(--hover-bg);
 }
 
 .checkpoint-section .secondary-button:disabled {
@@ -978,12 +1078,12 @@ button:disabled {
 }
 
 .checkpoint-item:hover {
-  background: rgba(56, 189, 248, 0.08);
+  background: var(--hover-bg);
 }
 
 .checkpoint-item.selected {
   border-color: var(--accent);
-  background: rgba(56, 189, 248, 0.12);
+  background: var(--selected-bg);
 }
 
 .checkpoint-meta {
@@ -1011,7 +1111,7 @@ button:disabled {
 
 .checkpoint-pending {
   font-size: 0.8rem;
-  color: var(--warning, #f59e0b);
+  color: var(--warning);
 }
 
 .checkpoint-stats {

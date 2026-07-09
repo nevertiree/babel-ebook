@@ -4,8 +4,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import "./App.css";
-import type { FormState, LogEntry, Page, ProgressState, ProviderConfig, QueueState, Task, ValidationResult } from "./types";
-import { defaults, recommendedModels, targetLanguages } from "./types";
+import type { FormState, LogEntry, Page, ProgressState, ProviderConfig, QueueState, Task, ThemeId, ValidationResult } from "./types";
+import { defaults, recommendedModels, targetLanguages, themes } from "./types";
 import TranslatePage from "./pages/TranslatePage";
 import ComputeSettingsPage from "./pages/ComputeSettingsPage";
 import ModelParamsPage from "./pages/ModelParamsPage";
@@ -60,7 +60,7 @@ function initialGeneralFromLocalStorage(): GeneralSettings {
   return {
     ui_language:
       ui_language && targetLanguages.some((l) => l.code === ui_language) ? ui_language : "en",
-    theme: ui_theme === "light" || ui_theme === "dark" ? ui_theme : "dark",
+    theme: themes.includes(ui_theme as ThemeId) ? (ui_theme as ThemeId) : "dark",
     follow_system_language: localStorage.getItem("follow_system_language") !== "false",
   };
 }

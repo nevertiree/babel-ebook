@@ -1,11 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
 import { documentDir, join } from "@tauri-apps/api/path";
 import { readTextFile, writeTextFile, mkdir, exists } from "@tauri-apps/plugin-fs";
-import type { FormState, ProviderConfig } from "./types";
+import type { FormState, ProviderConfig, ThemeId } from "./types";
+import { themes } from "./types";
 
 const SETTINGS_DIR = "BabelEbook";
 const SETTINGS_FILE = "settings.json";
-const SETTINGS_VERSION = 4;
+const SETTINGS_VERSION = 5;
 const DEFAULT_CHECKPOINT_DIR = "BabelEbook/checkpoints";
 
 /**
@@ -15,7 +16,7 @@ const DEFAULT_CHECKPOINT_DIR = "BabelEbook/checkpoints";
  */
 export interface GeneralSettings {
   ui_language: string;
-  theme: "light" | "dark";
+  theme: ThemeId;
   follow_system_language: boolean;
 }
 
@@ -91,9 +92,13 @@ const OLD_FLAT_KEYS: string[] = [
 
 const DEFAULT_GENERAL: GeneralSettings = {
   ui_language: "en",
-  theme: "dark",
+  theme: "dark" as ThemeId,
   follow_system_language: true,
 };
+
+function normalizeTheme(value: unknown): ThemeId {
+  return themes.includes(value as ThemeId) ? (value as ThemeId) : DEFAULT_GENERAL.theme;
+}
 
 async function settingsPath(): Promise<string> {
   const docs = await documentDir();
@@ -258,7 +263,10 @@ export async function loadSettings(): Promise<Partial<FormState>> {
   await writeSettingsFile({
     version: SETTINGS_VERSION,
     translation: migrated,
-    general: versioned?.general ?? DEFAULT_GENERAL,
+    general: {
+      ...(versioned?.general ?? DEFAULT_GENERAL),
+      theme: normalizeTheme(versioned?.general?.theme),
+    },
   });
 
   return migrated;
@@ -293,12 +301,16 @@ export async function saveSettings(form: FormState): Promise<void> {
 export async function loadGeneralSettings(): Promise<GeneralSettings> {
   const versioned = await readSettingsFile();
   if (versioned?.general) {
-    return { ...DEFAULT_GENERAL, ...versioned.general };
+    return {
+      ...DEFAULT_GENERAL,
+      ...versioned.general,
+      theme: normalizeTheme(versioned.general.theme),
+    };
   }
 
   // Fall back to localStorage for users upgrading from pre-versioned builds.
   const ui_language = localStorage.getItem("ui_language") ?? DEFAULT_GENERAL.ui_language;
-  const theme = (localStorage.getItem("ui_theme") as "light" | "dark" | null) ?? DEFAULT_GENERAL.theme;
+  const theme = normalizeTheme(localStorage.getItem("ui_theme"));
   const follow_system_language = localStorage.getItem("follow_system_language") !== "false";
 
   return {

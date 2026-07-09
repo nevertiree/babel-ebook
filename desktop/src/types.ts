@@ -211,6 +211,8 @@ export const defaults: FormState = {
 export const providers = ["deepseek", "openai", "anthropic", "ollama"] as const;
 export const outputModes = ["bilingual", "translation_only", "interleaved"] as const;
 export const styles = ["default", "literary", "technical", "academic"] as const;
+export const themes = ["dark", "light", "midnight", "solarized", "high-contrast"] as const;
+export type ThemeId = (typeof themes)[number];
 
 export const languages = [
   { code: "en", label: "English" },

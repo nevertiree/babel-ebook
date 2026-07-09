@@ -41,7 +41,7 @@ export default function PromptsPage({ form, setForm }: PromptsPageProps) {
     padding: "0.55rem 0.75rem",
     border: "1px solid var(--border)",
     borderRadius: "var(--radius)",
-    background: "#0b1220",
+    background: "var(--input-bg)",
     color: "var(--text)",
     fontSize: "0.95rem",
     outline: "none",
