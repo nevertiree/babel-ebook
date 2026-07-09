@@ -39,6 +39,8 @@ fn test_config() -> Config {
         max_input_tokens: 4000,
         max_output_tokens: 2000,
         cache_dir: PathBuf::from(".cache"),
+        checkpoint_dir: PathBuf::from(".checkpoints"),
+        resume_job_id: None,
         temperature: 0.3,
         source_lang: "en".into(),
         target_lang: "zh-CN".into(),

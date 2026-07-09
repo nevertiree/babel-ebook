@@ -124,6 +124,12 @@ pub struct Config {
     /// Directory where translation cache entries are stored.
     #[serde(default = "default_cache_dir")]
     pub cache_dir: PathBuf,
+    /// Directory where translation checkpoint files are stored.
+    #[serde(default = "default_checkpoint_dir")]
+    pub checkpoint_dir: PathBuf,
+    /// Optional job id to resume an existing translation.
+    #[serde(default)]
+    pub resume_job_id: Option<String>,
     /// Sampling temperature for the LLM.
     #[serde(default = "default_temperature")]
     pub temperature: f32,
@@ -519,6 +525,10 @@ impl Config {
         validate_non_empty_path(&self.cache_dir, "cache_dir")?;
         validate_cache_dir(&self.cache_dir, "cache_dir")?;
 
+        // checkpoint_dir
+        validate_non_empty_path(&self.checkpoint_dir, "checkpoint_dir")?;
+        validate_cache_dir(&self.checkpoint_dir, "checkpoint_dir")?;
+
         // provider
         let provider = self.provider.to_ascii_lowercase();
         if !KNOWN_PROVIDERS.contains(&provider.as_str()) {
@@ -679,6 +689,10 @@ const fn default_max_output_tokens() -> usize {
 
 fn default_cache_dir() -> PathBuf {
     PathBuf::from(".babel_ebook_cache")
+}
+
+fn default_checkpoint_dir() -> PathBuf {
+    PathBuf::from(".babel_ebook_checkpoints")
 }
 
 const fn default_temperature() -> f32 {
