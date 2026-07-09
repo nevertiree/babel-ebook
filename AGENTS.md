@@ -171,9 +171,25 @@ code is merged directly into `master`.
    commits, and creates an annotated tag `v<x.y.z>`.
 4. Open a Pull Request from the release branch to `master` and merge it. This is the
    only code path that may update `master`.
-5. **The tag commit on `master` must always be the latest release.** If the tag was
-   created on `develop` (e.g. during a hotfix or small patch), fast-forward `master`
-   to that tagged commit so `master` and the release tag point to the same commit.
+5. **Push the release tag and ensure `master` points to the latest release.**
+   After `pnpm version:bump` creates the annotated tag `v<x.y.z>`, push it to the
+   remote:
+
+   ```bash
+   git push origin v<x.y.z>
+   ```
+
+   Then fast-forward `master` to that tag so `master` and the release tag point to
+   the same commit:
+
+   ```bash
+   git checkout master
+   git merge --ff-only v<x.y.z>
+   git push origin master
+   ```
+
+   If the tag was created on `develop` (e.g. during a hotfix or small patch), this
+   step is still required.
 6. Run `pnpm release:build` on the tag commit.
 7. Merge `master` back into `develop` so both branches carry the version bump.
 
