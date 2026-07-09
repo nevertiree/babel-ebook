@@ -2,15 +2,21 @@
 
 ## Problem
 
-After reinstalling BabelEbook, users lose their provider configurations and API keys. The app stores general settings in `Documents/BabelEbook/settings.json` but persists API keys in the OS keyring (Windows Credential Manager on Windows). Reinstalling or uninstalling can leave the keyring empty or disconnected from the saved provider list, so the "Compute" settings tab appears blank after reinstall.
+After reinstalling BabelEbook, users lose their provider configurations and API keys.
+The app stores general settings in `Documents/BabelEbook/settings.json` but persists
+API keys in the OS keyring (Windows Credential Manager on Windows). Reinstalling or
+uninstalling can leave the keyring empty or disconnected from the saved provider list,
+so the "Compute" settings tab appears blank after reinstall.
 
 ## Goal
 
-Allow users to back up and restore their complete BabelEbook configuration to a single file, so a reinstall can be recovered with one import action.
+Allow users to back up and restore their complete BabelEbook configuration to a
+single file, so a reinstall can be recovered with one import action.
 
 ## Scope
 
-- Export all settings: provider configs (with API keys), active provider, model params, translation options, prompts, output options, and general UI settings.
+- Export all settings: provider configs (with API keys), active provider, model params,
+  translation options, prompts, output options, and general UI settings.
 - Import the same file and restore both `settings.json` and the OS keyring entries.
 - No encryption for the first iteration; rely on a clear security warning and user-chosen storage location.
 
@@ -80,7 +86,8 @@ A JSON file with this structure:
 }
 ```
 
-- `version` matches the internal `SETTINGS_VERSION` constant (currently `5`). Imports must reject files with a different version.
+- `version` matches the internal `SETTINGS_VERSION` constant (currently `5`). Imports must
+  reject files with a different version.
 - `exported_at` and `app_version` are metadata for the user.
 - `api_key` is included in plaintext because the file itself is the backup medium.
 
@@ -138,9 +145,11 @@ No new Rust commands are required. Existing `fs` and `dialog` plugin permissions
 
 ## Security Considerations
 
-- The exported file contains plaintext API keys. A clear warning must be shown before export.
+- The exported file contains plaintext API keys. A clear warning must be shown before
+  export.
 - The user chooses where to save the file; the app should not default to a shared or synced location.
-- Do not commit or upload the backup file. Consider adding `.babel-ebook-settings*.json` to `.gitignore` if users commonly keep backups near the repo.
+- Do not commit or upload the backup file. Consider adding `.babel-ebook-settings*.json`
+  to `.gitignore` if users commonly keep backups near the repo.
 
 ## Testing Notes
 
