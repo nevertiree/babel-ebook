@@ -65,6 +65,7 @@ pub struct TranslateArgs {
     /// Configurable prompt templates for each translation style.
     pub prompts: PromptTemplates,
     /// If true, run a second refinement pass over the first-pass translation.
+    #[serde(default)]
     pub refine: bool,
     /// Directory where translation checkpoints are stored.
     #[serde(default)]

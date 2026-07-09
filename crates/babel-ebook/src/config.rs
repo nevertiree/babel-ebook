@@ -693,7 +693,7 @@ impl Config {
         let prompt_tokens = crate::chunking::count_tokens(&self.refine_prompt()) + 100;
         let input = self.max_input_tokens.saturating_sub(prompt_tokens);
         let output = self.max_output_tokens.saturating_sub(200);
-        input.min(output)
+        input.min(output).max(1)
     }
 
     /// Maximum source text tokens per API call.
@@ -705,7 +705,7 @@ impl Config {
         let prompt_tokens = crate::chunking::count_tokens(&self.system_prompt()) + 50;
         let input = self.max_input_tokens.saturating_sub(prompt_tokens);
         let output = self.max_output_tokens.saturating_sub(200);
-        input.min(output)
+        input.min(output).max(1)
     }
 }
 

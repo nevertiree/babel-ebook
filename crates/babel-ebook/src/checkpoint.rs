@@ -76,8 +76,19 @@ impl CheckpointStore {
         if !path.exists() {
             return None;
         }
-        let content = std::fs::read_to_string(&path).ok()?;
-        serde_json::from_str(&content).ok()
+        match std::fs::read_to_string(&path) {
+            Ok(content) => match serde_json::from_str(&content) {
+                Ok(cp) => Some(cp),
+                Err(err) => {
+                    tracing::warn!(job_id, error = %err, "failed to parse checkpoint; starting fresh");
+                    None
+                }
+            },
+            Err(err) => {
+                tracing::warn!(job_id, error = %err, "failed to read checkpoint; starting fresh");
+                None
+            }
+        }
     }
 
     /// Persist a checkpoint atomically (write temp + rename).
