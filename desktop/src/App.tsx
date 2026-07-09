@@ -20,6 +20,7 @@ import TasksPage from "./pages/TasksPage";
 import {
   loadGeneralSettings,
   loadSettings,
+  normalizeTheme,
   saveGeneralSettings,
   saveSettings,
   type GeneralSettings,
@@ -650,7 +651,7 @@ function App() {
             general={general}
             setGeneral={setGeneral}
             detectedLocale={detectedLocale}
-            onImport={(settings) => {
+            onImport={async (settings) => {
               const merged = { ...form, ...settings.translation } as FormState;
               if (
                 !merged.active_provider ||
@@ -658,10 +659,14 @@ function App() {
               ) {
                 merged.active_provider = merged.providers[0]?.name ?? "";
               }
+              const general = {
+                ...settings.general,
+                theme: normalizeTheme(settings.general.theme),
+              };
               setForm(merged);
-              setGeneral(settings.general);
-              void saveSettings(merged);
-              void saveGeneralSettings(settings.general);
+              setGeneral(general);
+              await saveSettings(merged);
+              await saveGeneralSettings(general);
             }}
           />
         );

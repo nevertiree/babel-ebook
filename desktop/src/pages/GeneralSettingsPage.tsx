@@ -8,7 +8,7 @@ interface GeneralSettingsPageProps {
   general: GeneralSettings;
   setGeneral: (value: GeneralSettings) => void;
   detectedLocale: string;
-  onImport: (settings: ExportedSettings) => void;
+  onImport: (settings: ExportedSettings) => Promise<void>;
 }
 
 export default function GeneralSettingsPage({
@@ -91,7 +91,7 @@ export default function GeneralSettingsPage({
     if (!confirmed) return;
 
     try {
-      onImport(settings);
+      await onImport(settings);
       await message(t("import_success"), { title: t("import_settings"), kind: "info" });
     } catch (err) {
       await message(t("error_import_failed", { message: String(err) }), {

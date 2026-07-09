@@ -106,7 +106,7 @@ const DEFAULT_GENERAL: GeneralSettings = {
   follow_system_language: true,
 };
 
-function normalizeTheme(value: unknown): ThemeId {
+export function normalizeTheme(value: unknown): ThemeId {
   return themes.includes(value as ThemeId) ? (value as ThemeId) : DEFAULT_GENERAL.theme;
 }
 
@@ -343,10 +343,8 @@ export async function saveGeneralSettings(general: GeneralSettings): Promise<voi
 }
 
 export async function exportSettings(path: string): Promise<void> {
-  const [translation, general] = await Promise.all([
-    loadSettings(),
-    loadGeneralSettings(),
-  ]);
+  const translation = await loadSettings();
+  const general = await loadGeneralSettings();
 
   // TODO: wire to build version
   const appVersion =
@@ -385,15 +383,24 @@ export async function importSettings(path: string): Promise<ExportedSettings> {
 
 function isExportedSettings(value: unknown): value is ExportedSettings {
   const p = value as Record<string, unknown> | undefined;
+  if (!p) return false;
+
+  const translation = p.translation as Record<string, unknown> | undefined;
+  const general = p.general as Record<string, unknown> | undefined;
+  const providers = translation?.providers as unknown[] | undefined;
+
   return (
-    !!p &&
     typeof p.version === "number" &&
     typeof p.exported_at === "string" &&
     typeof p.app_version === "string" &&
-    typeof p.translation === "object" &&
-    p.translation !== null &&
-    Array.isArray((p.translation as Record<string, unknown>).providers) &&
-    typeof p.general === "object" &&
-    p.general !== null
+    typeof translation === "object" &&
+    translation !== null &&
+    Array.isArray(providers) &&
+    providers.every((item) => typeof item === "object" && item !== null) &&
+    typeof general === "object" &&
+    general !== null &&
+    typeof general.ui_language === "string" &&
+    themes.includes(general.theme as ThemeId) &&
+    typeof general.follow_system_language === "boolean"
   );
 }
