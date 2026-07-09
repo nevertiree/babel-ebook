@@ -4,8 +4,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import "./App.css";
-import type { FormState, LogEntry, Page, ProgressState, ProviderConfig, QueueState, Task, ThemeId, ValidationResult } from "./types";
-import { defaults, recommendedModels, targetLanguages, themes } from "./types";
+import type { FormState, LogEntry, Page, ProgressState, ProviderConfig, QueueState, Task, ValidationResult } from "./types";
+import { defaults, recommendedModels, targetLanguages } from "./types";
 import TranslatePage from "./pages/TranslatePage";
 import ComputeSettingsPage from "./pages/ComputeSettingsPage";
 import ModelParamsPage from "./pages/ModelParamsPage";
@@ -56,11 +56,10 @@ function generateId() {
 
 function initialGeneralFromLocalStorage(): GeneralSettings {
   const ui_language = localStorage.getItem("ui_language");
-  const ui_theme = localStorage.getItem("ui_theme");
   return {
     ui_language:
       ui_language && targetLanguages.some((l) => l.code === ui_language) ? ui_language : "en",
-    theme: themes.includes(ui_theme as ThemeId) ? (ui_theme as ThemeId) : "dark",
+    theme: "dark",
     follow_system_language: localStorage.getItem("follow_system_language") !== "false",
   };
 }
@@ -194,6 +193,7 @@ function App() {
   const completedRef = useRef(0);
   const totalRef = useRef(0);
   const e2eOutputRef = useRef<string | null>(null);
+  const generalLoadedRef = useRef(false);
 
   // Load persisted settings on mount, optionally overridden by E2E env args.
   useEffect(() => {
@@ -208,6 +208,7 @@ function App() {
           }),
         ]);
         setGeneral(generalSettings);
+        generalLoadedRef.current = true;
 
         let merged = { ...form, ...settings } as FormState;
 
@@ -311,6 +312,7 @@ function App() {
 
   // Persist general UI settings when they change.
   useEffect(() => {
+    if (!generalLoadedRef.current) return;
     void saveGeneralSettings(general);
   }, [general]);
 
