@@ -1,16 +1,15 @@
 //! Core orchestration for the babel-ebook pipeline.
 
-use std::sync::Arc;
-
 use serde::Serialize;
-use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::cache::TranslationCache;
+use crate::checkpoint::CheckpointStore;
 use crate::chunking::count_tokens;
 use crate::config::Config;
 use crate::epub::{should_translate_doc, write_epub};
-use crate::html::{process_document, translate_text};
+use crate::html::translate_text;
 use crate::input_formats::read_input_book;
+use crate::pipeline::run_ordered_pipeline;
 use crate::t;
 use crate::translator::Translator;
 
@@ -126,6 +125,7 @@ pub async fn translate_epub(
     let cache = &owned_cache;
 
     let mut book = read_input_book(&config.source)?;
+    let source_hash = CheckpointStore::source_hash(&config.source)?;
     let translatable_indices = translatable_chapters(&book, &config.skip_doc_patterns)?;
     tracing::info!(
         total_chapters = book.chapters.len(),
@@ -145,17 +145,56 @@ pub async fn translate_epub(
         },
     );
 
-    let semaphore = Arc::new(Semaphore::new(config.concurrency.max(1)));
-    let failures = run_all_chapters(
+    let (checkpoint_store, job_id) = if config.dry_run {
+        (None, None)
+    } else {
+        let store = CheckpointStore::new(config.checkpoint_dir.clone())?;
+        let id = config
+            .resume_job_id
+            .clone()
+            .unwrap_or_else(|| CheckpointStore::generate_job_id(&config.source));
+        (Some(store), Some(id))
+    };
+
+    let pipeline_result = run_ordered_pipeline(
         &mut book,
-        translatable_indices,
+        translatable_indices.clone(),
         translator,
         config,
         cache,
+        checkpoint_store.as_ref(),
+        job_id.as_deref(),
+        &source_hash,
         progress,
-        semaphore,
     )
     .await?;
+    let failures = pipeline_result.failures;
+
+    if config.translation_scope.toc {
+        let failed_hrefs: std::collections::HashSet<&str> =
+            failures.iter().map(|(href, _)| href.as_str()).collect();
+        for index in &translatable_indices {
+            if let Some(title) = book.chapters[*index].title.clone() {
+                let href = book.chapters[*index].href.clone();
+                if failed_hrefs.contains(href.as_str()) {
+                    continue;
+                }
+                match translate_title(&title, translator, config, cache, &href).await {
+                    Ok(translated) => {
+                        book.chapters[*index].title = Some(translated);
+                    }
+                    Err(err) => {
+                        let err_msg = t!(
+                            "log_title_translate_failed",
+                            href = href.as_str(),
+                            error = err.to_string()
+                        );
+                        tracing::warn!("{err_msg}");
+                    }
+                }
+            }
+        }
+    }
 
     tracing::info!(output = %config.output.display(), "writing translated EPUB");
     write_epub(&book, &config.output)?;
@@ -198,101 +237,6 @@ fn run_dry_run(
     emit_progress(progress, ProgressEvent::Completed);
 }
 
-#[allow(clippy::future_not_send)]
-async fn run_all_chapters(
-    book: &mut crate::epub::EpubBook,
-    indices: Vec<usize>,
-    translator: &dyn Translator,
-    config: &Config,
-    cache: &TranslationCache,
-    progress: Option<&dyn ProgressCallback>,
-    semaphore: Arc<Semaphore>,
-) -> Result<Vec<(String, BabelEbookError)>, BabelEbookError> {
-    let futures = indices.into_iter().map(|index| {
-        let semaphore = Arc::clone(&semaphore);
-        let content = &book.chapters[index].content;
-        let href = book.chapters[index].href.clone();
-        async move {
-            tracing::info!(index, href, "starting chapter translation");
-            emit_progress(
-                progress,
-                ProgressEvent::ChapterStarted {
-                    index,
-                    href: href.clone(),
-                },
-            );
-            let _permit = acquire_permit(semaphore).await?;
-            let result = process_document(content, translator, config, cache, &href).await;
-            match &result {
-                Ok(_) => {
-                    tracing::info!(index, href, "chapter translation finished");
-                    emit_progress(
-                        progress,
-                        ProgressEvent::ChapterFinished {
-                            index,
-                            href: href.clone(),
-                        },
-                    );
-                }
-                Err(err) => {
-                    tracing::error!(index, href, error = %err, "chapter translation failed");
-                    emit_progress(
-                        progress,
-                        ProgressEvent::Failed {
-                            index,
-                            href: href.clone(),
-                            error: err.to_string(),
-                        },
-                    );
-                }
-            }
-            Ok::<(usize, Result<Vec<u8>, BabelEbookError>), BabelEbookError>((index, result))
-        }
-    });
-
-    let mut failures: Vec<(String, BabelEbookError)> = Vec::new();
-    for result in futures_util::future::join_all(futures).await {
-        let (index, processed) = result?;
-        match processed {
-            Ok(content) => {
-                let href = book.chapters[index].href.clone();
-                let msg = t!("log_document_translated", href = href.as_str());
-                tracing::info!("{msg}");
-                book.chapters[index].content = content;
-
-                if config.translation_scope.toc {
-                    if let Some(title) = book.chapters[index].title.clone() {
-                        match translate_title(&title, translator, config, cache, &href).await {
-                            Ok(translated) => {
-                                book.chapters[index].title = Some(translated);
-                            }
-                            Err(err) => {
-                                let err_msg = t!(
-                                    "log_title_translate_failed",
-                                    href = href.as_str(),
-                                    error = err.to_string()
-                                );
-                                tracing::warn!("{err_msg}");
-                            }
-                        }
-                    }
-                }
-            }
-            Err(err) => {
-                let href = book.chapters[index].href.clone();
-                let msg = t!(
-                    "log_document_failed",
-                    href = href.as_str(),
-                    error = err.to_string()
-                );
-                tracing::error!("{msg}");
-                failures.push((href, err));
-            }
-        }
-    }
-    Ok(failures)
-}
-
 async fn translate_title(
     title: &str,
     translator: &dyn Translator,
@@ -302,15 +246,6 @@ async fn translate_title(
 ) -> Result<String, BabelEbookError> {
     let prompt_key = format!("toc:{href}");
     translate_text(title, translator, config, cache, &prompt_key).await
-}
-
-async fn acquire_permit(
-    semaphore: Arc<Semaphore>,
-) -> Result<OwnedSemaphorePermit, BabelEbookError> {
-    semaphore
-        .acquire_owned()
-        .await
-        .map_err(|err| BabelEbookError::Anyhow(anyhow::anyhow!("semaphore closed: {err}")))
 }
 
 fn emit_progress(progress: Option<&dyn ProgressCallback>, event: ProgressEvent) {

@@ -39,6 +39,8 @@ fn test_config() -> Config {
         max_input_tokens: 4000,
         max_output_tokens: 2000,
         cache_dir: PathBuf::from(".cache"),
+        checkpoint_dir: PathBuf::from(".checkpoints"),
+        resume_job_id: None,
         temperature: 0.3,
         source_lang: "en".into(),
         target_lang: "zh-CN".into(),
@@ -59,6 +61,7 @@ fn test_config() -> Config {
         output_font: None,
         providers: std::collections::HashMap::new(),
         prompts: babel_ebook::config::PromptTemplates::default(),
+        refine: false,
     }
 }
 
@@ -493,6 +496,45 @@ async fn preserve_classes_copies_original_class() {
         "original paragraph should preserve class: {}",
         s
     );
+}
+
+#[tokio::test]
+async fn refine_false_returns_first_pass_only() {
+    let (_dir, cache) = test_cache();
+    let config = test_config();
+    assert!(!config.refine);
+
+    let result = translate_text("hello world", &FakeTranslator, &config, &cache, "")
+        .await
+        .expect("translation should succeed");
+    assert_eq!(result, "[ZH] hello world");
+}
+
+#[tokio::test]
+async fn refine_true_applies_second_pass() {
+    let (_dir, cache) = test_cache();
+    let mut config = test_config();
+    config.refine = true;
+
+    let result = translate_text("hello world", &FakeTranslator, &config, &cache, "")
+        .await
+        .expect("translation should succeed");
+    assert_eq!(result, "[ZH] [ZH] hello world");
+}
+
+#[tokio::test]
+async fn refine_pass_is_cached() {
+    let (_dir, cache) = test_cache();
+    let mut config = test_config();
+    config.refine = true;
+
+    let result = translate_text("hello world", &FakeTranslator, &config, &cache, "")
+        .await
+        .expect("translation should succeed");
+    assert_eq!(result, "[ZH] [ZH] hello world");
+
+    let cached = cache.get("fake-refine", "[ZH] hello world");
+    assert_eq!(cached, Some("[ZH] [ZH] hello world".into()));
 }
 
 #[tokio::test]

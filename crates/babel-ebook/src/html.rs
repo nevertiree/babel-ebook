@@ -33,38 +33,78 @@ pub async fn translate_text(
     cache: &TranslationCache,
     chapter_href: &str,
 ) -> Result<String, BabelEbookError> {
-    if let Some(cached) = cache.get(&translator.name(), text) {
-        return Ok(cached);
+    // First pass. When refinement is disabled we can return a cached full-text
+    // result immediately; otherwise the cached translation still needs to be
+    // polished.
+    let first_pass = if let Some(cached) = cache.get(&translator.name(), text) {
+        if !config.refine {
+            return Ok(cached);
+        }
+        cached
+    } else {
+        let max_source = config.max_source_tokens();
+        let system_prompt = config.system_prompt_for_chapter(chapter_href);
+        let target_lang = &config.target_lang;
+
+        let chunks = split_text_chunks(text, max_source);
+        let mut translated_parts = Vec::with_capacity(chunks.len());
+        for chunk in chunks {
+            if let Some(cached) = cache.get(&translator.name(), &chunk) {
+                translated_parts.push(cached);
+                continue;
+            }
+
+            let context = TranslateContext {
+                system_prompt: &system_prompt,
+                target_lang,
+            };
+            let result = translator.translate(&chunk, &context).await?;
+            let tokens = count_tokens(&chunk) + count_tokens(&result);
+            cache.put(&translator.name(), &chunk, &result, Some(tokens));
+            translated_parts.push(result);
+        }
+
+        translated_parts
+            .join(" ")
+            .replace('\n', " ")
+            .trim()
+            .to_string()
+    };
+
+    if !config.refine {
+        return Ok(first_pass);
     }
 
-    let max_source = config.max_source_tokens();
-    let system_prompt = config.system_prompt_for_chapter(chapter_href);
+    // Optional second-pass refinement using a separate cache namespace.
+    let max_refine_source = config.max_refine_source_tokens();
+    let refine_prompt = config.refine_prompt();
     let target_lang = &config.target_lang;
+    let refine_name = format!("{}-refine", translator.name());
 
-    let chunks = split_text_chunks(text, max_source);
-    let mut translated_parts = Vec::with_capacity(chunks.len());
+    let chunks = split_text_chunks(&first_pass, max_refine_source);
+    let mut refined_parts = Vec::with_capacity(chunks.len());
     for chunk in chunks {
-        if let Some(cached) = cache.get(&translator.name(), &chunk) {
-            translated_parts.push(cached);
+        if let Some(cached) = cache.get(&refine_name, &chunk) {
+            refined_parts.push(cached);
             continue;
         }
 
         let context = TranslateContext {
-            system_prompt: &system_prompt,
+            system_prompt: &refine_prompt,
             target_lang,
         };
         let result = translator.translate(&chunk, &context).await?;
         let tokens = count_tokens(&chunk) + count_tokens(&result);
-        cache.put(&translator.name(), &chunk, &result, Some(tokens));
-        translated_parts.push(result);
+        cache.put(&refine_name, &chunk, &result, Some(tokens));
+        refined_parts.push(result);
     }
 
-    let translation = translated_parts
+    let refined = refined_parts
         .join(" ")
         .replace('\n', " ")
         .trim()
         .to_string();
-    Ok(translation)
+    Ok(refined)
 }
 
 /// Translate all translatable elements in an EPUB HTML document and insert
@@ -177,14 +217,12 @@ async fn translate_element_text_and_attributes(
     if should_translate_element_text(tag_name, &config.translation_scope) {
         let text = normalize_text(node);
         if is_translatable_text(&text) {
-            let translated =
-                match translate_text(&text, translator, config, cache, chapter_href).await {
-                    Ok(t) => t,
-                    Err(err) => {
-                        tracing::error!("Failed to translate element <{}>: {err}", tag_name);
-                        String::new()
-                    }
-                };
+            let translated = translate_text(&text, translator, config, cache, chapter_href)
+                .await
+                .map_err(|err| {
+                    tracing::error!("Failed to translate element <{}>: {err}", tag_name);
+                    err
+                })?;
 
             if !translated.is_empty() {
                 let target_lang = &config.target_lang;
@@ -219,17 +257,16 @@ async fn translate_element_text_and_attributes(
         if let Some(value) = attr_value {
             if is_translatable_text(&value) {
                 let translated_attr =
-                    match translate_text(&value, translator, config, cache, chapter_href).await {
-                        Ok(t) => t,
-                        Err(err) => {
+                    translate_text(&value, translator, config, cache, chapter_href)
+                        .await
+                        .map_err(|err| {
                             tracing::error!(
                                 "Failed to translate attribute {} on <{}>: {err}",
                                 attr_name,
                                 tag_name
                             );
-                            continue;
-                        }
-                    };
+                            err
+                        })?;
                 element
                     .attributes
                     .borrow_mut()

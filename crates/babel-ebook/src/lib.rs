@@ -12,12 +12,14 @@
 #![allow(clippy::missing_errors_doc)]
 
 pub mod cache;
+pub mod checkpoint;
 pub mod chunking;
 pub mod config;
 pub mod core;
 pub mod epub;
 pub mod html;
 pub mod input_formats;
+pub mod pipeline;
 pub mod translator;
 
 pub use cache::TranslationCache;

@@ -72,6 +72,15 @@ struct Args {
     /// If true, enable verbose logging.
     #[arg(short, long)]
     verbose: bool,
+    /// If true, refine an existing translation instead of translating from scratch.
+    #[arg(long)]
+    refine: bool,
+    /// Directory where translation checkpoints are stored.
+    #[arg(long, default_value = ".babel_ebook_checkpoints")]
+    checkpoint_dir: PathBuf,
+    /// Optional job ID to resume a previously interrupted translation.
+    #[arg(long)]
+    resume: Option<String>,
 }
 
 /// Build a runtime `Config` from the optional config file and CLI overrides.
@@ -126,6 +135,15 @@ fn build_config(args: &Args, matches: &clap::ArgMatches) -> Result<Config> {
     }
     if args.verbose {
         config.verbose = true;
+    }
+    if args.refine {
+        config.refine = true;
+    }
+    if is_explicit(matches, "checkpoint_dir") {
+        config.checkpoint_dir.clone_from(&args.checkpoint_dir);
+    }
+    if let Some(job_id) = &args.resume {
+        config.resume_job_id = Some(job_id.clone());
     }
 
     if is_explicit(matches, "base_url") {
@@ -201,9 +219,19 @@ async fn main() -> Result<()> {
     )
     .context(t!("err_create_translator").to_string())?;
 
-    babel_ebook::translate_epub(&config, translator.as_ref(), None, None)
-        .await
-        .context(t!("err_translation").to_string())?;
+    tokio::task::spawn_blocking(move || -> Result<(), anyhow::Error> {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .context("failed to build local tokio runtime")?;
+        rt.block_on(async {
+            babel_ebook::translate_epub(&config, translator.as_ref(), None, None)
+                .await
+                .context(t!("err_translation").to_string())
+        })
+    })
+    .await
+    .context(t!("err_translation").to_string())??;
 
     Ok(())
 }
@@ -384,5 +412,28 @@ mod tests {
         let config = build_config(&args, &matches).unwrap();
         let err = config.validate().unwrap_err();
         assert!(err.to_string().contains("source file does not exist"));
+    }
+
+    #[test]
+    fn cli_accepts_refine_and_checkpoint_args() {
+        let (args, matches) = parse_args(&[
+            "babel-ebook",
+            "book.epub",
+            "-o",
+            "out.epub",
+            "--refine",
+            "--checkpoint-dir",
+            ".checkpoints",
+            "--resume",
+            "abc123",
+        ]);
+        assert!(args.refine);
+        assert_eq!(args.checkpoint_dir, PathBuf::from(".checkpoints"));
+        assert_eq!(args.resume, Some("abc123".into()));
+
+        let config = build_config(&args, &matches).unwrap();
+        assert!(config.refine);
+        assert_eq!(config.checkpoint_dir, PathBuf::from(".checkpoints"));
+        assert_eq!(config.resume_job_id, Some("abc123".into()));
     }
 }

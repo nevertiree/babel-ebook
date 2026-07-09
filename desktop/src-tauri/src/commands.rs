@@ -273,6 +273,7 @@ pub fn get_default_prompts() -> crate::args::PromptTemplates {
         literary: core.literary,
         technical: core.technical,
         academic: core.academic,
+        refine: core.refine,
     }
 }
 

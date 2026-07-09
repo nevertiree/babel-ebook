@@ -10,6 +10,9 @@ pub struct PromptTemplates {
     pub literary: String,
     pub technical: String,
     pub academic: String,
+    /// Template used for the optional refine pass.
+    #[serde(default)]
+    pub refine: String,
 }
 
 /// Optional values injected via environment variables for automated E2E tests.
@@ -61,6 +64,14 @@ pub struct TranslateArgs {
     pub system_prompt: Option<String>,
     /// Configurable prompt templates for each translation style.
     pub prompts: PromptTemplates,
+    /// If true, run a second refinement pass over the first-pass translation.
+    #[serde(default)]
+    pub refine: bool,
+    /// Directory where translation checkpoints are stored.
+    #[serde(default)]
+    pub checkpoint_dir: String,
+    /// Optional job ID to resume a previously interrupted translation.
+    pub resume: Option<String>,
 }
 
 /// Arguments for testing a provider connection without running a full translation.

@@ -64,6 +64,11 @@ pub fn build_config(args: &TranslateArgs) -> Result<Config, String> {
     config.target_lang.clone_from(&args.target_lang);
     config.dry_run = args.dry_run;
     config.verbose = false;
+    config.refine = args.refine;
+    if !args.checkpoint_dir.is_empty() {
+        config.checkpoint_dir = PathBuf::from(&args.checkpoint_dir);
+    }
+    config.resume_job_id.clone_from(&args.resume);
     config.system_prompt = args.system_prompt.clone().filter(|s| !s.is_empty());
     if !args.prompts.default.is_empty() {
         config.prompts.default.clone_from(&args.prompts.default);
@@ -76,6 +81,9 @@ pub fn build_config(args: &TranslateArgs) -> Result<Config, String> {
     }
     if !args.prompts.academic.is_empty() {
         config.prompts.academic.clone_from(&args.prompts.academic);
+    }
+    if !args.prompts.refine.is_empty() {
+        config.prompts.refine.clone_from(&args.prompts.refine);
     }
 
     Ok(config)
@@ -138,6 +146,9 @@ mod tests {
             output_font: None,
             system_prompt: None,
             prompts: PromptTemplates::default(),
+            refine: false,
+            checkpoint_dir: ".babel_ebook_checkpoints".to_string(),
+            resume: None,
         }
     }
 
@@ -167,11 +178,13 @@ mod tests {
         args.prompts.literary = "literary prompt".to_string();
         args.prompts.technical = "technical prompt".to_string();
         args.prompts.academic = "academic prompt".to_string();
+        args.prompts.refine = "refine prompt".to_string();
         let config = build_config(&args).unwrap();
         assert_eq!(config.prompts.default, "default prompt");
         assert_eq!(config.prompts.literary, "literary prompt");
         assert_eq!(config.prompts.technical, "technical prompt");
         assert_eq!(config.prompts.academic, "academic prompt");
+        assert_eq!(config.prompts.refine, "refine prompt");
     }
 
     #[test]
@@ -182,5 +195,6 @@ mod tests {
         assert!(!config.prompts.literary.is_empty());
         assert!(!config.prompts.technical.is_empty());
         assert!(!config.prompts.academic.is_empty());
+        assert!(!config.prompts.refine.is_empty());
     }
 }

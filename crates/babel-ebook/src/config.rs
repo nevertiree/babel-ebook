@@ -97,6 +97,7 @@ pub struct GlossaryEntry {
 
 /// Runtime configuration for the babel-ebook translation pipeline.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct Config {
     /// Path to the source EPUB file.
     pub source: PathBuf,
@@ -124,6 +125,12 @@ pub struct Config {
     /// Directory where translation cache entries are stored.
     #[serde(default = "default_cache_dir")]
     pub cache_dir: PathBuf,
+    /// Directory where translation checkpoint files are stored.
+    #[serde(default = "default_checkpoint_dir")]
+    pub checkpoint_dir: PathBuf,
+    /// Optional job id to resume an existing translation.
+    #[serde(default)]
+    pub resume_job_id: Option<String>,
     /// Sampling temperature for the LLM.
     #[serde(default = "default_temperature")]
     pub temperature: f32,
@@ -184,6 +191,9 @@ pub struct Config {
     /// Optional font-family CSS injected into every translated XHTML document.
     #[serde(default)]
     pub output_font: Option<String>,
+    /// If `true`, refine an existing translation instead of translating from scratch.
+    #[serde(default)]
+    pub refine: bool,
 }
 
 /// Configurable prompt templates for each translation style.
@@ -202,6 +212,9 @@ pub struct PromptTemplates {
     /// Template used for the academic translation style.
     #[serde(default = "default_prompt_academic")]
     pub academic: String,
+    /// Template used for the optional refine pass.
+    #[serde(default = "default_prompt_refine")]
+    pub refine: String,
 }
 
 impl Default for PromptTemplates {
@@ -211,6 +224,7 @@ impl Default for PromptTemplates {
             literary: default_prompt_literary(),
             technical: default_prompt_technical(),
             academic: default_prompt_academic(),
+            refine: default_prompt_refine(),
         }
     }
 }
@@ -229,6 +243,10 @@ fn default_prompt_technical() -> String {
 
 fn default_prompt_academic() -> String {
     include_str!("../prompts/academic.md").into()
+}
+
+fn default_prompt_refine() -> String {
+    include_str!("../prompts/refine.md").into()
 }
 
 /// Provider-specific configuration.
@@ -519,6 +537,10 @@ impl Config {
         validate_non_empty_path(&self.cache_dir, "cache_dir")?;
         validate_cache_dir(&self.cache_dir, "cache_dir")?;
 
+        // checkpoint_dir
+        validate_non_empty_path(&self.checkpoint_dir, "checkpoint_dir")?;
+        validate_cache_dir(&self.checkpoint_dir, "checkpoint_dir")?;
+
         // provider
         let provider = self.provider.to_ascii_lowercase();
         if !KNOWN_PROVIDERS.contains(&provider.as_str()) {
@@ -644,6 +666,36 @@ impl Config {
             .unwrap_or_else(|| self.system_prompt())
     }
 
+    /// Return the configured refine prompt localised to the source/target
+    /// language.
+    #[must_use]
+    #[allow(clippy::literal_string_with_formatting_args)]
+    pub fn refine_prompt(&self) -> String {
+        let source_lang = if self.source_lang == "auto" {
+            "the original language".to_string()
+        } else {
+            self.source_lang.clone()
+        };
+        self.prompts
+            .refine
+            .clone()
+            .replace("{source_lang}", &source_lang)
+            .replace("{target_lang}", &self.target_lang)
+            + &self.glossary_prompt()
+    }
+
+    /// Maximum source text tokens for a refine-pass API call.
+    ///
+    /// Reserves tokens for the refine prompt plus a safety margin and keeps the
+    /// expected output within the configured limit.
+    #[must_use]
+    pub fn max_refine_source_tokens(&self) -> usize {
+        let prompt_tokens = crate::chunking::count_tokens(&self.refine_prompt()) + 100;
+        let input = self.max_input_tokens.saturating_sub(prompt_tokens);
+        let output = self.max_output_tokens.saturating_sub(200);
+        input.min(output).max(1)
+    }
+
     /// Maximum source text tokens per API call.
     ///
     /// Reserves tokens for the system prompt and keeps the expected output
@@ -653,7 +705,7 @@ impl Config {
         let prompt_tokens = crate::chunking::count_tokens(&self.system_prompt()) + 50;
         let input = self.max_input_tokens.saturating_sub(prompt_tokens);
         let output = self.max_output_tokens.saturating_sub(200);
-        input.min(output)
+        input.min(output).max(1)
     }
 }
 
@@ -679,6 +731,10 @@ const fn default_max_output_tokens() -> usize {
 
 fn default_cache_dir() -> PathBuf {
     PathBuf::from(".babel_ebook_cache")
+}
+
+fn default_checkpoint_dir() -> PathBuf {
+    PathBuf::from(".babel_ebook_checkpoints")
 }
 
 const fn default_temperature() -> f32 {

@@ -92,6 +92,8 @@ fn test_config(source: PathBuf, output: PathBuf, cache_dir: PathBuf) -> Config {
         max_input_tokens: 4000,
         max_output_tokens: 2000,
         cache_dir,
+        checkpoint_dir: std::env::temp_dir().join("test-checkpoints"),
+        resume_job_id: None,
         temperature: 0.3,
         source_lang: "en".into(),
         target_lang: "zh-CN".into(),
@@ -118,6 +120,7 @@ fn test_config(source: PathBuf, output: PathBuf, cache_dir: PathBuf) -> Config {
         output_font: None,
         providers: std::collections::HashMap::new(),
         prompts: babel_ebook::config::PromptTemplates::default(),
+        refine: false,
     }
 }
 

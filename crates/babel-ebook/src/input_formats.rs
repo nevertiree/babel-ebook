@@ -5,6 +5,9 @@ use std::path::Path;
 use crate::core::BabelEbookError;
 use crate::epub::{Chapter, EpubBook, EpubMetadata};
 
+pub mod docx;
+pub mod srt;
+
 /// Supported input ebook formats.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(clippy::module_name_repetitions)]
@@ -15,6 +18,10 @@ pub enum InputFormat {
     Mobi,
     /// Plain text.
     Text,
+    /// SubRip subtitle format.
+    Srt,
+    /// Microsoft Word Open XML document.
+    Docx,
 }
 
 impl InputFormat {
@@ -28,6 +35,8 @@ impl InputFormat {
                 "epub" => Some(Self::Epub),
                 "mobi" | "azw" | "azw3" | "prc" => Some(Self::Mobi),
                 "txt" | "text" => Some(Self::Text),
+                "srt" => Some(Self::Srt),
+                "docx" => Some(Self::Docx),
                 _ => None,
             })
     }
@@ -39,6 +48,8 @@ impl InputFormat {
             Self::Epub => "EPUB",
             Self::Mobi => "MOBI/AZW",
             Self::Text => "Plain text",
+            Self::Srt => "SRT subtitles",
+            Self::Docx => "DOCX",
         }
     }
 }
@@ -52,7 +63,7 @@ impl InputFormat {
 pub fn read_input_book(path: &Path) -> Result<EpubBook, BabelEbookError> {
     let format = InputFormat::from_path(path).ok_or_else(|| {
         BabelEbookError::Configuration(format!(
-            "unsupported input format: {}. Supported formats: epub, mobi, azw, azw3, txt",
+            "unsupported input format: {}. Supported formats: epub, mobi, azw, azw3, prc, txt, srt, docx",
             path.display()
         ))
     })?;
@@ -61,6 +72,8 @@ pub fn read_input_book(path: &Path) -> Result<EpubBook, BabelEbookError> {
         InputFormat::Epub => crate::epub::read_epub(path),
         InputFormat::Mobi => read_mobi(path),
         InputFormat::Text => read_text(path),
+        InputFormat::Srt => srt::read_srt(path),
+        InputFormat::Docx => docx::read_docx(path),
     }
 }
 
@@ -132,7 +145,8 @@ fn mobi_language_to_code(lang: mobi::headers::Language) -> Option<String> {
 }
 
 /// Wrap raw text or existing HTML in a minimal valid XHTML document.
-fn html_or_xhtml(text: &str, title: &str) -> String {
+#[must_use]
+pub fn html_or_xhtml(text: &str, title: &str) -> String {
     let trimmed = text.trim_start();
     if trimmed.starts_with('<') && trimmed.to_lowercase().starts_with("<html") {
         // Already looks like a complete HTML document; reuse it as chapter content.
@@ -224,5 +238,5 @@ fn html_escape(text: &str) -> String {
 /// Return a list of supported input file extensions for UI filters.
 #[must_use]
 pub const fn supported_extensions() -> &'static [&'static str] {
-    &["epub", "mobi", "azw", "azw3", "prc", "txt"]
+    &["epub", "mobi", "azw", "azw3", "prc", "txt", "srt", "docx"]
 }
