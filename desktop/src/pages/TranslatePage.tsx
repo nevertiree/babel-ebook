@@ -1,6 +1,8 @@
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { invoke } from "@tauri-apps/api/core";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { FormState, Page, ProgressState, ValidationResult } from "../types";
+import type { CheckpointInfo, FormState, Page, ProgressState, ValidationResult } from "../types";
 import {
   outputModes,
   recommendedModels,
@@ -61,8 +63,6 @@ interface TranslatePageProps {
   form: FormState;
   setForm: <K extends keyof FormState>(key: K, value: FormState[K]) => void;
   onStart: () => void;
-  onEnqueue: () => void;
-  loading: boolean;
   progress: ProgressState;
   validation: ValidationResult;
   onPageChange: (page: Page) => void;
@@ -72,28 +72,59 @@ export default function TranslatePage({
   form,
   setForm,
   onStart,
-  onEnqueue,
-  loading,
   progress,
   validation,
   onPageChange,
 }: TranslatePageProps) {
   const { t } = useTranslation();
+  const [checkpoints, setCheckpoints] = useState<CheckpointInfo[]>([]);
+  const [showCheckpoints, setShowCheckpoints] = useState(false);
 
   const hasProviders = form.providers.length > 0;
   const activeProvider = form.providers.find((p) => p.provider === form.active_provider);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      if (!form.checkpoint_dir) {
+        setCheckpoints([]);
+        return;
+      }
+      try {
+        const list = await invoke<CheckpointInfo[]>("list_checkpoints", {
+          checkpoint_dir: form.checkpoint_dir,
+        });
+        if (!cancelled) {
+          setCheckpoints(list);
+        }
+      } catch {
+        if (!cancelled) {
+          setCheckpoints([]);
+        }
+      }
+    }
+    void load();
+    return () => {
+      cancelled = true;
+    };
+    // Reload when a translation run finishes so newly created checkpoints appear.
+  }, [form.checkpoint_dir, form.resume, showCheckpoints]);
 
   const selectSource = async () => {
     const path = await open({
       filters: [
         {
           name: t("ebook_files"),
-          extensions: ["epub", "mobi", "azw3", "txt"],
+          extensions: ["epub", "mobi", "azw3", "txt", "srt", "docx"],
         },
       ],
     });
     if (path) {
       setForm("source", path);
+      // Clear any previous resume selection when a new source is chosen.
+      if (form.resume) {
+        setForm("resume", "");
+      }
     }
   };
 
@@ -105,6 +136,11 @@ export default function TranslatePage({
     if (path) {
       setForm("output", path);
     }
+  };
+
+  const basename = (path: string) => {
+    const sep = path.includes("/") ? "/" : "\\";
+    return path.split(sep).pop() || path;
   };
 
   return (
@@ -201,7 +237,7 @@ export default function TranslatePage({
               <span className="inline-error">{validation.errors.source}</span>
             )}
           </div>
-          <button type="button" onClick={selectSource} disabled={loading}>
+          <button type="button" onClick={selectSource}>
             {t("select_file")}
           </button>
         </div>
@@ -216,9 +252,92 @@ export default function TranslatePage({
               <span className="inline-error">{validation.errors.output}</span>
             )}
           </div>
-          <button type="button" onClick={selectOutput} disabled={loading}>
+          <button type="button" onClick={selectOutput}>
             {t("save_as")}
           </button>
+        </div>
+      </section>
+
+      <section className="advanced-section">
+        <div className="row">
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={form.refine}
+              onChange={(e) => setForm("refine", e.target.checked)}
+              data-testid="refine-checkbox"
+            />
+            {t("refine_translation")}
+          </label>
+        </div>
+
+        <div className="checkpoint-section">
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => setShowCheckpoints((prev) => !prev)}
+            disabled={!form.checkpoint_dir}
+            data-testid="toggle-checkpoints"
+          >
+            {showCheckpoints ? t("hide_checkpoints") : t("show_checkpoints")}
+          </button>
+
+          {showCheckpoints && (
+            <div className="checkpoint-list" data-testid="checkpoint-list">
+              {checkpoints.length === 0 ? (
+                <p className="checkpoint-empty">{t("no_checkpoints")}</p>
+              ) : (
+                <>
+                  <p className="checkpoint-hint">{t("checkpoint_hint")}</p>
+                  {checkpoints.map((cp) => (
+                    <div
+                      key={cp.job_id}
+                      className={`checkpoint-item ${form.resume === cp.job_id ? "selected" : ""}`}
+                      onClick={() => setForm("resume", cp.job_id)}
+                      role="button"
+                      tabIndex={0}
+                      data-testid={`checkpoint-item-${cp.job_id}`}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          setForm("resume", cp.job_id);
+                        }
+                      }}
+                      title={cp.source_path}
+                    >
+                      <div className="checkpoint-meta">
+                        <span className="checkpoint-id">{basename(cp.source_path)}</span>
+                        <span className="checkpoint-progress">
+                          {cp.completed}/{cp.total} {t("chapters_done")}
+                        </span>
+                      </div>
+                      <div className="checkpoint-stats">
+                        {cp.pending > 0 && (
+                          <span className="checkpoint-pending">
+                            {cp.pending} {t("chapters_pending")}
+                          </span>
+                        )}
+                        {cp.failed > 0 && (
+                          <span className="checkpoint-failed">
+                            {cp.failed} {t("chapters_failed")}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  {form.resume && (
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => setForm("resume", "")}
+                      data-testid="clear-resume-selection"
+                    >
+                      {t("clear_resume_selection")}
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          )}
         </div>
       </section>
 
@@ -236,23 +355,14 @@ export default function TranslatePage({
           className="start-button"
           type="button"
           onClick={onStart}
-          disabled={loading || !validation.valid}
+          disabled={!validation.valid}
           data-testid="start-button"
         >
-          {loading ? t("loading") : t("start")}
-        </button>
-
-        <button
-          type="button"
-          onClick={onEnqueue}
-          disabled={!validation.valid}
-          data-testid="enqueue-button"
-        >
-          {t("add_to_queue")}
+          {t("start")}
         </button>
       </div>
 
-      {(loading || progress.percent > 0 || progress.message) && (
+      {(progress.percent > 0 || (progress.message && progress.message !== t("waiting"))) && (
         <section className="progress-section" data-testid="progress-section">
           <div className="progress-header">
             <span>{t("progress")}</span>

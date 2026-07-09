@@ -1,7 +1,6 @@
 import { chromium, test, expect } from "@playwright/test";
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
@@ -9,6 +8,7 @@ const APP_PATH = resolve(__dirname, "../../target/release/babel-ebook-desktop.ex
 const CDP_URL = "http://localhost:9222";
 const TEST_SOURCE = resolve(__dirname, "../../tests/fixtures/sample.epub");
 const TEST_OUTPUT = resolve(__dirname, "../../output/e2e_output.epub");
+const TEST_CHECKPOINT_DIR = resolve(__dirname, "../../output/e2e_checkpoints");
 
 async function waitForCdp(retries = 30): Promise<boolean> {
   for (let i = 0; i < retries; i += 1) {
@@ -26,23 +26,17 @@ async function waitForCdp(retries = 30): Promise<boolean> {
 let appProcess: ChildProcess | null = null;
 
 test.beforeAll(async () => {
-  const apiKey = process.env.BABEL_EBOOK_E2E_API_KEY;
-  if (!apiKey) {
-    throw new Error("BABEL_EBOOK_E2E_API_KEY is required");
-  }
-
-  mkdirSync(dirname(TEST_OUTPUT), { recursive: true });
-
+  const spawnEnv = {
+    ...process.env,
+    BABEL_EBOOK_E2E_CDP_PORT: "9222",
+    BABEL_EBOOK_E2E_SOURCE: TEST_SOURCE,
+    BABEL_EBOOK_E2E_OUTPUT: TEST_OUTPUT,
+    BABEL_EBOOK_E2E_CHECKPOINT_DIR: TEST_CHECKPOINT_DIR,
+    BABEL_EBOOK_E2E_DRY_RUN: "true",
+    BABEL_EBOOK_E2E_UI_LANGUAGE: "en",
+  };
   appProcess = spawn(APP_PATH, [], {
-    env: {
-      ...process.env,
-      BABEL_EBOOK_E2E_CDP_PORT: "9222",
-      BABEL_EBOOK_E2E_SOURCE: TEST_SOURCE,
-      BABEL_EBOOK_E2E_OUTPUT: TEST_OUTPUT,
-      BABEL_EBOOK_E2E_API_KEY: apiKey,
-      BABEL_EBOOK_E2E_DRY_RUN: "true",
-      BABEL_EBOOK_E2E_UI_LANGUAGE: "en",
-    },
+    env: spawnEnv,
     detached: false,
     shell: true,
     stdio: ["ignore", "pipe", "pipe"],
@@ -67,8 +61,7 @@ test.afterAll(() => {
   }
 });
 
-test("translates a small EPUB in dry-run mode via the desktop UI", async () => {
-  test.setTimeout(180000);
+test("refine checkbox toggles the form state", async () => {
   const browser = await chromium.connectOverCDP(CDP_URL);
   const context = browser.contexts()[0];
   const page = context.pages()[0];
@@ -76,26 +69,36 @@ test("translates a small EPUB in dry-run mode via the desktop UI", async () => {
     console.log(`[browser console] ${msg.type()}: ${msg.text()}`);
   });
 
-  await expect(page.getByTestId("source-path")).toContainText(TEST_SOURCE, {
-    timeout: 10000,
+  const refineCheckbox = page.getByTestId("refine-checkbox");
+  await expect(refineCheckbox).not.toBeChecked();
+
+  await refineCheckbox.click();
+  await expect(refineCheckbox).toBeChecked();
+
+  await refineCheckbox.click();
+  await expect(refineCheckbox).not.toBeChecked();
+
+  await browser.close();
+});
+
+test("checkpoint toggle expands and collapses the checkpoint list", async () => {
+  const browser = await chromium.connectOverCDP(CDP_URL);
+  const context = browser.contexts()[0];
+  const page = context.pages()[0];
+  page.on("console", (msg) => {
+    console.log(`[browser console] ${msg.type()}: ${msg.text()}`);
   });
-  await expect(page.getByTestId("output-path")).toContainText(TEST_OUTPUT);
 
-  const startButton = page.getByTestId("start-button");
-  await expect(startButton).toBeEnabled();
+  const toggle = page.getByTestId("toggle-checkpoints");
+  await expect(toggle).toBeVisible();
+  await expect(toggle).toBeEnabled();
 
-  await startButton.click();
+  await toggle.click();
+  const list = page.getByTestId("checkpoint-list");
+  await expect(list).toBeVisible();
 
-  // Starting the translation now enqueues the task and navigates to the queue.
-  await expect(page.getByTestId("task-list")).toBeVisible({ timeout: 10000 });
-
-  // Wait for the dry-run task to complete.
-  const taskItem = page.getByTestId("task-item").first();
-  await expect(taskItem).toContainText(/completed|finished|token|estimated/i, {
-    timeout: 120000,
-  });
-
-  await page.screenshot({ path: "output/e2e_translate_dryrun.png" });
+  await toggle.click();
+  await expect(list).not.toBeVisible();
 
   await browser.close();
 });

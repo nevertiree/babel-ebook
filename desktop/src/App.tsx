@@ -28,6 +28,7 @@ import {
 interface E2EArgs {
   source?: string;
   output?: string;
+  checkpoint_dir?: string;
   api_key?: string;
   dry_run?: boolean;
   ui_language?: string;
@@ -55,11 +56,10 @@ function generateId() {
 
 function initialGeneralFromLocalStorage(): GeneralSettings {
   const ui_language = localStorage.getItem("ui_language");
-  const ui_theme = localStorage.getItem("ui_theme");
   return {
     ui_language:
       ui_language && targetLanguages.some((l) => l.code === ui_language) ? ui_language : "en",
-    theme: ui_theme === "light" || ui_theme === "dark" ? ui_theme : "dark",
+    theme: "dark",
     follow_system_language: localStorage.getItem("follow_system_language") !== "false",
   };
 }
@@ -164,6 +164,9 @@ function buildTranslateArgs(form: FormState): object {
     translate_tables: !!form.translate_tables,
     translate_footnotes: !!form.translate_footnotes,
     translate_code: !!form.translate_code,
+    refine: !!form.refine,
+    checkpoint_dir: form.checkpoint_dir,
+    resume: form.resume || null,
   };
 }
 
@@ -175,7 +178,7 @@ function App() {
   }));
   const [page, setPage] = useState<Page>("translate");
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [loading, setLoading] = useState(false);
+
   const [progress, setProgress] = useState<ProgressState>({
     percent: 0,
     message: t("waiting"),
@@ -189,50 +192,75 @@ function App() {
 
   const completedRef = useRef(0);
   const totalRef = useRef(0);
+  const e2eOutputRef = useRef<string | null>(null);
+  const generalLoadedRef = useRef(false);
 
   // Load persisted settings on mount, optionally overridden by E2E env args.
   useEffect(() => {
     void (async () => {
-      const [settings, generalSettings, e2e] = await Promise.all([
-        loadSettings(),
-        loadGeneralSettings(),
-        invoke<E2EArgs>("get_e2e_args").catch(() => ({}) as E2EArgs),
-      ]);
-      setGeneral(generalSettings);
+      try {
+        const [settings, generalSettings, e2e] = await Promise.all([
+          loadSettings(),
+          loadGeneralSettings(),
+          invoke<E2EArgs>("get_e2e_args").catch((err) => {
+            console.error("get_e2e_args failed:", err);
+            return {} as E2EArgs;
+          }),
+        ]);
+        setGeneral(generalSettings);
+        generalLoadedRef.current = true;
 
-      let merged = { ...form, ...settings } as FormState;
+        let merged = { ...form, ...settings } as FormState;
 
-      // If no providers exist (fresh install), seed a default provider config so
-      // the UI is never in a broken state. E2E can override the API key below.
-      if (!merged.providers || merged.providers.length === 0) {
-        const defaultProvider = "deepseek";
-        merged = ensureProvider(merged, defaultProvider);
-      }
-      if (!merged.active_provider || !merged.providers.some((p) => p.name === merged.active_provider)) {
-        merged = { ...merged, active_provider: merged.providers[0].name };
-      }
+        // If no providers exist (fresh install), seed a default provider config so
+        // the UI is never in a broken state. E2E can override the API key below.
+        if (!merged.providers || merged.providers.length === 0) {
+          const defaultProvider = "deepseek";
+          merged = ensureProvider(merged, defaultProvider);
+        }
+        if (!merged.active_provider || !merged.providers.some((p) => p.name === merged.active_provider)) {
+          merged = { ...merged, active_provider: merged.providers[0].name };
+        }
 
-      // If E2E injects an API key, apply it to the active provider.
-      if (e2e.api_key) {
-        merged = {
-          ...merged,
-          providers: merged.providers.map((p) =>
-            p.name === merged.active_provider ? { ...p, api_key: e2e.api_key ?? "" } : p
-          ),
-        };
-      }
+        // If E2E injects an API key, apply it to the active provider.
+        if (e2e.api_key) {
+          merged = {
+            ...merged,
+            providers: merged.providers.map((p) =>
+              p.name === merged.active_provider ? { ...p, api_key: e2e.api_key ?? "" } : p
+            ),
+          };
+        }
 
-      // If no target language was saved, default to the UI language.
-      if (!settings.target_lang) {
-        merged = { ...merged, target_lang: generalSettings.ui_language ?? merged.target_lang };
-      }
+        // If E2E injects source/output/checkpoint paths, apply them to the form.
+        if (e2e.source) {
+          merged = { ...merged, source: e2e.source };
+        }
+        if (e2e.output) {
+          merged = { ...merged, output: e2e.output };
+          e2eOutputRef.current = e2e.output;
+        }
+        if (e2e.checkpoint_dir) {
+          merged = { ...merged, checkpoint_dir: e2e.checkpoint_dir };
+        }
+        if (e2e.dry_run !== undefined) {
+          merged = { ...merged, dry_run: e2e.dry_run };
+        }
 
-      setForm(merged);
+        // If no target language was saved, default to the UI language.
+        if (!settings.target_lang) {
+          merged = { ...merged, target_lang: generalSettings.ui_language ?? merged.target_lang };
+        }
 
-      if (e2e.ui_language) {
-        void i18n.changeLanguage(e2e.ui_language);
-      } else if (!generalSettings.follow_system_language) {
-        void i18n.changeLanguage(generalSettings.ui_language);
+        setForm(merged);
+
+        if (e2e.ui_language) {
+          void i18n.changeLanguage(e2e.ui_language);
+        } else if (!generalSettings.follow_system_language) {
+          void i18n.changeLanguage(generalSettings.ui_language);
+        }
+      } catch (err) {
+        console.error("[E2E] settings initialization failed:", err);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -264,6 +292,11 @@ function App() {
           outputFilenameTemplate: form.output_filename_template,
         }).catch(() => null);
         if (suggested) {
+          // Preserve output paths injected by E2E on the first suggestion cycle.
+          if (form.output === e2eOutputRef.current) {
+            e2eOutputRef.current = null;
+            return;
+          }
           setForm((prev) => ({ ...prev, output: suggested }));
         }
       })();
@@ -279,6 +312,7 @@ function App() {
 
   // Persist general UI settings when they change.
   useEffect(() => {
+    if (!generalLoadedRef.current) return;
     void saveGeneralSettings(general);
   }, [general]);
 
@@ -484,67 +518,16 @@ function App() {
       }
     }
 
-    setLoading(true);
-    setProgress({ percent: 0, message: t("started") });
-    setLogs((prev) => [...prev, { id: generateId(), timestamp: Date.now(), kind: "info", message: t("started") }]);
-
-    const args = buildTranslateArgs(form);
-
-    try {
-      const result = await invoke<string>("translate_epub", { args });
-      if (form.dry_run) {
-        setProgress({ percent: 100, message: result });
-        setLogs((prev) => [
-          ...prev,
-          { id: generateId(), timestamp: Date.now(), kind: "success", message: result },
-        ]);
-        return;
-      }
-
-      if (!form.dry_run) {
-        const outputExists = await invoke<boolean>("check_file_exists", { path: form.output });
-        if (!outputExists) {
-          const message = `${t("error")}: ${t("error_output_missing", { path: form.output })}`;
-          setProgress({ percent: 0, message });
-          setLogs((prev) => [
-            ...prev,
-            { id: generateId(), timestamp: Date.now(), kind: "error", message },
-          ]);
-          return;
-        }
-      }
-
-      setLogs((prev) => [
-        ...prev,
-        { id: generateId(), timestamp: Date.now(), kind: "success", message: `${t("completed")}: ${result}` },
-      ]);
-    } catch (err) {
-      const message = `${t("error")}: ${err}`;
-      setProgress({ percent: 0, message });
-      setLogs((prev) => [
-        ...prev,
-        { id: generateId(), timestamp: Date.now(), kind: "error", message },
-      ]);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleEnqueue() {
-    if (!validation.valid) return;
     try {
       const args = buildTranslateArgs(form);
       await invoke("enqueue_task", { args });
+      await invoke("start_queue");
       setPage("tasks");
     } catch (err) {
+      const message = `${t("error")}: ${err}`;
       setLogs((prev) => [
         ...prev,
-        {
-          id: generateId(),
-          timestamp: Date.now(),
-          kind: "error",
-          message: `${t("error")}: ${err}`,
-        },
+        { id: generateId(), timestamp: Date.now(), kind: "error", message },
       ]);
     }
   }
@@ -626,8 +609,6 @@ function App() {
             form={form}
             setForm={updateForm}
             onStart={handleStart}
-            onEnqueue={handleEnqueue}
-            loading={loading}
             progress={progress}
             validation={validation}
             onPageChange={setPage}
@@ -639,7 +620,6 @@ function App() {
         return (
           <TasksPage
             queue={queue}
-            onRefresh={refreshQueue}
             onRemove={removeTask}
             onRetry={retryTask}
             onCancel={cancelTask}
@@ -686,7 +666,6 @@ function App() {
       <aside className="sidebar">
         <div className="brand">
           <h1>{t("app_title")}</h1>
-          <p>{t("subtitle")}</p>
         </div>
 
         <nav>

@@ -1,11 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
-import { documentDir } from "@tauri-apps/api/path";
+import { documentDir, join } from "@tauri-apps/api/path";
 import { readTextFile, writeTextFile, mkdir, exists } from "@tauri-apps/plugin-fs";
-import type { FormState, ProviderConfig } from "./types";
+import type { FormState, ProviderConfig, ThemeId } from "./types";
+import { themes } from "./types";
 
 const SETTINGS_DIR = "BabelEbook";
 const SETTINGS_FILE = "settings.json";
-const SETTINGS_VERSION = 3;
+const SETTINGS_VERSION = 5;
+const DEFAULT_CHECKPOINT_DIR = "BabelEbook/checkpoints";
 
 /**
  * Settings that are not part of the translation form and are stored under the
@@ -14,7 +16,7 @@ const SETTINGS_VERSION = 3;
  */
 export interface GeneralSettings {
   ui_language: string;
-  theme: "light" | "dark";
+  theme: ThemeId;
   follow_system_language: boolean;
 }
 
@@ -60,6 +62,9 @@ const TRANSLATION_KEYS: Array<keyof FormState> = [
   "translate_code",
   "output_font",
   "output_filename_template",
+  "checkpoint_dir",
+  "resume",
+  "refine",
 ];
 
 /**
@@ -87,18 +92,22 @@ const OLD_FLAT_KEYS: string[] = [
 
 const DEFAULT_GENERAL: GeneralSettings = {
   ui_language: "en",
-  theme: "dark",
+  theme: "dark" as ThemeId,
   follow_system_language: true,
 };
 
+function normalizeTheme(value: unknown): ThemeId {
+  return themes.includes(value as ThemeId) ? (value as ThemeId) : DEFAULT_GENERAL.theme;
+}
+
 async function settingsPath(): Promise<string> {
   const docs = await documentDir();
-  return `${docs}${SETTINGS_DIR}/${SETTINGS_FILE}`;
+  return await join(docs, SETTINGS_DIR, SETTINGS_FILE);
 }
 
 async function ensureSettingsDir(): Promise<void> {
   const docs = await documentDir();
-  const dirPath = `${docs}${SETTINGS_DIR}`;
+  const dirPath = await join(docs, SETTINGS_DIR);
   const dirExists = await exists(dirPath);
   if (!dirExists) {
     await mkdir(dirPath, { recursive: true });
@@ -226,15 +235,38 @@ export async function loadSettings(): Promise<Partial<FormState>> {
     if (Array.isArray(translation.providers)) {
       translation.providers = await hydrateApiKeys(translation.providers);
     }
+    const docs = await documentDir();
+    if (!translation.checkpoint_dir || typeof translation.checkpoint_dir !== "string" || translation.checkpoint_dir.trim().length === 0) {
+      translation.checkpoint_dir = await join(docs, DEFAULT_CHECKPOINT_DIR);
+    }
+    if (typeof translation.refine !== "boolean") {
+      translation.refine = false;
+    }
+    if (typeof translation.resume !== "string") {
+      translation.resume = "";
+    }
     return translation;
   }
 
   // Migration from the old flat key-value layout.
   const migrated = await migrateFromFlatSettings(versioned ?? { version: 1, translation: {}, general: DEFAULT_GENERAL });
+  const docs = await documentDir();
+  if (!migrated.checkpoint_dir || migrated.checkpoint_dir.trim().length === 0) {
+    migrated.checkpoint_dir = await join(docs, DEFAULT_CHECKPOINT_DIR);
+  }
+  if (migrated.refine === undefined) {
+    migrated.refine = false;
+  }
+  if (migrated.resume === undefined) {
+    migrated.resume = "";
+  }
   await writeSettingsFile({
     version: SETTINGS_VERSION,
     translation: migrated,
-    general: versioned?.general ?? DEFAULT_GENERAL,
+    general: {
+      ...(versioned?.general ?? DEFAULT_GENERAL),
+      theme: normalizeTheme(versioned?.general?.theme),
+    },
   });
 
   return migrated;
@@ -269,12 +301,16 @@ export async function saveSettings(form: FormState): Promise<void> {
 export async function loadGeneralSettings(): Promise<GeneralSettings> {
   const versioned = await readSettingsFile();
   if (versioned?.general) {
-    return { ...DEFAULT_GENERAL, ...versioned.general };
+    return {
+      ...DEFAULT_GENERAL,
+      ...versioned.general,
+      theme: normalizeTheme(versioned.general.theme),
+    };
   }
 
   // Fall back to localStorage for users upgrading from pre-versioned builds.
   const ui_language = localStorage.getItem("ui_language") ?? DEFAULT_GENERAL.ui_language;
-  const theme = (localStorage.getItem("ui_theme") as "light" | "dark" | null) ?? DEFAULT_GENERAL.theme;
+  const theme = normalizeTheme(localStorage.getItem("ui_theme"));
   const follow_system_language = localStorage.getItem("follow_system_language") !== "false";
 
   return {

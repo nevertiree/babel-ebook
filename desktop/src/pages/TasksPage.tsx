@@ -3,7 +3,6 @@ import type { QueueState, Task } from "../types";
 
 interface TasksPageProps {
   queue: QueueState;
-  onRefresh: () => Promise<void>;
   onRemove: (id: string) => Promise<void>;
   onRetry: (id: string) => Promise<void>;
   onCancel: (id: string) => Promise<void>;
@@ -18,7 +17,6 @@ function formatPath(path: string) {
 
 export default function TasksPage({
   queue,
-  onRefresh,
   onRemove,
   onRetry,
   onCancel,
@@ -43,17 +41,14 @@ export default function TasksPage({
             {t("start_queue")}
           </button>
         )}
-        <button type="button" onClick={() => void onRefresh()}>
-          {t("refresh")}
-        </button>
       </div>
 
       {queue.tasks.length === 0 ? (
-        <p className="empty-state">{t("queue_empty")}</p>
+        <p className="empty-state" data-testid="queue-empty">{t("queue_empty")}</p>
       ) : (
-        <ul className="task-list">
+        <ul className="task-list" data-testid="task-list">
           {queue.tasks.map((task) => (
-            <li key={task.id} className="task-item">
+            <li key={task.id} className="task-item" data-testid="task-item">
               <div className="task-info">
                 <span className={statusClass(task.status)}>{t(`task_status_${task.status}`)}</span>
                 <span className="task-file" title={task.source_path}>

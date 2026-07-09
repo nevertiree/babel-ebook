@@ -13,6 +13,7 @@ const emptyPrompts: PromptTemplates = {
   literary: "",
   technical: "",
   academic: "",
+  refine: "",
 };
 
 function promptsAreEmpty(prompts: PromptTemplates): boolean {
@@ -40,7 +41,7 @@ export default function PromptsPage({ form, setForm }: PromptsPageProps) {
     padding: "0.55rem 0.75rem",
     border: "1px solid var(--border)",
     borderRadius: "var(--radius)",
-    background: "#0b1220",
+    background: "var(--input-bg)",
     color: "var(--text)",
     fontSize: "0.95rem",
     outline: "none",
@@ -76,6 +77,7 @@ export default function PromptsPage({ form, setForm }: PromptsPageProps) {
     { key: "literary", labelKey: "prompt_literary" },
     { key: "technical", labelKey: "prompt_technical" },
     { key: "academic", labelKey: "prompt_academic" },
+    { key: "refine", labelKey: "prompt_refine" },
   ];
 
   return (

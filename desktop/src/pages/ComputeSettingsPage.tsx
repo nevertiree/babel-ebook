@@ -159,28 +159,30 @@ export default function ComputeSettingsPage({
                 </select>
               </label>
 
-              <label className="provider-api-key">
-                <span>{t("api_key")}</span>
-                <div className="input-with-toggle">
-                  <input
-                    type={showKeyFor === p.name ? "text" : "password"}
-                    value={p.api_key}
-                    onChange={(e) => updateProvider(p.name, { api_key: e.target.value })}
-                    placeholder="sk-..."
-                  />
-                  <button
-                    type="button"
-                    className="input-toggle"
-                    onClick={() =>
-                      setShowKeyFor((prev) => (prev === p.name ? null : p.name))
-                    }
-                    title={showKeyFor === p.name ? t("hide") : t("show")}
-                  >
-                    {showKeyFor === p.name ? "🙈" : "👁"}
-                  </button>
-                </div>
+              <div className="provider-api-key">
+                <label>
+                  <span>{t("api_key")}</span>
+                  <div className="input-with-toggle">
+                    <input
+                      type={showKeyFor === p.name ? "text" : "password"}
+                      value={p.api_key}
+                      onChange={(e) => updateProvider(p.name, { api_key: e.target.value })}
+                      placeholder="sk-..."
+                    />
+                    <button
+                      type="button"
+                      className="input-toggle"
+                      onClick={() =>
+                        setShowKeyFor((prev) => (prev === p.name ? null : p.name))
+                      }
+                      title={showKeyFor === p.name ? t("hide") : t("show")}
+                    >
+                      {showKeyFor === p.name ? "🙈" : "👁"}
+                    </button>
+                  </div>
+                </label>
                 {keyLooksWrong && <span className="format-hint">{t("api_key_format_hint")}</span>}
-              </label>
+              </div>
 
               <button
                 type="button"
