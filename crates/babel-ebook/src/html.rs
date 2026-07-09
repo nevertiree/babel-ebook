@@ -443,7 +443,7 @@ fn insert_li_translation(
         }
         OutputMode::TranslationOnly => {
             // Replace the original content with the translated text.
-            for child in node.children().collect::<Vec<_>>() {
+            while let Some(child) = node.first_child() {
                 child.detach();
             }
             node.append(NodeRef::new_text(translated));

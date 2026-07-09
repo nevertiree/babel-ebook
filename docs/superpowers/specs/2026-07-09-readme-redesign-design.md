@@ -128,7 +128,15 @@
 
 在“Release Workflow (Git Flow)”中增加一条：
 
-> 发布 tag 生成并推送到远程后，必须将 `master` 分支 fast-forward 到该 tag（`git checkout master && git merge --ff-only v<x.y.z> && git push origin master`），确保 `master` 始终指向最新发布版本。如果 tag 是在 `develop`（或 `release/*`）分支上生成的，这一步同样适用。
+> 发布 tag 生成并推送到远程后，必须将 `master` 分支 fast-forward 到该 tag：
+>
+> ```bash
+> git checkout master
+> git merge --ff-only v<x.y.z>
+> git push origin master
+> ```
+>
+> 确保 `master` 始终指向最新发布版本。如果 tag 是在 `develop`（或 `release/*`）分支上生成的，这一步同样适用。
 
 ## 改动文件
 
