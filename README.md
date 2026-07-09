@@ -1,113 +1,135 @@
+<!-- markdownlint-disable MD041 -->
+<div align="center">
+
 # 巴别塔 · BabelEbook
 
-[![CI][ci-badge]][ci-url]
-[![License: MIT][license-badge]][license-url]
-[![Rust Version][rust-badge]][rust-url]
-[![Release][release-badge]][release-url]
+> 把你的 EPUB 电子书翻译成高质量双语对照版  
+> Translate your EPUBs into high-quality bilingual editions with LLMs.
 
-**BabelEbook** is an EPUB translator powered by large language models.
-It produces bilingual e-books where each translated paragraph is followed by
- the original text.
-
-**BabelEbook（巴别塔）** 是一款基于大语言模型的 EPUB 翻译工具，
-能把外文电子书翻译成中英双语版本。
-
-<p align="center">
-  <img src="docs/assets/screenshots/01-translate.png" alt="BabelEbook main window" width="800">
+<p>
+  <a href="https://github.com/nevertiree/babel-ebook/actions/workflows/ci.yml">
+    <img src="https://github.com/nevertiree/babel-ebook/actions/workflows/ci.yml/badge.svg" alt="CI">
+  </a>
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT">
+  </a>
+  <a href="https://github.com/nevertiree/babel-ebook/releases">
+    <img src="https://img.shields.io/github/v/release/nevertiree/babel-ebook" alt="Release">
+  </a>
+  <a href="https://github.com/nevertiree/babel-ebook/stargazers">
+    <img src="https://img.shields.io/github/stars/nevertiree/babel-ebook?style=flat" alt="Stars">
+  </a>
+  <a href="https://github.com/nevertiree/babel-ebook/releases">
+    <img src="https://img.shields.io/github/downloads/nevertiree/babel-ebook/total" alt="Downloads">
+  </a>
+  <a href="https://github.com/nevertiree/babel-ebook/commits/master">
+    <img src="https://img.shields.io/github/last-commit/nevertiree/babel-ebook" alt="Last Commit">
+  </a>
 </p>
 
-<p align="center">
+<p>
   <a href="https://github.com/nevertiree/babel-ebook/releases/latest">
-    <img alt="Download for Windows" src="https://img.shields.io/badge/Windows-Download-blue?logo=windows&logoColor=white">
+    <img src="https://img.shields.io/badge/Windows-Download-0078D4?logo=windows&logoColor=white" alt="Download for Windows">
   </a>
   <a href="https://github.com/nevertiree/babel-ebook/releases/latest">
-    <img alt="Download for Linux" src="https://img.shields.io/badge/Linux-Download-orange?logo=linux&logoColor=white">
+    <img src="https://img.shields.io/badge/Linux-Download-E95420?logo=linux&logoColor=white" alt="Download for Linux">
   </a>
+  <img src="https://img.shields.io/badge/macOS-CLI%20only-silver?logo=apple&logoColor=white" alt="macOS CLI only">
 </p>
+
+<p>
+  <img src="https://img.shields.io/badge/Rust-1.88%2B-000000?logo=rust&logoColor=white" alt="Rust">
+  <img src="https://img.shields.io/badge/Tauri-v2-24C8D8?logo=tauri&logoColor=white" alt="Tauri">
+  <img src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white" alt="React">
+  <img src="https://img.shields.io/badge/i18n-6%20languages-26A17B?logo=i18next&logoColor=white" alt="i18n">
+</p>
+
+<p>
+  <img src="https://img.shields.io/badge/Privacy%20First-local%20processing-6f42c1" alt="Privacy First">
+  <img src="https://img.shields.io/badge/Local%20First-no%20cloud-20c997" alt="Local First">
+</p>
+
+<p>
+  <a href="docs/README.md">中文文档</a> ·
+  <a href="docs/README.en.md">English Docs</a> ·
+  <a href="docs/README.ja.md">日本語</a> ·
+  <a href="docs/README.ko.md">한국어</a> ·
+  <a href="docs/README.ru.md">Русский</a> ·
+  <a href="docs/README.es.md">Español</a>
+</p>
+
+<img src="docs/assets/screenshots/01-translate.png" alt="BabelEbook 主界面" width="800">
+
+</div>
 
 ---
 
-## Choose your language / 选择语言 / 言語を選択 / 언어 선택 / Выберите язык / Seleccione su idioma
+## 核心亮点
 
-- [简体中文](docs/README.md)
-- [English](docs/README.en.md)
-- [日本語](docs/README.ja.md)
-- [한국어](docs/README.ko.md)
-- [Русский](docs/README.ru.md)
-- [Español](docs/README.es.md)
+| | |
+|:---|:---|
+| 🛡️ **完全本地 & 隐私优先** | EPUB 内容和 API Key 只在你电脑上处理，Key 由系统凭据管理器安全保存。 |
+| 📖 **双语对照排版** | 每段译文后紧跟原文，支持 `bilingual` / `translation_only` / `interleaved` 三种模式。 |
+| 🤖 **多模型支持** | DeepSeek、OpenAI、Anthropic、Ollama 以及任意 OpenAI-compatible 接口。 |
+| 🖥️ **桌面 + CLI** | Tauri 图形界面开箱即用；Rust CLI 适合批量、自动化和服务器场景。 |
+| ⚡ **高度可配置** | 并发、术语表、排除选择器、输出文件名模板、自定义 prompt 模板。 |
 
-> Your EPUB content and API keys are processed only on your own computer
-> and are never sent to the project maintainers' servers.
+## 30 秒上手
 
----
+### 桌面用户
 
-## 快速开始
+1. 从 [Releases](https://github.com/nevertiree/babel-ebook/releases/latest) 下载 Windows `.exe` 或 Linux `.AppImage`。
+2. 安装后打开应用，进入 **Settings → Provider / API**，填入你的 API Key 并测试连接。
+3. 选择源 EPUB、目标语言、输出模式，点击 **Start Translation**。
 
-### 环境要求
-
-- [Rust](https://rustup.rs/) 1.88 或更新版本
-- [Node.js](https://nodejs.org/) 20 或更新版本
-- [pnpm](https://pnpm.io/) 9 或更新版本（或启用 corepack：`corepack enable`）
-- **Windows 用户**：需要安装 [Visual Studio Build Tools 2022](https://visualstudio.microsoft.com/downloads/?q=build+tools)
-  的 **"C++ build tools"** 工作负载，以及 WebView2 Runtime
-
-### 构建与运行
+### CLI 快速开始
 
 ```bash
-# 1. 克隆仓库
-git clone https://github.com/nevertiree/babel-ebook.git
-cd babel-ebook
-
-# 2. 构建 Rust 工作空间
-cargo build --workspace
-
-# 3. 安装桌面前端依赖
-cd desktop
-pnpm install
-
-# 4. 启动桌面端开发
-pnpm tauri dev
-```
-
-### CLI 使用示例
-
-```bash
+# 安装/克隆后
 cargo run --release -p babel-ebook-cli -- input.epub -o output.epub \
-  --provider deepseek --model deepseek-chat
+  --provider deepseek --model deepseek-chat --concurrency 3
 ```
 
-## 项目结构
+更多参数请运行 `babel-ebook --help` 或查看 [docs/README.md](docs/README.md)。
 
-```text
-├── Cargo.toml              # Rust workspace 配置
-├── crates/
-│   ├── babel-ebook/        # 核心翻译库
-│   └── babel-ebook-cli/    # 命令行工具
-├── desktop/
-│   ├── src/                # React 前端
-│   └── src-tauri/          # Tauri Rust 后端
-├── docs/                   # 多语言文档
-└── tests/                  # 集成测试
-```
+## 支持的 LLM 供应商
 
-## 常见问题
+| Provider | `--provider` | 默认模型 | 备注 |
+|----------|--------------|----------|------|
+| DeepSeek | `deepseek` | `deepseek-chat` | 默认推荐 |
+| OpenAI | `openai` | — | 需显式指定 `--model` |
+| Anthropic | `anthropic` | `claude-3-5-sonnet-20241022` | — |
+| Ollama | `ollama` | `llama3` | 本地运行，无需 API Key |
+| OpenAI-compatible | `openai-compatible` | — | 通过 `base_url` 指定 |
 
-| 问题 | 解决方案 |
-|------|----------|
-| `cargo build` 报错 `link.exe` 找不到 | Windows 需要安装 VS Build Tools 的 C++ 工作负载 |
-| `cargo build` 报错 `extra operand` | 同样是 MSVC linker 问题，安装 VS Build Tools 后重开终端 |
-| `pnpm install` 因 corepack 网络失败 | 可临时改用 `npm install` 安装前端依赖 |
-| `pnpm tauri dev` 无法启动窗口 | 检查 WebView2 Runtime 是否已安装 |
+## 输出模式
+
+- **Bilingual（双语对照）**：译文在前，原文紧跟其后，适合学习。
+- **Translation Only（仅译文）**：只保留翻译后的内容。
+- **Interleaved（交错排列）**：原文与译文段落交替出现。
+
+## 平台支持
+
+- **Windows 10/11**：推荐 `.exe`（NSIS）安装包，另提供 `.msi`。
+- **Linux**：提供 `.AppImage`（免安装）和 `.deb`（Debian/Ubuntu）。
+- **macOS**：暂无官方桌面安装包，可通过 CLI 从源码编译使用。
+
+详细平台说明见 [docs/README.md](docs/README.md)。
+
+## 安全与隐私
+
+- EPUB 不上传到项目维护者的服务器。
+- API Key 默认存入操作系统 keyring，不以明文保存。
+- 发现安全漏洞请通过 [.github/SECURITY.md](.github/SECURITY.md) 私下报告。
 
 ## 参与贡献
 
-欢迎提交 Issue 和 Pull Request！请先阅读 [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md)。
+欢迎 Issue 和 PR！请先阅读 [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md)。
 
-[ci-badge]: https://github.com/nevertiree/babel-ebook/actions/workflows/ci.yml/badge.svg
-[ci-url]: https://github.com/nevertiree/babel-ebook/actions/workflows/ci.yml
-[license-badge]: https://img.shields.io/badge/License-MIT-yellow.svg
-[license-url]: LICENSE
-[rust-badge]: https://img.shields.io/badge/rust-1.88%2B-blue.svg
-[rust-url]: https://www.rust-lang.org/
-[release-badge]: https://img.shields.io/github/v/release/nevertiree/babel-ebook
-[release-url]: https://github.com/nevertiree/babel-ebook/releases
+## License
+
+[MIT](LICENSE)
+
+---
+
+<p align="center">Built with Rust, Tauri, React, and i18next.</p>
