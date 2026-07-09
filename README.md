@@ -3,7 +3,7 @@
 
 # 巴别塔 · BabelEbook
 
-> 把你的 EPUB 电子书翻译成高质量双语对照版  
+> 把你的 EPUB 电子书翻译成高质量双语对照版<br>
 > Translate your EPUBs into high-quality bilingual editions with LLMs.
 
 <p>

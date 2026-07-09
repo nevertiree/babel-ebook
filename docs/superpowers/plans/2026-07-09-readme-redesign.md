@@ -80,7 +80,7 @@ Use Write tool to overwrite `README.md` with exactly the following content:
 
 # 巴别塔 · BabelEbook
 
-> 把你的 EPUB 电子书翻译成高质量双语对照版  
+> 把你的 EPUB 电子书翻译成高质量双语对照版<br>
 > Translate your EPUBs into high-quality bilingual editions with LLMs.
 
 <p>
@@ -252,7 +252,7 @@ Use Read tool to inspect `AGENTS.md` around `## Release Workflow (Git Flow)`。
 Use Edit tool to insert以下规则到第 5 步之后、第 6 步之前（或作为独立步骤放在流程末尾）：
 
 ```markdown
-5. **The latest release tag must always be reachable from `master`.**  
+5. **The latest release tag must always be reachable from `master`.**
    After `pnpm version:bump` creates and pushes the tag, fast-forward `master`
    to that tag so that `master` points to the latest release:
 

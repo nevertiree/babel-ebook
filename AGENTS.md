@@ -171,7 +171,7 @@ code is merged directly into `master`.
    commits, and creates an annotated tag `v<x.y.z>`.
 4. Open a Pull Request from the release branch to `master` and merge it. This is the
    only code path that may update `master`.
-5. **Push the release tag and ensure `master` points to the latest release.**  
+5. **Push the release tag and ensure `master` points to the latest release.**
    After `pnpm version:bump` creates the annotated tag `v<x.y.z>`, push it to the
    remote:
 
