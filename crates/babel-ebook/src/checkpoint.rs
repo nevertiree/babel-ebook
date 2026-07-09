@@ -41,6 +41,9 @@ pub struct Checkpoint {
     pub job_id: String,
     /// Hash of the source file used to detect changes.
     pub source_hash: String,
+    /// Original path to the source file.
+    #[serde(default)]
+    pub source_path: String,
     /// Checkpoint entries for each chapter.
     pub chapters: Vec<ChapterCheckpoint>,
 }
@@ -153,6 +156,7 @@ mod tests {
         let cp = Checkpoint {
             job_id: "job-1".into(),
             source_hash: "hash".into(),
+            source_path: "input/book.epub".into(),
             chapters: vec![
                 ChapterCheckpoint {
                     index: 0,

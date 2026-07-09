@@ -17,6 +17,8 @@ pub struct CheckpointInfo {
     pub source_hash: String,
     /// Path to the source file, inferred from the job id when missing.
     pub source_path: String,
+    /// Whether this checkpoint matches the currently selected source file.
+    pub matches_current_source: bool,
     /// Number of completed chapters.
     pub completed: usize,
     /// Total number of chapters.
@@ -44,7 +46,8 @@ impl CheckpointInfo {
         Self {
             job_id: cp.job_id.clone(),
             source_hash: cp.source_hash.clone(),
-            source_path: String::new(),
+            source_path: cp.source_path.clone(),
+            matches_current_source: false,
             completed,
             total,
             failed,
@@ -422,11 +425,18 @@ pub async fn get_queue_state(queue: tauri::State<'_, QueueManager>) -> Result<Qu
 /// List translation checkpoints stored in `checkpoint_dir`.
 #[allow(dead_code)]
 #[tauri::command]
-pub async fn list_checkpoints(checkpoint_dir: String) -> Result<Vec<CheckpointInfo>, String> {
+pub async fn list_checkpoints(
+    checkpoint_dir: String,
+    current_source: Option<String>,
+) -> Result<Vec<CheckpointInfo>, String> {
     let dir = std::path::PathBuf::from(checkpoint_dir);
     if !dir.exists() {
         return Ok(Vec::new());
     }
+
+    let current_hash = current_source.as_ref().and_then(|path| {
+        babel_ebook::checkpoint::CheckpointStore::source_hash(std::path::Path::new(path)).ok()
+    });
 
     let mut entries = tokio::task::spawn_blocking(move || {
         let mut checkpoints = Vec::new();
@@ -450,6 +460,9 @@ pub async fn list_checkpoints(checkpoint_dir: String) -> Result<Vec<CheckpointIn
                     .first()
                     .map(|c| c.href.clone())
                     .unwrap_or_default();
+            }
+            if let Some(hash) = current_hash.as_ref() {
+                info.matches_current_source = !cp.source_hash.is_empty() && cp.source_hash == *hash;
             }
             checkpoints.push(info);
         }

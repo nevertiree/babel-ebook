@@ -81,7 +81,7 @@ test("refine checkbox toggles the form state", async () => {
   await browser.close();
 });
 
-test("checkpoint toggle expands and collapses the checkpoint list", async () => {
+test("checkpoint list is shown when checkpoint directory is configured", async () => {
   const browser = await chromium.connectOverCDP(CDP_URL);
   const context = browser.contexts()[0];
   const page = context.pages()[0];
@@ -89,16 +89,8 @@ test("checkpoint toggle expands and collapses the checkpoint list", async () => 
     console.log(`[browser console] ${msg.type()}: ${msg.text()}`);
   });
 
-  const toggle = page.getByTestId("toggle-checkpoints");
-  await expect(toggle).toBeVisible();
-  await expect(toggle).toBeEnabled();
-
-  await toggle.click();
   const list = page.getByTestId("checkpoint-list");
   await expect(list).toBeVisible();
-
-  await toggle.click();
-  await expect(list).not.toBeVisible();
 
   await browser.close();
 });
