@@ -217,7 +217,12 @@ async fn translate_element_text_and_attributes(
     if should_translate_element_text(tag_name, &config.translation_scope) {
         let text = normalize_text(node);
         if is_translatable_text(&text) {
-            let translated = translate_text(&text, translator, config, cache, chapter_href).await?;
+            let translated = translate_text(&text, translator, config, cache, chapter_href)
+                .await
+                .map_err(|err| {
+                    tracing::error!("Failed to translate element <{}>: {err}", tag_name);
+                    err
+                })?;
 
             if !translated.is_empty() {
                 let target_lang = &config.target_lang;
@@ -252,17 +257,16 @@ async fn translate_element_text_and_attributes(
         if let Some(value) = attr_value {
             if is_translatable_text(&value) {
                 let translated_attr =
-                    match translate_text(&value, translator, config, cache, chapter_href).await {
-                        Ok(t) => t,
-                        Err(err) => {
+                    translate_text(&value, translator, config, cache, chapter_href)
+                        .await
+                        .map_err(|err| {
                             tracing::error!(
                                 "Failed to translate attribute {} on <{}>: {err}",
                                 attr_name,
                                 tag_name
                             );
-                            continue;
-                        }
-                    };
+                            err
+                        })?;
                 element
                     .attributes
                     .borrow_mut()

@@ -16,6 +16,9 @@ use babel_ebook::{
 };
 
 /// A fake translator that wraps every input with a `[ZH] ` marker.
+///
+/// NOTE: This helper intentionally mirrors `FakeTranslator` in `tests/test_html.rs`
+/// and `tests/test_core.rs` to keep this integration-test file self-contained.
 struct FakeTranslator;
 
 #[async_trait]
@@ -38,6 +41,9 @@ impl Translator for FakeTranslator {
 }
 
 /// Returns a baseline config that points at `source` and `output`.
+///
+/// NOTE: This helper intentionally mirrors `test_config` in `tests/test_core.rs`
+/// to keep this integration-test file self-contained.
 fn test_config(
     source: PathBuf,
     output: PathBuf,
