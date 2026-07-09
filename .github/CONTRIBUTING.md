@@ -5,14 +5,22 @@
 ## 开始
 
 1. Fork 本仓库并克隆你的 Fork。
-2. 安装 [Rust](https://rustup.rs/) 1.88 或更新版本。
-3. 安装 [pnpm](https://pnpm.io/) 用于桌面前端开发。
-4. 构建工作空间：
+2. 安装 [Rust](https://rustup.rs/) 1.88 或更新版本（Windows 请选择 `x86_64-pc-windows-msvc` toolchain）。
+3. **Windows 额外要求**：安装 [Visual Studio Build Tools 2022](https://visualstudio.microsoft.com/downloads/?q=build+tools) 的 **"C++ build tools"** 工作负载，并确保 WebView2 Runtime 已安装。
+
+   ```powershell
+   winget install Microsoft.VisualStudio.2022.BuildTools --override "--wait --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+   ```
+4. 安装 [Node.js](https://nodejs.org/) 20 或更新版本。
+5. 安装 [pnpm](https://pnpm.io/) 9 或更新版本（或执行 `corepack enable`）。
+6. 构建工作空间：
 
    ```bash
    cargo build --workspace
    cd desktop && pnpm install
    ```
+
+   > 如果 `pnpm install` 因 corepack 网络问题失败，可临时改用 `npm install` 安装前端依赖，但提交前仍建议使用 pnpm 重新生成 `pnpm-lock.yaml`。
 
 ## 开发流程
 
