@@ -182,7 +182,7 @@ function App() {
 
   const [progress, setProgress] = useState<ProgressState>({
     percent: 0,
-    message: t("waiting"),
+    message: "",
   });
   const [general, setGeneral] = useState<GeneralSettings>(initialGeneralFromLocalStorage);
   const [detectedLocale, setDetectedLocale] = useState<string>("en");
