@@ -63,8 +63,6 @@ interface TranslatePageProps {
   form: FormState;
   setForm: <K extends keyof FormState>(key: K, value: FormState[K]) => void;
   onStart: () => void;
-  onEnqueue: () => void;
-  loading: boolean;
   progress: ProgressState;
   validation: ValidationResult;
   onPageChange: (page: Page) => void;
@@ -74,8 +72,6 @@ export default function TranslatePage({
   form,
   setForm,
   onStart,
-  onEnqueue,
-  loading,
   progress,
   validation,
   onPageChange,
@@ -112,7 +108,7 @@ export default function TranslatePage({
       cancelled = true;
     };
     // Reload when a translation run finishes so newly created checkpoints appear.
-  }, [form.checkpoint_dir, form.resume, showCheckpoints, loading]);
+  }, [form.checkpoint_dir, form.resume, showCheckpoints]);
 
   const selectSource = async () => {
     const path = await open({
@@ -241,7 +237,7 @@ export default function TranslatePage({
               <span className="inline-error">{validation.errors.source}</span>
             )}
           </div>
-          <button type="button" onClick={selectSource} disabled={loading}>
+          <button type="button" onClick={selectSource}>
             {t("select_file")}
           </button>
         </div>
@@ -256,7 +252,7 @@ export default function TranslatePage({
               <span className="inline-error">{validation.errors.output}</span>
             )}
           </div>
-          <button type="button" onClick={selectOutput} disabled={loading}>
+          <button type="button" onClick={selectOutput}>
             {t("save_as")}
           </button>
         </div>
@@ -359,23 +355,14 @@ export default function TranslatePage({
           className="start-button"
           type="button"
           onClick={onStart}
-          disabled={loading || !validation.valid}
+          disabled={!validation.valid}
           data-testid="start-button"
         >
-          {loading ? t("loading") : t("start")}
-        </button>
-
-        <button
-          type="button"
-          onClick={onEnqueue}
-          disabled={!validation.valid}
-          data-testid="enqueue-button"
-        >
-          {t("add_to_queue")}
+          {t("start")}
         </button>
       </div>
 
-      {(loading || progress.percent > 0 || progress.message) && (
+      {(progress.percent > 0 || (progress.message && progress.message !== t("waiting"))) && (
         <section className="progress-section" data-testid="progress-section">
           <div className="progress-header">
             <span>{t("progress")}</span>

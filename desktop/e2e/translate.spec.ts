@@ -86,12 +86,12 @@ test("translates a small EPUB in dry-run mode via the desktop UI", async () => {
 
   await startButton.click();
 
-  // Wait for the dry-run pipeline to parse the EPUB and emit the token estimate.
-  const progressSection = page.getByTestId("progress-section");
-  await expect(progressSection).toBeVisible({ timeout: 120000 });
+  // Starting the translation now enqueues the task and navigates to the queue.
+  await expect(page.getByTestId("task-list")).toBeVisible({ timeout: 10000 });
 
-  const progressMessage = page.getByTestId("progress-message");
-  await expect(progressMessage).toContainText(/token|estimated|completed/i, {
+  // Wait for the dry-run task to complete.
+  const taskItem = page.getByTestId("task-item").first();
+  await expect(taskItem).toContainText(/completed|finished|token|estimated/i, {
     timeout: 120000,
   });
 

@@ -49,11 +49,11 @@ export default function TasksPage({
       </div>
 
       {queue.tasks.length === 0 ? (
-        <p className="empty-state">{t("queue_empty")}</p>
+        <p className="empty-state" data-testid="queue-empty">{t("queue_empty")}</p>
       ) : (
-        <ul className="task-list">
+        <ul className="task-list" data-testid="task-list">
           {queue.tasks.map((task) => (
-            <li key={task.id} className="task-item">
+            <li key={task.id} className="task-item" data-testid="task-item">
               <div className="task-info">
                 <span className={statusClass(task.status)}>{t(`task_status_${task.status}`)}</span>
                 <span className="task-file" title={task.source_path}>

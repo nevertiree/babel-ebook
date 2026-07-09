@@ -179,7 +179,7 @@ function App() {
   }));
   const [page, setPage] = useState<Page>("translate");
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [loading, setLoading] = useState(false);
+
   const [progress, setProgress] = useState<ProgressState>({
     percent: 0,
     message: t("waiting"),
@@ -516,67 +516,16 @@ function App() {
       }
     }
 
-    setLoading(true);
-    setProgress({ percent: 0, message: t("started") });
-    setLogs((prev) => [...prev, { id: generateId(), timestamp: Date.now(), kind: "info", message: t("started") }]);
-
-    const args = buildTranslateArgs(form);
-
-    try {
-      const result = await invoke<string>("translate_epub", { args });
-      if (form.dry_run) {
-        setProgress({ percent: 100, message: result });
-        setLogs((prev) => [
-          ...prev,
-          { id: generateId(), timestamp: Date.now(), kind: "success", message: result },
-        ]);
-        return;
-      }
-
-      if (!form.dry_run) {
-        const outputExists = await invoke<boolean>("check_file_exists", { path: form.output });
-        if (!outputExists) {
-          const message = `${t("error")}: ${t("error_output_missing", { path: form.output })}`;
-          setProgress({ percent: 0, message });
-          setLogs((prev) => [
-            ...prev,
-            { id: generateId(), timestamp: Date.now(), kind: "error", message },
-          ]);
-          return;
-        }
-      }
-
-      setLogs((prev) => [
-        ...prev,
-        { id: generateId(), timestamp: Date.now(), kind: "success", message: `${t("completed")}: ${result}` },
-      ]);
-    } catch (err) {
-      const message = `${t("error")}: ${err}`;
-      setProgress({ percent: 0, message });
-      setLogs((prev) => [
-        ...prev,
-        { id: generateId(), timestamp: Date.now(), kind: "error", message },
-      ]);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleEnqueue() {
-    if (!validation.valid) return;
     try {
       const args = buildTranslateArgs(form);
       await invoke("enqueue_task", { args });
+      await invoke("start_queue");
       setPage("tasks");
     } catch (err) {
+      const message = `${t("error")}: ${err}`;
       setLogs((prev) => [
         ...prev,
-        {
-          id: generateId(),
-          timestamp: Date.now(),
-          kind: "error",
-          message: `${t("error")}: ${err}`,
-        },
+        { id: generateId(), timestamp: Date.now(), kind: "error", message },
       ]);
     }
   }
@@ -658,8 +607,6 @@ function App() {
             form={form}
             setForm={updateForm}
             onStart={handleStart}
-            onEnqueue={handleEnqueue}
-            loading={loading}
             progress={progress}
             validation={validation}
             onPageChange={setPage}
@@ -718,7 +665,6 @@ function App() {
       <aside className="sidebar">
         <div className="brand">
           <h1>{t("app_title")}</h1>
-          <p>{t("subtitle")}</p>
         </div>
 
         <nav>

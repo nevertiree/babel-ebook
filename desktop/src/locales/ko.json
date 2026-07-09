@@ -1,5 +1,5 @@
 {
-  "app_title": "EPUB 번역기",
+  "app_title": "바벨 탑",
   "subtitle": "대형 언어 모델로 EPUB을 번역하고 언어가 섞인 전자책을 생성합니다",
   "source": "원본 EPUB",
   "output": "출력 EPUB",

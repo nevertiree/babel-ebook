@@ -1,5 +1,5 @@
 {
-  "app_title": "EPUB翻訳ツール",
+  "app_title": "バベルの塔",
   "subtitle": "大規模言語モデルでEPUBを翻訳し、バイリンガルの電子書籍を生成します",
   "source": "元EPUB",
   "output": "出力EPUB",
