@@ -618,7 +618,6 @@ function App() {
         return (
           <TasksPage
             queue={queue}
-            onRefresh={refreshQueue}
             onRemove={removeTask}
             onRetry={retryTask}
             onCancel={cancelTask}
