@@ -62,7 +62,8 @@ pnpm release:build      # full release build (must run on a tag)
 
 ## Adding or Changing Features
 
-- Create feature branches from `develop`.
+- **All feature development happens on `develop`**. Create feature branches from `develop`,
+  never from `master`.
 - Keep commits focused; use conventional commit style (`feat(...)`, `fix(...)`, `chore(...)`).
 - Run the full quality gates before opening a PR or merging:
 
@@ -79,8 +80,12 @@ pnpm release:build      # full release build (must run on a tag)
 
 ## Branch & Merge Workflow
 
-`master` and `develop` are protected branches. **Never push commits directly to them.**
-Always work in a feature branch and merge through a Pull Request.
+`master` and `develop` are protected branches.
+
+- **Never push commits directly to `master` or `develop`.**
+- **Never delete `master` or `develop`.**
+- **Never create feature branches from `master`.** All feature branches must be created from `develop`.
+- Always work in a feature branch and merge into `develop` through a Pull Request.
 
 Typical workflow using the GitHub CLI (`gh`):
 
@@ -89,7 +94,7 @@ Typical workflow using the GitHub CLI (`gh`):
 git checkout develop
 git pull origin develop
 
-# 2. Create a feature branch
+# 2. Create a feature branch from develop
 git checkout -b feat/<short-description>
 
 # 3. Make focused commits
@@ -99,7 +104,7 @@ git commit -m "feat(scope): description"
 # 4. Push the branch
 git push origin feat/<short-description>
 
-# 5. Open a Pull Request
+# 5. Open a Pull Request targeting develop
 gh pr create --base develop --head feat/<short-description> \
   --title "feat(scope): description" \
   --body "What this PR does and why."
@@ -110,13 +115,10 @@ gh run watch <run-id> --exit-status
 # 7. Merge via gh (squash is preferred for feature branches)
 gh pr merge <pr-number> --squash --delete-branch
 
-# 8. Pull the updated base branch locally
+# 8. Pull the updated develop branch locally
 git checkout develop
 git pull origin develop
 ```
-
-For documentation-only or hot-fix changes that must land on `master`, branch from
-`master` and set `--base master` when creating the PR.
 
 ## Running Translations
 
@@ -158,12 +160,19 @@ If the CDP port is not exposed, kill hung `babel-ebook-desktop.exe` and `msedgew
 
 ## Release Workflow (Git Flow)
 
+`master` is reserved for tagged documentation and release sequences only. No feature
+code is merged directly into `master`.
+
 1. Merge feature branches into `develop`.
-2. On `master` (or a `release/*` branch), run `pnpm version:bump patch|minor|major`.
-3. The bump script updates version files, syncs `Cargo.lock`, updates `CHANGELOG.md`,
+2. When `develop` is ready for release, create a `release/<version>` branch from `develop`
+   (or use an existing release branch).
+3. On the release branch, run `pnpm version:bump patch|minor|major`.
+   The bump script updates version files, syncs `Cargo.lock`, updates `CHANGELOG.md`,
    commits, and creates an annotated tag `v<x.y.z>`.
-4. Run `pnpm release:build` on the tag commit.
-5. Merge `master` back into `develop` so both branches carry the version bump.
+4. Open a Pull Request from the release branch to `master` and merge it. This is the
+   only code path that may update `master`.
+5. Run `pnpm release:build` on the tag commit.
+6. Merge `master` back into `develop` so both branches carry the version bump.
 
 ## Security & Secrets
 
