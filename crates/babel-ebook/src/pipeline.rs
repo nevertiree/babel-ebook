@@ -41,6 +41,7 @@ pub async fn run_ordered_pipeline(
     cache: &TranslationCache,
     checkpoint_store: Option<&CheckpointStore>,
     job_id: Option<&str>,
+    source_hash: &str,
     progress: Option<&dyn ProgressCallback>,
 ) -> Result<PipelineResult, BabelEbookError> {
     if indices.is_empty() {
@@ -51,7 +52,7 @@ pub async fn run_ordered_pipeline(
     }
 
     let job_id = resolve_job_id(checkpoint_store, job_id, &config.source);
-    let checkpoint = build_checkpoint(book, &indices, checkpoint_store, &job_id);
+    let checkpoint = build_checkpoint(book, &indices, checkpoint_store, &job_id, source_hash);
     let completed = restore_completed_chapters(book, &indices, &checkpoint, progress);
     let pending_indices: Vec<usize> = indices
         .into_iter()
@@ -159,21 +160,32 @@ fn build_checkpoint(
     indices: &[usize],
     checkpoint_store: Option<&CheckpointStore>,
     job_id: &str,
+    source_hash: &str,
 ) -> Checkpoint {
-    let mut checkpoint = checkpoint_store.map_or_else(
-        || Checkpoint {
-            job_id: job_id.to_string(),
-            source_hash: String::new(),
-            chapters: Vec::new(),
-        },
-        |store| {
-            store.load(job_id).unwrap_or_else(|| Checkpoint {
+    let loaded = checkpoint_store.and_then(|store| store.load(job_id));
+    let mut checkpoint = if let Some(cp) = loaded {
+        if !cp.source_hash.is_empty() && cp.source_hash != source_hash {
+            tracing::warn!(
+                job_id,
+                stored_hash = %cp.source_hash,
+                current_hash = %source_hash,
+                "source hash mismatch; ignoring existing checkpoint"
+            );
+            Checkpoint {
                 job_id: job_id.to_string(),
-                source_hash: String::new(),
+                source_hash: source_hash.to_string(),
                 chapters: Vec::new(),
-            })
-        },
-    );
+            }
+        } else {
+            cp
+        }
+    } else {
+        Checkpoint {
+            job_id: job_id.to_string(),
+            source_hash: source_hash.to_string(),
+            chapters: Vec::new(),
+        }
+    };
 
     let existing_indices: HashSet<usize> = checkpoint.chapters.iter().map(|c| c.index).collect();
     for &index in indices {
@@ -420,6 +432,7 @@ mod tests {
             &cache,
             Some(&store),
             Some(&job_id),
+            "hash",
             None,
         )
         .await
@@ -450,6 +463,7 @@ mod tests {
                     &cache,
                     None,
                     None,
+                    "",
                     None,
                 )
                 .await

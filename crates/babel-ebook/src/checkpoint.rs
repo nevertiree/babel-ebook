@@ -111,6 +111,19 @@ impl CheckpointStore {
         hex::encode(&hash[..8])
     }
 
+    /// Compute a SHA-256 hex hash of the source file contents.
+    ///
+    /// # Errors
+    ///
+    /// Returns `BabelEbookError::Anyhow` if the file cannot be read.
+    pub fn source_hash(path: &Path) -> Result<String, BabelEbookError> {
+        let bytes = std::fs::read(path)
+            .map_err(|e| BabelEbookError::Anyhow(anyhow::anyhow!("read source for hash: {e}")))?;
+        let mut hasher = Sha256::new();
+        hasher.update(&bytes);
+        Ok(hex::encode(hasher.finalize()))
+    }
+
     fn path(&self, job_id: &str) -> PathBuf {
         self.dir.join(format!("{job_id}.json"))
     }

@@ -65,7 +65,9 @@ pub fn build_config(args: &TranslateArgs) -> Result<Config, String> {
     config.dry_run = args.dry_run;
     config.verbose = false;
     config.refine = args.refine;
-    config.checkpoint_dir = PathBuf::from(&args.checkpoint_dir);
+    if !args.checkpoint_dir.is_empty() {
+        config.checkpoint_dir = PathBuf::from(&args.checkpoint_dir);
+    }
     config.resume_job_id.clone_from(&args.resume);
     config.system_prompt = args.system_prompt.clone().filter(|s| !s.is_empty());
     if !args.prompts.default.is_empty() {

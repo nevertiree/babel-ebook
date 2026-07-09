@@ -125,6 +125,7 @@ pub async fn translate_epub(
     let cache = &owned_cache;
 
     let mut book = read_input_book(&config.source)?;
+    let source_hash = CheckpointStore::source_hash(&config.source)?;
     let translatable_indices = translatable_chapters(&book, &config.skip_doc_patterns)?;
     tracing::info!(
         total_chapters = book.chapters.len(),
@@ -163,6 +164,7 @@ pub async fn translate_epub(
         cache,
         checkpoint_store.as_ref(),
         job_id.as_deref(),
+        &source_hash,
         progress,
     )
     .await?;

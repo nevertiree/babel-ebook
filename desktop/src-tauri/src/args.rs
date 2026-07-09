@@ -64,9 +64,10 @@ pub struct TranslateArgs {
     pub system_prompt: Option<String>,
     /// Configurable prompt templates for each translation style.
     pub prompts: PromptTemplates,
-    /// If true, refine an existing translation instead of translating from scratch.
+    /// If true, run a second refinement pass over the first-pass translation.
     pub refine: bool,
     /// Directory where translation checkpoints are stored.
+    #[serde(default)]
     pub checkpoint_dir: String,
     /// Optional job ID to resume a previously interrupted translation.
     pub resume: Option<String>,
