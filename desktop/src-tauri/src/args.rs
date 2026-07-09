@@ -22,6 +22,7 @@ pub struct PromptTemplates {
 pub struct E2EArgs {
     pub source: Option<String>,
     pub output: Option<String>,
+    pub checkpoint_dir: Option<String>,
     pub api_key: Option<String>,
     pub dry_run: Option<bool>,
     pub ui_language: Option<String>,

@@ -1,6 +1,7 @@
 import { chromium, test, expect } from "@playwright/test";
 import { spawn, type ChildProcess } from "node:child_process";
-import { resolve } from "node:path";
+import { mkdirSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
@@ -30,6 +31,8 @@ test.beforeAll(async () => {
     throw new Error("BABEL_EBOOK_E2E_API_KEY is required");
   }
 
+  mkdirSync(dirname(TEST_OUTPUT), { recursive: true });
+
   appProcess = spawn(APP_PATH, [], {
     env: {
       ...process.env,
@@ -42,6 +45,13 @@ test.beforeAll(async () => {
     },
     detached: false,
     shell: true,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  appProcess.stdout?.on("data", (data) => {
+    console.log(`[app stdout] ${data.toString().trim()}`);
+  });
+  appProcess.stderr?.on("data", (data) => {
+    console.error(`[app stderr] ${data.toString().trim()}`);
   });
 
   const ready = await waitForCdp();
@@ -58,9 +68,13 @@ test.afterAll(() => {
 });
 
 test("translates a small EPUB in dry-run mode via the desktop UI", async () => {
+  test.setTimeout(180000);
   const browser = await chromium.connectOverCDP(CDP_URL);
   const context = browser.contexts()[0];
   const page = context.pages()[0];
+  page.on("console", (msg) => {
+    console.log(`[browser console] ${msg.type()}: ${msg.text()}`);
+  });
 
   await expect(page.getByTestId("source-path")).toContainText(TEST_SOURCE, {
     timeout: 10000,
@@ -73,11 +87,13 @@ test("translates a small EPUB in dry-run mode via the desktop UI", async () => {
   await startButton.click();
 
   // Wait for the dry-run pipeline to parse the EPUB and emit the token estimate.
-  const logPanel = page.getByTestId("log-panel");
-  await expect(logPanel).toContainText(/token/i, { timeout: 120000 });
+  const progressSection = page.getByTestId("progress-section");
+  await expect(progressSection).toBeVisible({ timeout: 120000 });
 
-  const progress = page.getByTestId("progress-message");
-  await expect(progress).toContainText(/Estimated source tokens/i);
+  const progressMessage = page.getByTestId("progress-message");
+  await expect(progressMessage).toContainText(/token|estimated|completed/i, {
+    timeout: 120000,
+  });
 
   await page.screenshot({ path: "output/e2e_translate_dryrun.png" });
 

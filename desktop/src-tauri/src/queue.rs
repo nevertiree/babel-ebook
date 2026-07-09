@@ -61,7 +61,7 @@ impl QueueManager {
 
     /// Start the background worker loop. Call once during Tauri setup.
     pub fn spawn_worker(self, app_handle: tauri::AppHandle) {
-        tokio::spawn(async move {
+        tauri::async_runtime::spawn(async move {
             loop {
                 let next = {
                     let mut guard = self.inner.lock().await;

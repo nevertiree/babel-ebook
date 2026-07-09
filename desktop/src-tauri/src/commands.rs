@@ -64,21 +64,32 @@ use crate::task::Task;
 /// Read E2E injection values from the environment.
 ///
 /// Supported variables: `BABEL_EBOOK_E2E_SOURCE`, `BABEL_EBOOK_E2E_OUTPUT`,
-/// `BABEL_EBOOK_E2E_API_KEY`, `BABEL_EBOOK_E2E_DRY_RUN`,
-/// `BABEL_EBOOK_E2E_UI_LANGUAGE`.
+/// `BABEL_EBOOK_E2E_CHECKPOINT_DIR`, `BABEL_EBOOK_E2E_API_KEY`,
+/// `BABEL_EBOOK_E2E_DRY_RUN`, `BABEL_EBOOK_E2E_UI_LANGUAGE`.
 #[cfg(not(test))]
 #[tauri::command]
 pub fn get_e2e_args() -> E2EArgs {
     let source = std::env::var("BABEL_EBOOK_E2E_SOURCE").ok();
     let output = std::env::var("BABEL_EBOOK_E2E_OUTPUT").ok();
+    let checkpoint_dir = std::env::var("BABEL_EBOOK_E2E_CHECKPOINT_DIR").ok();
     let api_key = std::env::var("BABEL_EBOOK_E2E_API_KEY").ok();
     let dry_run = std::env::var("BABEL_EBOOK_E2E_DRY_RUN")
         .ok()
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"));
     let ui_language = std::env::var("BABEL_EBOOK_E2E_UI_LANGUAGE").ok();
+    tracing::debug!(
+        source = ?source,
+        output = ?output,
+        checkpoint_dir = ?checkpoint_dir,
+        api_key_present = api_key.is_some(),
+        dry_run = ?dry_run,
+        ui_language = ?ui_language,
+        "get_e2e_args"
+    );
     E2EArgs {
         source,
         output,
+        checkpoint_dir,
         api_key,
         dry_run,
         ui_language,

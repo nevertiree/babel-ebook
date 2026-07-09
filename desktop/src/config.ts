@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { documentDir } from "@tauri-apps/api/path";
+import { documentDir, join } from "@tauri-apps/api/path";
 import { readTextFile, writeTextFile, mkdir, exists } from "@tauri-apps/plugin-fs";
 import type { FormState, ProviderConfig } from "./types";
 
@@ -97,12 +97,12 @@ const DEFAULT_GENERAL: GeneralSettings = {
 
 async function settingsPath(): Promise<string> {
   const docs = await documentDir();
-  return `${docs}${SETTINGS_DIR}/${SETTINGS_FILE}`;
+  return await join(docs, SETTINGS_DIR, SETTINGS_FILE);
 }
 
 async function ensureSettingsDir(): Promise<void> {
   const docs = await documentDir();
-  const dirPath = `${docs}${SETTINGS_DIR}`;
+  const dirPath = await join(docs, SETTINGS_DIR);
   const dirExists = await exists(dirPath);
   if (!dirExists) {
     await mkdir(dirPath, { recursive: true });
@@ -232,7 +232,7 @@ export async function loadSettings(): Promise<Partial<FormState>> {
     }
     const docs = await documentDir();
     if (!translation.checkpoint_dir || typeof translation.checkpoint_dir !== "string" || translation.checkpoint_dir.trim().length === 0) {
-      translation.checkpoint_dir = `${docs}${DEFAULT_CHECKPOINT_DIR}`;
+      translation.checkpoint_dir = await join(docs, DEFAULT_CHECKPOINT_DIR);
     }
     if (typeof translation.refine !== "boolean") {
       translation.refine = false;
@@ -247,7 +247,7 @@ export async function loadSettings(): Promise<Partial<FormState>> {
   const migrated = await migrateFromFlatSettings(versioned ?? { version: 1, translation: {}, general: DEFAULT_GENERAL });
   const docs = await documentDir();
   if (!migrated.checkpoint_dir || migrated.checkpoint_dir.trim().length === 0) {
-    migrated.checkpoint_dir = `${docs}${DEFAULT_CHECKPOINT_DIR}`;
+    migrated.checkpoint_dir = await join(docs, DEFAULT_CHECKPOINT_DIR);
   }
   if (migrated.refine === undefined) {
     migrated.refine = false;

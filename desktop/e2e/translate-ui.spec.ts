@@ -8,6 +8,7 @@ const APP_PATH = resolve(__dirname, "../../target/release/babel-ebook-desktop.ex
 const CDP_URL = "http://localhost:9222";
 const TEST_SOURCE = resolve(__dirname, "../../tests/fixtures/sample.epub");
 const TEST_OUTPUT = resolve(__dirname, "../../output/e2e_output.epub");
+const TEST_CHECKPOINT_DIR = resolve(__dirname, "../../output/e2e_checkpoints");
 
 async function waitForCdp(retries = 30): Promise<boolean> {
   for (let i = 0; i < retries; i += 1) {
@@ -25,17 +26,26 @@ async function waitForCdp(retries = 30): Promise<boolean> {
 let appProcess: ChildProcess | null = null;
 
 test.beforeAll(async () => {
+  const spawnEnv = {
+    ...process.env,
+    BABEL_EBOOK_E2E_CDP_PORT: "9222",
+    BABEL_EBOOK_E2E_SOURCE: TEST_SOURCE,
+    BABEL_EBOOK_E2E_OUTPUT: TEST_OUTPUT,
+    BABEL_EBOOK_E2E_CHECKPOINT_DIR: TEST_CHECKPOINT_DIR,
+    BABEL_EBOOK_E2E_DRY_RUN: "true",
+    BABEL_EBOOK_E2E_UI_LANGUAGE: "en",
+  };
   appProcess = spawn(APP_PATH, [], {
-    env: {
-      ...process.env,
-      BABEL_EBOOK_E2E_CDP_PORT: "9222",
-      BABEL_EBOOK_E2E_SOURCE: TEST_SOURCE,
-      BABEL_EBOOK_E2E_OUTPUT: TEST_OUTPUT,
-      BABEL_EBOOK_E2E_DRY_RUN: "true",
-      BABEL_EBOOK_E2E_UI_LANGUAGE: "en",
-    },
+    env: spawnEnv,
     detached: false,
     shell: true,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  appProcess.stdout?.on("data", (data) => {
+    console.log(`[app stdout] ${data.toString().trim()}`);
+  });
+  appProcess.stderr?.on("data", (data) => {
+    console.error(`[app stderr] ${data.toString().trim()}`);
   });
 
   const ready = await waitForCdp();
@@ -55,6 +65,9 @@ test("refine checkbox toggles the form state", async () => {
   const browser = await chromium.connectOverCDP(CDP_URL);
   const context = browser.contexts()[0];
   const page = context.pages()[0];
+  page.on("console", (msg) => {
+    console.log(`[browser console] ${msg.type()}: ${msg.text()}`);
+  });
 
   const refineCheckbox = page.getByTestId("refine-checkbox");
   await expect(refineCheckbox).not.toBeChecked();
@@ -72,6 +85,9 @@ test("checkpoint toggle expands and collapses the checkpoint list", async () => 
   const browser = await chromium.connectOverCDP(CDP_URL);
   const context = browser.contexts()[0];
   const page = context.pages()[0];
+  page.on("console", (msg) => {
+    console.log(`[browser console] ${msg.type()}: ${msg.text()}`);
+  });
 
   const toggle = page.getByTestId("toggle-checkpoints");
   await expect(toggle).toBeVisible();
