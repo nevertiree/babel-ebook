@@ -10,6 +10,9 @@ pub struct PromptTemplates {
     pub literary: String,
     pub technical: String,
     pub academic: String,
+    /// Template used for the optional refine pass.
+    #[serde(default)]
+    pub refine: String,
 }
 
 /// Optional values injected via environment variables for automated E2E tests.

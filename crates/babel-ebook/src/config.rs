@@ -212,6 +212,9 @@ pub struct PromptTemplates {
     /// Template used for the academic translation style.
     #[serde(default = "default_prompt_academic")]
     pub academic: String,
+    /// Template used for the optional refine pass.
+    #[serde(default = "default_prompt_refine")]
+    pub refine: String,
 }
 
 impl Default for PromptTemplates {
@@ -221,6 +224,7 @@ impl Default for PromptTemplates {
             literary: default_prompt_literary(),
             technical: default_prompt_technical(),
             academic: default_prompt_academic(),
+            refine: default_prompt_refine(),
         }
     }
 }
@@ -239,6 +243,10 @@ fn default_prompt_technical() -> String {
 
 fn default_prompt_academic() -> String {
     include_str!("../prompts/academic.md").into()
+}
+
+fn default_prompt_refine() -> String {
+    include_str!("../prompts/refine.md").into()
 }
 
 /// Provider-specific configuration.
@@ -656,6 +664,36 @@ impl Config {
             .get(href)
             .cloned()
             .unwrap_or_else(|| self.system_prompt())
+    }
+
+    /// Return the configured refine prompt localised to the source/target
+    /// language.
+    #[must_use]
+    #[allow(clippy::literal_string_with_formatting_args)]
+    pub fn refine_prompt(&self) -> String {
+        let source_lang = if self.source_lang == "auto" {
+            "the original language".to_string()
+        } else {
+            self.source_lang.clone()
+        };
+        self.prompts
+            .refine
+            .clone()
+            .replace("{source_lang}", &source_lang)
+            .replace("{target_lang}", &self.target_lang)
+            + &self.glossary_prompt()
+    }
+
+    /// Maximum source text tokens for a refine-pass API call.
+    ///
+    /// Reserves tokens for the refine prompt plus a safety margin and keeps the
+    /// expected output within the configured limit.
+    #[must_use]
+    pub fn max_refine_source_tokens(&self) -> usize {
+        let prompt_tokens = crate::chunking::count_tokens(&self.refine_prompt()) + 100;
+        let input = self.max_input_tokens.saturating_sub(prompt_tokens);
+        let output = self.max_output_tokens.saturating_sub(200);
+        input.min(output)
     }
 
     /// Maximum source text tokens per API call.

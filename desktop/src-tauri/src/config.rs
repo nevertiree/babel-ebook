@@ -80,6 +80,9 @@ pub fn build_config(args: &TranslateArgs) -> Result<Config, String> {
     if !args.prompts.academic.is_empty() {
         config.prompts.academic.clone_from(&args.prompts.academic);
     }
+    if !args.prompts.refine.is_empty() {
+        config.prompts.refine.clone_from(&args.prompts.refine);
+    }
 
     Ok(config)
 }
@@ -173,11 +176,13 @@ mod tests {
         args.prompts.literary = "literary prompt".to_string();
         args.prompts.technical = "technical prompt".to_string();
         args.prompts.academic = "academic prompt".to_string();
+        args.prompts.refine = "refine prompt".to_string();
         let config = build_config(&args).unwrap();
         assert_eq!(config.prompts.default, "default prompt");
         assert_eq!(config.prompts.literary, "literary prompt");
         assert_eq!(config.prompts.technical, "technical prompt");
         assert_eq!(config.prompts.academic, "academic prompt");
+        assert_eq!(config.prompts.refine, "refine prompt");
     }
 
     #[test]
@@ -188,5 +193,6 @@ mod tests {
         assert!(!config.prompts.literary.is_empty());
         assert!(!config.prompts.technical.is_empty());
         assert!(!config.prompts.academic.is_empty());
+        assert!(!config.prompts.refine.is_empty());
     }
 }

@@ -499,6 +499,45 @@ async fn preserve_classes_copies_original_class() {
 }
 
 #[tokio::test]
+async fn refine_false_returns_first_pass_only() {
+    let (_dir, cache) = test_cache();
+    let config = test_config();
+    assert!(!config.refine);
+
+    let result = translate_text("hello world", &FakeTranslator, &config, &cache, "")
+        .await
+        .expect("translation should succeed");
+    assert_eq!(result, "[ZH] hello world");
+}
+
+#[tokio::test]
+async fn refine_true_applies_second_pass() {
+    let (_dir, cache) = test_cache();
+    let mut config = test_config();
+    config.refine = true;
+
+    let result = translate_text("hello world", &FakeTranslator, &config, &cache, "")
+        .await
+        .expect("translation should succeed");
+    assert_eq!(result, "[ZH] [ZH] hello world");
+}
+
+#[tokio::test]
+async fn refine_pass_is_cached() {
+    let (_dir, cache) = test_cache();
+    let mut config = test_config();
+    config.refine = true;
+
+    let result = translate_text("hello world", &FakeTranslator, &config, &cache, "")
+        .await
+        .expect("translation should succeed");
+    assert_eq!(result, "[ZH] [ZH] hello world");
+
+    let cached = cache.get("fake-refine", "[ZH] hello world");
+    assert_eq!(cached, Some("[ZH] [ZH] hello world".into()));
+}
+
+#[tokio::test]
 async fn process_document_injects_output_font_css() {
     let (_dir, cache) = test_cache();
     let mut config = test_config();
