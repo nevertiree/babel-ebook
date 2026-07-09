@@ -13,6 +13,15 @@ yanked = "warn"
 # unsound workspace crates, and yanked crates are checked for now.
 unmaintained = "none"
 unsound = "workspace"
+ignore = [
+    # docx-rs 0.4.20 pins quick-xml 0.36.2; the vulnerabilities below affect XML
+    # attribute parsing and namespace handling, which docx-rs uses internally.
+    # Upgrading quick-xml requires a docx-rs release (or fork) that supports
+    # quick-xml >= 0.41.0. This is tracked as technical debt and will be
+    # revisited when upstream is updated.
+    { id = "RUSTSEC-2026-0194", reason = "docx-rs pins quick-xml 0.36.2; no upstream release with quick-xml >= 0.41.0" },
+    { id = "RUSTSEC-2026-0195", reason = "docx-rs pins quick-xml 0.36.2; no upstream release with quick-xml >= 0.41.0" },
+]
 
 [licenses]
 allow = [
