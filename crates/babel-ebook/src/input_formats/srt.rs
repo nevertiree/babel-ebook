@@ -55,7 +55,10 @@ pub fn read_srt(path: &Path) -> Result<EpubBook, BabelEbookError> {
 /// with fewer than three lines are skipped.
 pub fn parse_srt_entries(text: &str) -> Result<Vec<SrtEntry>, BabelEbookError> {
     let mut entries = Vec::new();
-    let blocks: Vec<&str> = text.trim().split("\n\n").collect();
+    // Normalize CRLF to LF first, then collapse any stray carriage returns
+    // into line breaks so Windows SRT files split into blocks correctly.
+    let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
+    let blocks: Vec<&str> = normalized.trim().split("\n\n").collect();
     for block in blocks {
         let lines: Vec<&str> = block.lines().collect();
         if lines.len() < 3 {
@@ -126,6 +129,17 @@ Second line
         let entries = parse_srt_entries(srt).unwrap();
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].text, "Hello world");
+        assert_eq!(entries[1].start, "00:00:05,000");
+    }
+
+    #[test]
+    fn parse_crlf_srt() {
+        let srt = "1\r\n00:00:01,000 --> 00:00:04,000\r\nHello world\r\n\r\n2\r\n00:00:05,000 --> 00:00:07,000\r\nSecond line\r\n";
+        let entries = parse_srt_entries(srt).unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].index, 1);
+        assert_eq!(entries[0].text, "Hello world");
+        assert_eq!(entries[1].index, 2);
         assert_eq!(entries[1].start, "00:00:05,000");
     }
 
