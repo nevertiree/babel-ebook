@@ -650,6 +650,19 @@ function App() {
             general={general}
             setGeneral={setGeneral}
             detectedLocale={detectedLocale}
+            onImport={(settings) => {
+              const merged = { ...form, ...settings.translation } as FormState;
+              if (
+                !merged.active_provider ||
+                !merged.providers.some((p) => p.name === merged.active_provider)
+              ) {
+                merged.active_provider = merged.providers[0]?.name ?? "";
+              }
+              setForm(merged);
+              setGeneral(settings.general);
+              void saveSettings(merged);
+              void saveGeneralSettings(settings.general);
+            }}
           />
         );
       case "about":

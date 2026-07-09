@@ -1131,3 +1131,15 @@ button:disabled {
   flex: 1;
   margin-bottom: 0;
 }
+
+.backup-restore-section {
+  margin-top: 2rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-color, #444);
+}
+
+.backup-restore-actions {
+  display: flex;
+  gap: 1rem;
+  margin-top: 0.5rem;
+}
