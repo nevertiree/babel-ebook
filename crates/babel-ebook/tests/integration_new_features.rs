@@ -11,8 +11,8 @@ use zip::CompressionMethod;
 
 use babel_ebook::{
     checkpoint::{ChapterStatus, CheckpointStore},
-    translate_epub, write_epub, Chapter, Config, EpubBook, EpubMetadata, TranslateContext,
-    Translator,
+    translate_epub, write_epub, Chapter, Config, EpubBook, EpubMetadata, ProgressCallback,
+    ProgressEvent, TranslateContext, Translator,
 };
 
 /// A fake translator that wraps every input with a `[ZH] ` marker.
@@ -37,6 +37,18 @@ impl Translator for FakeTranslator {
         _context: &TranslateContext<'_>,
     ) -> Result<String, babel_ebook::BabelEbookError> {
         Ok(format!("[ZH] {}", text))
+    }
+}
+
+/// Records all progress events emitted during a translation run.
+#[derive(Default)]
+struct RecordingCallback {
+    events: Mutex<Vec<ProgressEvent>>,
+}
+
+impl ProgressCallback for RecordingCallback {
+    fn on_progress(&self, event: ProgressEvent) {
+        self.events.lock().expect("progress lock").push(event);
     }
 }
 
@@ -327,7 +339,7 @@ async fn resume_skips_completed_chapters() {
     );
 
     let job_id = find_job_id(&checkpoint_dir);
-    let store = CheckpointStore::new(checkpoint_dir.clone());
+    let store = CheckpointStore::new(checkpoint_dir.clone()).unwrap();
     let checkpoint = store
         .load(&job_id)
         .expect("checkpoint should exist after first run");
@@ -519,33 +531,6 @@ async fn ordered_pipeline_emits_events_in_order() {
         ],
     );
 
-    struct RecordingTranslator {
-        order: Mutex<Vec<String>>,
-    }
-
-    #[async_trait]
-    impl Translator for RecordingTranslator {
-        fn name(&self) -> String {
-            "recording".into()
-        }
-
-        fn max_output_tokens(&self) -> usize {
-            2000
-        }
-
-        async fn translate(
-            &self,
-            text: &str,
-            _context: &TranslateContext<'_>,
-        ) -> Result<String, babel_ebook::BabelEbookError> {
-            self.order
-                .lock()
-                .expect("order lock")
-                .push(text.to_string());
-            Ok(format!("[ZH] {}", text))
-        }
-    }
-
     let output = temp_dir.path().join("output.epub");
     let mut config = test_config(
         source,
@@ -556,20 +541,24 @@ async fn ordered_pipeline_emits_events_in_order() {
     config.concurrency = 3;
     config.translation_scope.toc = false;
 
-    let translator = RecordingTranslator {
-        order: Mutex::new(Vec::new()),
-    };
-
-    translate_epub(&config, &translator, None, None)
+    let callback = RecordingCallback::default();
+    translate_epub(&config, &FakeTranslator, None, Some(&callback))
         .await
         .expect("translation should succeed");
 
-    let order = translator.order.into_inner().expect("order lock");
+    let events: Vec<ProgressEvent> = callback.events.into_inner().expect("progress lock");
+    let finished_indices: Vec<usize> = events
+        .iter()
+        .filter_map(|e| match e {
+            ProgressEvent::ChapterFinished { index, .. } => Some(*index),
+            _ => None,
+        })
+        .collect();
     assert_eq!(
-        order,
-        vec!["Alpha", "Bravo", "Charlie"],
-        "translate calls should follow spine order: {:?}",
-        order
+        finished_indices,
+        vec![0, 1, 2],
+        "chapter finished events should follow spine order: {:?}",
+        events
     );
 }
 

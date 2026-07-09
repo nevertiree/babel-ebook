@@ -148,7 +148,7 @@ pub async fn translate_epub(
     let (checkpoint_store, job_id) = if config.dry_run {
         (None, None)
     } else {
-        let store = CheckpointStore::new(config.checkpoint_dir.clone());
+        let store = CheckpointStore::new(config.checkpoint_dir.clone())?;
         let id = config
             .resume_job_id
             .clone()

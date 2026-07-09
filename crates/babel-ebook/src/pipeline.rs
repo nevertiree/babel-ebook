@@ -251,31 +251,33 @@ fn update_checkpoint_entry(
     store: Option<&CheckpointStore>,
     job_id: &str,
 ) -> Result<(), BabelEbookError> {
-    let mut cp = checkpoint
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if let Some(entry) = cp.chapters.iter_mut().find(|c| c.index == index) {
-        match result {
-            Ok(content) => {
-                entry.status = ChapterStatus::Completed;
-                entry.content = Some(content.clone());
-                entry.error = None;
-            }
-            Err(err) => {
-                entry.status = ChapterStatus::Failed;
-                entry.error = Some(err.to_string());
+    let cp_to_save = {
+        let mut cp = checkpoint
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(entry) = cp.chapters.iter_mut().find(|c| c.index == index) {
+            match result {
+                Ok(content) => {
+                    entry.status = ChapterStatus::Completed;
+                    entry.content = Some(content.clone());
+                    entry.error = None;
+                }
+                Err(err) => {
+                    entry.status = ChapterStatus::Failed;
+                    entry.error = Some(err.to_string());
+                }
             }
         }
-    }
-    let save_result = store.map(|s| s.save(&cp));
-    drop(cp);
-    match save_result {
-        Some(Err(err)) => {
+        cp.clone()
+    };
+
+    if let Some(store) = store {
+        if let Err(err) = store.save(&cp_to_save) {
             tracing::warn!(job_id, error = %err, "failed to save checkpoint");
-            Err(err)
+            return Err(err);
         }
-        _ => Ok(()),
     }
+    Ok(())
 }
 
 async fn acquire_permit(
@@ -387,7 +389,7 @@ mod tests {
     #[tokio::test]
     async fn pipeline_skips_completed_chapters() {
         let dir = tempfile::tempdir().unwrap();
-        let store = CheckpointStore::new(dir.path().to_path_buf());
+        let store = CheckpointStore::new(dir.path().to_path_buf()).unwrap();
         let mut book = make_book(vec!["alpha", "beta", "gamma"]);
         let mut config = make_config();
         config.checkpoint_dir = dir.path().join("checkpoints");

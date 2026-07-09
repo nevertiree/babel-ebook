@@ -55,18 +55,18 @@ pub struct CheckpointStore {
 impl CheckpointStore {
     /// Create the store, ensuring the directory exists.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if the checkpoint directory cannot be created.
-    #[must_use]
-    pub fn new(dir: PathBuf) -> Self {
-        std::fs::create_dir_all(&dir).unwrap_or_else(|e| {
-            panic!(
+    /// Returns `BabelEbookError::Anyhow` if the checkpoint directory cannot be
+    /// created.
+    pub fn new(dir: PathBuf) -> Result<Self, BabelEbookError> {
+        std::fs::create_dir_all(&dir).map_err(|e| {
+            BabelEbookError::Anyhow(anyhow::anyhow!(
                 "failed to create checkpoint directory {}: {e}",
                 dir.display()
-            )
-        });
-        Self { dir }
+            ))
+        })?;
+        Ok(Self { dir })
     }
 
     /// Load a checkpoint by job id if it exists.
@@ -117,10 +117,12 @@ impl CheckpointStore {
     ///
     /// Returns `BabelEbookError::Anyhow` if the file cannot be read.
     pub fn source_hash(path: &Path) -> Result<String, BabelEbookError> {
-        let bytes = std::fs::read(path)
-            .map_err(|e| BabelEbookError::Anyhow(anyhow::anyhow!("read source for hash: {e}")))?;
+        let file = std::fs::File::open(path)
+            .map_err(|e| BabelEbookError::Anyhow(anyhow::anyhow!("open source for hash: {e}")))?;
+        let mut reader = std::io::BufReader::new(file);
         let mut hasher = Sha256::new();
-        hasher.update(&bytes);
+        std::io::copy(&mut reader, &mut hasher)
+            .map_err(|e| BabelEbookError::Anyhow(anyhow::anyhow!("hash source file: {e}")))?;
         Ok(hex::encode(hasher.finalize()))
     }
 
@@ -136,7 +138,7 @@ mod tests {
     #[test]
     fn checkpoint_round_trip() {
         let dir = tempfile::tempdir().unwrap();
-        let store = CheckpointStore::new(dir.path().to_path_buf());
+        let store = CheckpointStore::new(dir.path().to_path_buf()).unwrap();
         let cp = Checkpoint {
             job_id: "job-1".into(),
             source_hash: "hash".into(),
