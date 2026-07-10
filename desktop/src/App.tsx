@@ -103,7 +103,7 @@ function ensureProvider(form: FormState, providerType: string): FormState {
 
 function applyProgressToTask(task: Task, payload: ProgressPayload): Task {
   if (typeof payload === "string" && payload === "Completed") {
-    return { ...task, progress_percent: 100 };
+    return { ...task, progress_percent: 100, status: "completed" };
   }
   if (typeof payload === "object" && "Started" in payload) {
     return {
@@ -111,13 +111,14 @@ function applyProgressToTask(task: Task, payload: ProgressPayload): Task {
       progress_percent: 0,
       status: "running",
       chapter_total: payload.Started.total,
+      error: undefined,
     };
   }
   if (typeof payload === "object" && "ChapterStarted" in payload) {
     const total = task.chapter_total ?? 0;
     const percent =
       total > 0
-        ? Math.round(((payload.ChapterStarted.index + 1) / total) * 100)
+        ? Math.round((payload.ChapterStarted.index / total) * 100)
         : task.progress_percent;
     return { ...task, progress_percent: Math.min(99, percent), status: "running" };
   }
@@ -130,7 +131,12 @@ function applyProgressToTask(task: Task, payload: ProgressPayload): Task {
     return { ...task, progress_percent: Math.min(99, percent), status: "running" };
   }
   if (typeof payload === "object" && "Failed" in payload) {
-    return { ...task, message: payload.Failed.error };
+    return {
+      ...task,
+      status: "failed",
+      message: payload.Failed.error,
+      error: payload.Failed.error,
+    };
   }
   return task;
 }
@@ -697,6 +703,7 @@ function App() {
             type="button"
             className={`nav-item ${page === "translate" ? "active" : ""}`}
             onClick={() => setPage("translate")}
+            data-testid="nav-translate"
           >
             {t("nav_translate")}
           </button>
@@ -705,6 +712,7 @@ function App() {
             type="button"
             className={`nav-item ${page === "logs" ? "active" : ""}`}
             onClick={() => setPage("logs")}
+            data-testid="nav-logs"
           >
             {t("nav_logs")}
           </button>
@@ -713,6 +721,7 @@ function App() {
             type="button"
             className={`nav-item ${page === "tasks" ? "active" : ""}`}
             onClick={() => setPage("tasks")}
+            data-testid="nav-tasks"
           >
             {t("nav_tasks")}
           </button>

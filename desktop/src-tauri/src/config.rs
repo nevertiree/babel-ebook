@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use babel_ebook::{Config, OutputMode, TranslationScope, TranslationStyle};
+use babel_ebook::{Config, OutputMode, ProviderConfig, TranslationScope, TranslationStyle};
 
 use crate::args::{TestConnectionArgs, TranslateArgs};
 
@@ -55,6 +55,21 @@ pub fn build_config(args: &TranslateArgs) -> Result<Config, String> {
     }
     config.output_font = args.output_font.clone().filter(|f| !f.is_empty());
     config.model.clone_from(&args.model);
+    // Pass the user-selected model through provider_config so the registry
+    // uses it instead of the provider's built-in default.
+    config.provider_config = Some(ProviderConfig {
+        name: args.provider.clone(),
+        api_key: if args.api_key.is_empty() {
+            None
+        } else {
+            Some(args.api_key.clone())
+        },
+        base_url: args.base_url.clone().filter(|url| !url.is_empty()),
+        default_model: args.model.clone(),
+        max_tokens: args.max_output_tokens as usize,
+        temperature: args.temperature,
+        extra: None,
+    });
     config.concurrency = args.concurrency as usize;
     config.max_input_tokens = args.max_input_tokens as usize;
     config.max_output_tokens = args.max_output_tokens as usize;

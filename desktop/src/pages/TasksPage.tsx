@@ -33,11 +33,11 @@ export default function TasksPage({
 
       <div className="queue-controls">
         {queue.running ? (
-          <button type="button" onClick={() => void onPause()}>
+          <button type="button" onClick={() => void onPause()} data-testid="pause-queue">
             {t("pause_queue")}
           </button>
         ) : (
-          <button type="button" onClick={() => void onStart()}>
+          <button type="button" onClick={() => void onStart()} data-testid="start-queue">
             {t("start_queue")}
           </button>
         )}
@@ -72,17 +72,17 @@ export default function TasksPage({
 
               <div className="task-actions">
                 {(task.status === "pending" || task.status === "running") && (
-                  <button type="button" onClick={() => void onCancel(task.id)}>
+                  <button type="button" onClick={() => void onCancel(task.id)} data-testid="cancel-task">
                     {t("cancel")}
                   </button>
                 )}
                 {(task.status === "failed" || task.status === "cancelled") && (
-                  <button type="button" onClick={() => void onRetry(task.id)}>
+                  <button type="button" onClick={() => void onRetry(task.id)} data-testid="retry-task">
                     {t("retry")}
                   </button>
                 )}
                 {task.status !== "running" && (
-                  <button type="button" className="danger" onClick={() => void onRemove(task.id)}>
+                  <button type="button" className="danger" onClick={() => void onRemove(task.id)} data-testid="remove-task">
                     {t("remove")}
                   </button>
                 )}
