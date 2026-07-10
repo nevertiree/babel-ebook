@@ -239,6 +239,12 @@ fn block_to_html(block: &TextBlock) -> String {
         BlockType::Subheading => format!("<h2>{escaped}</h2>"),
         BlockType::Caption => format!("<figcaption>{escaped}</figcaption>"),
         BlockType::TableCell => format!("<td>{escaped}</td>"),
+        BlockType::Image => {
+            let src = html_escape(&block.text);
+            format!(
+                "<figure><img src=\"{src}\" alt=\"figure\"/><figcaption>图</figcaption></figure>"
+            )
+        }
         BlockType::Other => {
             // Diagram labels and similar fragments are grouped with newlines;
             // render them in a figure/pre block to preserve layout.

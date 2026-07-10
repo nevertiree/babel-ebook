@@ -85,7 +85,7 @@ pub async fn convert_pdf_to_epub(
 
     let concurrency = config.ocr_concurrency.max(1);
     let mut pages: Vec<OcrPageResult> =
-        futures_util::stream::iter(rendered.into_iter().enumerate())
+        futures_util::stream::iter(rendered.clone().into_iter().enumerate())
             .map(|(index, image_path)| async move {
                 let page_number = index + 1;
                 let image_bytes = std::fs::read(&image_path).map_err(|e| {
@@ -124,7 +124,85 @@ pub async fn convert_pdf_to_epub(
             .await?;
 
     post_process::clean_pages(&mut pages);
-    Ok(epub::build_epub(title, &pages))
+    let image_resources = extract_and_embed_images(&rendered, &mut pages, &config.temp_dir)?;
+
+    let mut book = epub::build_epub(title, &pages);
+    book.resources.extend(image_resources);
+    Ok(book)
+}
+
+/// Crop figure/diagram regions from rendered page images and embed them as
+/// EPUB resources. This only works when the OCR backend supplies bounding
+/// boxes for `other` blocks; otherwise the blocks are left as text.
+fn extract_and_embed_images(
+    rendered: &[PathBuf],
+    pages: &mut [OcrPageResult],
+    temp_dir: &Path,
+) -> Result<Vec<crate::epub::Resource>, BabelEbookError> {
+    use crate::pdf_ocr::backend::{BlockType, BoundingBox};
+    use image::imageops::crop_imm;
+
+    let mut resources = Vec::new();
+    let mut image_count = 0;
+    for (page_idx, page) in pages.iter_mut().enumerate() {
+        let Some(image_path) = rendered.get(page_idx) else {
+            continue;
+        };
+        let img = image::open(image_path).map_err(|e| {
+            BabelEbookError::Anyhow(anyhow::anyhow!(
+                "failed to open rendered page image {}: {e}",
+                image_path.display()
+            ))
+        })?;
+
+        for block in &mut page.blocks {
+            if block.block_type != BlockType::Other {
+                continue;
+            }
+            let Some(BoundingBox { x, y, w, h }) = block.bbox else {
+                continue;
+            };
+            if w < 20 || h < 20 {
+                continue;
+            }
+
+            image_count += 1;
+            let filename = format!("figure-{page_idx:03}-{image_count:03}.png");
+            let crop_path = temp_dir.join(&filename);
+            let cropped = crop_imm(&img, x, y, w, h).to_image();
+            let mut out = std::fs::File::create(&crop_path).map_err(|e| {
+                BabelEbookError::Anyhow(anyhow::anyhow!(
+                    "failed to create cropped image {}: {e}",
+                    crop_path.display()
+                ))
+            })?;
+            cropped
+                .write_to(&mut out, image::ImageFormat::Png)
+                .map_err(|e| {
+                    BabelEbookError::Anyhow(anyhow::anyhow!(
+                        "failed to encode cropped image {}: {e}",
+                        crop_path.display()
+                    ))
+                })?;
+
+            let data = std::fs::read(&crop_path).map_err(|e| {
+                BabelEbookError::Anyhow(anyhow::anyhow!(
+                    "failed to read cropped image {}: {e}",
+                    crop_path.display()
+                ))
+            })?;
+            resources.push(crate::epub::Resource {
+                href: filename.clone(),
+                mime: "image/png".to_string(),
+                data,
+            });
+
+            block.block_type = BlockType::Image;
+            block.text = filename;
+        }
+    }
+
+    Ok(resources)
 }
 
 async fn run_ocr_with_retries(

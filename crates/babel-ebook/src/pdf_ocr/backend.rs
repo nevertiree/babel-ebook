@@ -34,6 +34,8 @@ pub enum BlockType {
     TableCell,
     /// Other or unknown.
     Other,
+    /// Embedded image region (e.g. a cropped figure from the PDF page).
+    Image,
 }
 
 /// A single extracted text region.
