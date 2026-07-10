@@ -53,7 +53,8 @@ pub async fn run_ordered_pipeline(
     }
 
     let job_id = resolve_job_id(checkpoint_store, job_id, &config.source);
-    let checkpoint = build_checkpoint(book, &indices, checkpoint_store, &job_id, source_hash);
+    let mut checkpoint = build_checkpoint(book, &indices, checkpoint_store, &job_id, source_hash);
+    checkpoint.source_path = config.source.to_string_lossy().into_owned();
     let completed = restore_completed_chapters(book, &indices, &checkpoint, progress);
     let pending_indices: Vec<usize> = indices
         .into_iter()
@@ -193,6 +194,7 @@ fn build_checkpoint(
             Checkpoint {
                 job_id: job_id.to_string(),
                 source_hash: source_hash.to_string(),
+                source_path: String::new(),
                 chapters: Vec::new(),
             }
         } else {
@@ -202,6 +204,7 @@ fn build_checkpoint(
         Checkpoint {
             job_id: job_id.to_string(),
             source_hash: source_hash.to_string(),
+            source_path: String::new(),
             chapters: Vec::new(),
         }
     };
@@ -418,6 +421,7 @@ mod tests {
             .save(&Checkpoint {
                 job_id: job_id.clone(),
                 source_hash: "hash".into(),
+                source_path: config.source.to_string_lossy().into_owned(),
                 chapters: vec![
                     ChapterCheckpoint {
                         index: 0,

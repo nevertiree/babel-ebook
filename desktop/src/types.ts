@@ -125,6 +125,7 @@ export interface CheckpointInfo {
   job_id: string;
   source_hash: string;
   source_path: string;
+  matches_current_source: boolean;
   completed: number;
   total: number;
   failed: number;
