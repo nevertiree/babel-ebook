@@ -286,7 +286,7 @@ fn is_plain_text_heading(line: &str) -> bool {
         return false;
     }
     // Either a space, or the rest starts with a Chinese character.
-    rest.starts_with(' ') || rest.starts_with('\u{3000}') || is_cjk(rest.chars().next().unwrap())
+    rest.starts_with(' ') || rest.starts_with('\u{3000}') || rest.chars().next().is_some_and(is_cjk)
 }
 
 fn is_cjk(c: char) -> bool {

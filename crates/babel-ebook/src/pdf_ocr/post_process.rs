@@ -267,8 +267,8 @@ fn merge_adjacent_paragraphs(pages: &mut [OcrPageResult]) {
 fn merge_paragraphs_across_pages(pages: &mut [OcrPageResult]) {
     for i in 0..pages.len().saturating_sub(1) {
         let (prev, next) = pages.split_at_mut(i + 1);
-        let prev_page = prev.last_mut().unwrap();
-        let next_page = next.first_mut().unwrap();
+        let prev_page = prev.last_mut().expect("prev has at least one page");
+        let next_page = next.first_mut().expect("next has at least one page");
 
         let Some(last) = prev_page.blocks.last_mut() else {
             continue;
@@ -310,10 +310,9 @@ fn ends_sentence(text: &str) -> bool {
 /// rather than the start of a new one.
 fn starts_with_sentence_fragment(text: &str) -> bool {
     let trimmed = text.trim_start();
-    if trimmed.is_empty() {
+    let Some(first_char) = trimmed.chars().next() else {
         return false;
-    }
-    let first_char = trimmed.chars().next().unwrap();
+    };
     // Starts with lowercase Latin or a number.
     if first_char.is_ascii_lowercase() || first_char.is_ascii_digit() {
         return true;

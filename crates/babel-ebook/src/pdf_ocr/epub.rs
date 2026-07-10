@@ -32,16 +32,21 @@ pub fn build_epub(title: &str, pages: &[OcrPageResult]) -> EpubBook {
             }
 
             if block.block_type == BlockType::Heading {
-                // Close the previous chapter.
-                if !current_body.is_empty() {
-                    chapters.push(finish_chapter(
-                        current_title.as_deref(),
-                        &current_body,
-                        chapters.len(),
-                    ));
-                    current_body.clear();
+                if is_top_level_heading(&block.text) {
+                    // Close the previous chapter and start a new one.
+                    if !current_body.is_empty() || current_title.is_some() {
+                        chapters.push(finish_chapter(
+                            current_title.as_deref(),
+                            &current_body,
+                            chapters.len(),
+                        ));
+                        current_body.clear();
+                    }
+                    current_title = Some(block.text.clone());
+                } else {
+                    // Subheading stays inside the current chapter.
+                    current_body.push(block_to_html_subheading(&block.text));
                 }
-                current_title = Some(block.text.clone());
                 continue;
             }
 
@@ -195,6 +200,38 @@ fn infer_grid_by_x_coords<'a>(cells: &'a [&'a TextBlock]) -> Option<Vec<Vec<&'a 
     None
 }
 
+/// Decide whether a heading text should start a new chapter (top-level) or be
+/// kept as a subheading inside the current chapter.
+fn is_top_level_heading(text: &str) -> bool {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    // Chinese-style "第1章".
+    if trimmed.starts_with('第') {
+        return trimmed.chars().nth(1).is_some_and(|c| c.is_ascii_digit());
+    }
+
+    // Numbered headings: top-level are "1 ", "1金融", etc.; subheadings are
+    // "1.1", "1.1.1", etc.
+    let digits = trimmed.chars().take_while(char::is_ascii_digit).count();
+    if digits == 0 {
+        // Non-numbered headings like "Abstract" or "References" are treated as
+        // top-level.
+        return true;
+    }
+    let after_digits = trimmed.chars().skip(digits).collect::<String>();
+    // If the next char is '.', it's a subheading (1.1, 1.1.1); otherwise it is
+    // a top-level heading (1, 1金融).
+    !after_digits.starts_with('.')
+}
+
+fn block_to_html_subheading(text: &str) -> String {
+    let escaped = html_escape(text);
+    format!("<h2>{escaped}</h2>")
+}
+
 fn block_to_html(block: &TextBlock) -> String {
     let escaped = html_escape(&block.text);
     match block.block_type {
@@ -328,6 +365,19 @@ fn finish_chapter(title: Option<&str>, body: &[String], index: usize) -> Chapter
 
 fn inject_default_styles(html: &str) -> String {
     let style = r"<style>
+h1, h2 {
+  font-weight: bold;
+}
+h1 {
+  font-size: 1.5em;
+  margin-top: 1.2em;
+  margin-bottom: 0.6em;
+}
+h2 {
+  font-size: 1.25em;
+  margin-top: 1em;
+  margin-bottom: 0.5em;
+}
 table, th, td {
   border: 1px solid #333;
   border-collapse: collapse;
@@ -438,6 +488,42 @@ mod tests {
         assert!(content.contains("<table>"));
         assert!(content.contains("<td>3</td>"));
         assert!(content.contains("<td>4</td>"));
+    }
+
+    #[test]
+    fn subheadings_stay_inside_chapter() {
+        let pages = vec![OcrPageResult {
+            page_number: 1,
+            blocks: vec![
+                TextBlock {
+                    text: "1 Chapter".into(),
+                    block_type: BlockType::Heading,
+                    ..Default::default()
+                },
+                TextBlock {
+                    text: "First paragraph.".into(),
+                    block_type: BlockType::Paragraph,
+                    ..Default::default()
+                },
+                TextBlock {
+                    text: "1.1 Subsection".into(),
+                    block_type: BlockType::Heading,
+                    ..Default::default()
+                },
+                TextBlock {
+                    text: "Second paragraph.".into(),
+                    block_type: BlockType::Paragraph,
+                    ..Default::default()
+                },
+            ],
+            full_text: String::new(),
+        }];
+
+        let book = build_epub("Test Book", &pages);
+        assert_eq!(book.chapters.len(), 1);
+        let content = String::from_utf8_lossy(&book.chapters[0].content);
+        assert!(content.contains("<h2>1.1 Subsection</h2>"));
+        assert!(content.contains("Second paragraph."));
     }
 
     #[test]
