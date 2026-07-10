@@ -394,6 +394,24 @@ mod tests {
     }
 
     #[test]
+    fn renders_inline_markdown_table_in_paragraph() {
+        let pages = vec![OcrPageResult {
+            page_number: 1,
+            blocks: vec![TextBlock {
+                text: "| A | B | |---|---| | 1 | 2 | | 3 | 4 |".into(),
+                block_type: BlockType::Paragraph,
+                ..Default::default()
+            }],
+            full_text: String::new(),
+        }];
+        let book = build_epub("Test", &pages);
+        let content = String::from_utf8_lossy(&book.chapters[0].content);
+        assert!(content.contains("<table>"));
+        assert!(content.contains("<td>3</td>"));
+        assert!(content.contains("<td>4</td>"));
+    }
+
+    #[test]
     fn renders_multi_line_other_as_figure_pre() {
         let pages = vec![OcrPageResult {
             page_number: 1,
