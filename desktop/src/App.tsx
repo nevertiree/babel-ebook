@@ -317,6 +317,12 @@ function App() {
     void saveGeneralSettings(general);
   }, [general]);
 
+  // Sync the active theme to the document root so that every element inherits
+  // the correct CSS variables, not just descendants of .app-shell.
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", general.theme);
+  }, [general.theme]);
+
   // System language detection.
   useEffect(() => {
     void invoke<string>("get_system_locale").then((locale) => {
