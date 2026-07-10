@@ -4,7 +4,7 @@
 //! prompt leakage, or diagram text. This module cleans those artifacts before the
 //! results are assembled into an EPUB.
 
-use crate::pdf_ocr::backend::OcrPageResult;
+use crate::pdf_ocr::backend::{BlockType, OcrPageResult, TextBlock};
 
 /// Clean a set of pages by removing common OCR artifacts.
 pub fn clean_pages(pages: &mut [OcrPageResult]) {
@@ -26,6 +26,10 @@ pub fn clean_pages(pages: &mut [OcrPageResult]) {
             true
         });
     }
+
+    group_diagram_labels(pages);
+    merge_paragraphs_across_pages(pages);
+    rebuild_full_text(pages);
 }
 
 /// Remove blocks that contain fragments of the system prompt or task description.
@@ -132,6 +136,195 @@ fn normalize_header(text: &str) -> String {
     text.chars().filter(|c| !c.is_whitespace()).collect()
 }
 
+/// Group consecutive short text fragments that look like diagram labels into
+/// a single `other` block. This prevents figures from being rendered as a
+/// scattered series of one-line paragraphs.
+fn group_diagram_labels(pages: &mut [OcrPageResult]) {
+    for page in pages.iter_mut() {
+        let mut grouped: Vec<TextBlock> = Vec::new();
+        let mut run: Vec<TextBlock> = Vec::new();
+
+        for block in page.blocks.drain(..) {
+            if is_diagram_label(&block) {
+                run.push(block);
+                continue;
+            }
+
+            if !run.is_empty() {
+                grouped.push(flush_diagram_run(&mut run));
+            }
+            grouped.push(block);
+        }
+
+        if !run.is_empty() {
+            grouped.push(flush_diagram_run(&mut run));
+        }
+
+        page.blocks = grouped;
+    }
+}
+
+/// A block is treated as a diagram label if it is short, contains no sentence
+/// terminator, is not a structural element, and contains at least one non-CJK
+/// character (Latin, digit, or symbol). This avoids grouping normal short
+/// Chinese phrases that happen to cross a page boundary.
+fn is_diagram_label(block: &TextBlock) -> bool {
+    if !matches!(
+        block.block_type,
+        BlockType::Paragraph | BlockType::Other | BlockType::Caption
+    ) {
+        return false;
+    }
+    let text = block.text.trim();
+    if text.is_empty() || text.len() > 25 {
+        return false;
+    }
+    // Avoid grouping real sentences that happen to be short.
+    if text.ends_with('。') || text.ends_with('！') || text.ends_with('？') {
+        return false;
+    }
+    if text.ends_with('.') || text.ends_with('!') || text.ends_with('?') {
+        return false;
+    }
+    // Require at least one non-CJK character to distinguish diagram labels like
+    // "μ-3σ" or "2.15%" from ordinary short Chinese phrases.
+    text.chars().any(|c| !is_cjk_or_fullwidth(c))
+}
+
+fn is_cjk_or_fullwidth(c: char) -> bool {
+    (0x4E00..=0x9FFF).contains(&(c as u32))
+        || (0x3040..=0x309F).contains(&(c as u32))
+        || (0x30A0..=0x30FF).contains(&(c as u32))
+        || (0xFF00..=0xFFEF).contains(&(c as u32))
+        || (0x3000..=0x303F).contains(&(c as u32))
+}
+
+/// Flush a run of diagram labels into one `other` block, preserving the text
+/// in a layout-friendly form.
+fn flush_diagram_run(run: &mut Vec<TextBlock>) -> TextBlock {
+    let first = run.first().cloned().unwrap_or_default();
+    let text = run
+        .iter()
+        .map(|b| b.text.trim())
+        .collect::<Vec<_>>()
+        .join("\n");
+    run.clear();
+    TextBlock {
+        text,
+        block_type: BlockType::Other,
+        bbox: first.bbox,
+        confidence: first.confidence,
+    }
+}
+
+/// Merge a paragraph that ends mid-sentence at the bottom of one page with the
+/// first paragraph of the next page when the continuation looks plausible.
+fn merge_paragraphs_across_pages(pages: &mut [OcrPageResult]) {
+    for i in 0..pages.len().saturating_sub(1) {
+        let (prev, next) = pages.split_at_mut(i + 1);
+        let prev_page = prev.last_mut().unwrap();
+        let next_page = next.first_mut().unwrap();
+
+        let Some(last) = prev_page.blocks.last_mut() else {
+            continue;
+        };
+        if last.block_type != BlockType::Paragraph || ends_sentence(&last.text) {
+            continue;
+        }
+
+        let first_idx = next_page
+            .blocks
+            .iter()
+            .position(|b| b.block_type == BlockType::Paragraph);
+        let Some(first_idx) = first_idx else {
+            continue;
+        };
+
+        let first = &next_page.blocks[first_idx];
+        // Only merge if the next paragraph does not itself start a new sentence.
+        if starts_with_sentence_fragment(&first.text) {
+            let first_text = next_page.blocks.remove(first_idx).text;
+            last.text.push_str(&first_text);
+        }
+    }
+}
+
+fn ends_sentence(text: &str) -> bool {
+    let trimmed = text.trim_end();
+    trimmed.ends_with('。')
+        || trimmed.ends_with('！')
+        || trimmed.ends_with('？')
+        || trimmed.ends_with('.')
+        || trimmed.ends_with('!')
+        || trimmed.ends_with('?')
+        || trimmed.ends_with('”')
+        || trimmed.ends_with('"')
+}
+
+/// Heuristic: the text looks like a continuation of the previous sentence
+/// rather than the start of a new one.
+fn starts_with_sentence_fragment(text: &str) -> bool {
+    let trimmed = text.trim_start();
+    if trimmed.is_empty() {
+        return false;
+    }
+    let first_char = trimmed.chars().next().unwrap();
+    // Starts with lowercase Latin or a number.
+    if first_char.is_ascii_lowercase() || first_char.is_ascii_digit() {
+        return true;
+    }
+    // Starts with punctuation that implies continuation.
+    let continuations = ["，", "、", "；", ",", ";", " "];
+    if continuations.iter().any(|c| trimmed.starts_with(*c)) {
+        return true;
+    }
+    // Chinese text: treat as a continuation unless it starts with a strong
+    // sentence or list marker.
+    if (0x4E00..=0x9FFF).contains(&(first_char as u32)) {
+        let new_sentence_markers = [
+            "首先",
+            "其次",
+            "再次",
+            "最后",
+            "此外",
+            "同时",
+            "因此",
+            "所以",
+            "但是",
+            "然而",
+            "综上",
+            "总之",
+            "例如",
+            "比如",
+            "一方面",
+            "另一方面",
+            "第一",
+            "第二",
+            "第三",
+            "第",
+            "一是",
+            "二是",
+            "三是",
+            "其一",
+            "其二",
+            "其三",
+        ];
+        return !new_sentence_markers.iter().any(|m| trimmed.starts_with(m));
+    }
+    false
+}
+
+fn rebuild_full_text(pages: &mut [OcrPageResult]) {
+    for page in pages.iter_mut() {
+        page.full_text = page
+            .blocks
+            .iter()
+            .map(|b| b.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n\n");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -236,5 +429,47 @@ mod tests {
         for page in &pages {
             assert!(!page.blocks.iter().any(|b| b.text.contains("Journal")));
         }
+    }
+
+    #[test]
+    fn groups_short_diagram_labels() {
+        let mut pages = vec![OcrPageResult {
+            page_number: 1,
+            blocks: vec![
+                block("μ-3σ", BlockType::Paragraph),
+                block("μ", BlockType::Paragraph),
+                block("μ+3σ", BlockType::Paragraph),
+                block("This is a real sentence.", BlockType::Paragraph),
+            ],
+            full_text: String::new(),
+        }];
+        clean_pages(&mut pages);
+        assert_eq!(pages[0].blocks.len(), 2);
+        assert_eq!(pages[0].blocks[0].block_type, BlockType::Other);
+        assert!(pages[0].blocks[0].text.contains("μ-3σ"));
+        assert!(pages[0].blocks[0].text.contains("μ+3σ"));
+    }
+
+    #[test]
+    fn merges_paragraphs_across_pages() {
+        let mut pages = vec![
+            OcrPageResult {
+                page_number: 1,
+                blocks: vec![block("该算法通过数据", BlockType::Paragraph)],
+                full_text: String::new(),
+            },
+            OcrPageResult {
+                page_number: 2,
+                blocks: vec![block("预处理、计算基线、实时检测", BlockType::Paragraph)],
+                full_text: String::new(),
+            },
+        ];
+        clean_pages(&mut pages);
+        assert_eq!(pages[0].blocks.len(), 1);
+        assert_eq!(pages[1].blocks.len(), 0);
+        assert_eq!(
+            pages[0].blocks[0].text,
+            "该算法通过数据预处理、计算基线、实时检测"
+        );
     }
 }

@@ -100,7 +100,7 @@ fn render_table(cells: &[&TextBlock]) -> String {
     // Group cells into rows by similar y coordinate. A simple heuristic: cells
     // whose y values differ by no more than half the median cell height belong
     // to the same row.
-    let mut sorted: Vec<&&TextBlock> = cells.iter().collect();
+    let mut sorted: Vec<&TextBlock> = cells.to_vec();
     sorted.sort_by_key(|b| b.bbox.map_or(0, |bbox| bbox.y));
 
     let row_threshold = cells
@@ -110,7 +110,7 @@ fn render_table(cells: &[&TextBlock]) -> String {
         .unwrap_or(10)
         .max(5);
 
-    let mut rows: Vec<Vec<&&TextBlock>> = Vec::new();
+    let mut rows: Vec<Vec<&TextBlock>> = Vec::new();
     for cell in sorted {
         let y = cell.bbox.map_or(0, |bbox| bbox.y);
         if let Some(row) = rows.iter_mut().find(|r| {
@@ -128,6 +128,15 @@ fn render_table(cells: &[&TextBlock]) -> String {
         row.sort_by_key(|b| b.bbox.map_or(0, |bbox| bbox.x));
     }
 
+    // Fallback: if every cell landed in a single row, try to infer a grid from
+    // repeating x-coordinate cycles. This handles models that emit cells with
+    // poor y coordinates.
+    if rows.len() == 1 && cells.len() > 4 {
+        if let Some(grid_rows) = infer_grid_by_x_coords(cells) {
+            rows = grid_rows;
+        }
+    }
+
     let mut html = String::from("<table>\n");
     for row in rows {
         html.push_str("  <tr>");
@@ -141,6 +150,51 @@ fn render_table(cells: &[&TextBlock]) -> String {
     html
 }
 
+/// Try to infer rows from a flat list of cells by detecting a repeating cycle
+/// in their x coordinates. Returns rows in reading order when possible.
+fn infer_grid_by_x_coords<'a>(cells: &'a [&'a TextBlock]) -> Option<Vec<Vec<&'a TextBlock>>> {
+    let xs: Vec<u32> = cells
+        .iter()
+        .map(|b| b.bbox.map_or(0, |bbox| bbox.x))
+        .collect();
+    if xs.len() < 6 {
+        return None;
+    }
+
+    // Find the smallest cycle length (number of columns) that explains the data.
+    for col_count in 2..=xs.len() / 2 {
+        if !xs.len().is_multiple_of(col_count) {
+            continue;
+        }
+        // Check if positions within each column are roughly stable.
+        let mut columns_ok = true;
+        for col in 0..col_count {
+            let values: Vec<u32> = xs.iter().skip(col).step_by(col_count).copied().collect();
+            if values.len() < 2 {
+                columns_ok = false;
+                break;
+            }
+            let avg = values.iter().sum::<u32>() / u32::try_from(values.len()).unwrap_or(1);
+            let max_dev = values.iter().map(|v| v.abs_diff(avg)).max().unwrap_or(0);
+            // Allow 15% of page width or 50px, whichever is larger.
+            let threshold = avg / 6 + 50;
+            if max_dev > threshold {
+                columns_ok = false;
+                break;
+            }
+        }
+        if columns_ok {
+            let mut rows: Vec<Vec<&'a TextBlock>> = Vec::new();
+            for chunk in cells.chunks(col_count) {
+                rows.push(chunk.to_vec());
+            }
+            return Some(rows);
+        }
+    }
+
+    None
+}
+
 fn block_to_html(block: &TextBlock) -> String {
     let escaped = html_escape(&block.text);
     match block.block_type {
@@ -148,7 +202,20 @@ fn block_to_html(block: &TextBlock) -> String {
         BlockType::Subheading => format!("<h2>{escaped}</h2>"),
         BlockType::Caption => format!("<figcaption>{escaped}</figcaption>"),
         BlockType::TableCell => format!("<td>{escaped}</td>"),
-        BlockType::Paragraph | BlockType::Other => {
+        BlockType::Other => {
+            // Diagram labels and similar fragments are grouped with newlines;
+            // render them in a figure/pre block to preserve layout.
+            if escaped.lines().count() > 1 {
+                format!("<figure><pre>{escaped}</pre></figure>")
+            } else {
+                format!("<p>{escaped}</p>")
+            }
+        }
+        BlockType::Paragraph => {
+            // Render embedded Markdown tables as HTML tables.
+            if let Some(table_html) = render_markdown_table(&block.text) {
+                return table_html;
+            }
             // Preserve line breaks as separate paragraphs.
             escaped
                 .lines()
@@ -158,6 +225,66 @@ fn block_to_html(block: &TextBlock) -> String {
                 .join("\n")
         }
     }
+}
+
+/// Render a Markdown table embedded in a paragraph as an HTML table.
+/// Returns `None` if the text does not contain a Markdown table.
+fn render_markdown_table(text: &str) -> Option<String> {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut table_lines: Vec<&str> = Vec::new();
+    let mut in_table = false;
+
+    for line in &lines {
+        let trimmed = line.trim();
+        if trimmed.starts_with('|') && trimmed.ends_with('|') {
+            in_table = true;
+            table_lines.push(trimmed);
+        } else if in_table {
+            break;
+        }
+    }
+
+    if table_lines.len() < 2 {
+        return None;
+    }
+
+    // The second line should be the separator line (e.g. |---|---|).
+    let separator = table_lines[1];
+    let is_separator = separator
+        .split('|')
+        .skip(1)
+        .take_while(|s| !s.is_empty())
+        .all(|s| s.trim().chars().all(|c| c == '-' || c == ':' || c == ' '));
+    if !is_separator {
+        return None;
+    }
+
+    let header_cells = split_markdown_row(table_lines[0]);
+    let mut html = String::from("<table>\n  <thead>\n    <tr>");
+    for cell in header_cells {
+        let escaped = html_escape(cell.trim());
+        let _ = write!(html, "<th>{escaped}</th>");
+    }
+    html.push_str("</tr>\n  </thead>\n  <tbody>\n");
+
+    for row in table_lines.iter().skip(2) {
+        html.push_str("    <tr>");
+        for cell in split_markdown_row(row) {
+            let escaped = html_escape(cell.trim());
+            let _ = write!(html, "<td>{escaped}</td>");
+        }
+        html.push_str("</tr>\n");
+    }
+    html.push_str("  </tbody>\n</table>");
+    Some(html)
+}
+
+fn split_markdown_row(row: &str) -> Vec<&str> {
+    row.trim()
+        .trim_start_matches('|')
+        .trim_end_matches('|')
+        .split('|')
+        .collect()
 }
 
 fn finish_chapter(title: Option<&str>, body: &[String], index: usize) -> Chapter {
@@ -219,5 +346,41 @@ mod tests {
         assert!(content0.contains("First paragraph."));
         let content1 = String::from_utf8_lossy(&book.chapters[1].content);
         assert!(content1.contains("Second paragraph."));
+    }
+
+    #[test]
+    fn renders_markdown_table_in_paragraph() {
+        let pages = vec![OcrPageResult {
+            page_number: 1,
+            blocks: vec![TextBlock {
+                text: "| Name | Value |\n|------|-------|\n| A | 1 |\n| B | 2 |".into(),
+                block_type: BlockType::Paragraph,
+                ..Default::default()
+            }],
+            full_text: String::new(),
+        }];
+        let book = build_epub("Test", &pages);
+        let content = String::from_utf8_lossy(&book.chapters[0].content);
+        assert!(content.contains("<table>"));
+        assert!(content.contains("<th>Name</th>"));
+        assert!(content.contains("<td>1</td>"));
+    }
+
+    #[test]
+    fn renders_multi_line_other_as_figure_pre() {
+        let pages = vec![OcrPageResult {
+            page_number: 1,
+            blocks: vec![TextBlock {
+                text: "μ-3σ\nμ\nμ+3σ".into(),
+                block_type: BlockType::Other,
+                ..Default::default()
+            }],
+            full_text: String::new(),
+        }];
+        let book = build_epub("Test", &pages);
+        let content = String::from_utf8_lossy(&book.chapters[0].content);
+        assert!(content.contains("<figure><pre>"));
+        assert!(content.contains("μ-3σ"));
+        assert!(content.contains("μ+3σ"));
     }
 }
