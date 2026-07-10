@@ -201,9 +201,11 @@ fn is_diagram_label(block: &TextBlock) -> bool {
     if text.ends_with('.') || text.ends_with('!') || text.ends_with('?') {
         return false;
     }
-    // Require at least one non-CJK character to distinguish diagram labels like
-    // "μ-3σ" or "2.15%" from ordinary short Chinese phrases.
-    text.chars().any(|c| !is_cjk_or_fullwidth(c))
+    // Diagram labels are either non-CJK (e.g. "μ-3σ", "2.15%") or very short
+    // pure Chinese fragments (e.g. "监控", "日志", "北斗").
+    let has_non_cjk = text.chars().any(|c| !is_cjk_or_fullwidth(c));
+    let short_pure_cjk = text.chars().count() <= 6 && text.chars().all(is_cjk_or_fullwidth);
+    has_non_cjk || short_pure_cjk
 }
 
 fn is_cjk_or_fullwidth(c: char) -> bool {
