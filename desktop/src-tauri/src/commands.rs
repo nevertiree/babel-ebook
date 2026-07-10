@@ -470,9 +470,15 @@ pub async fn convert_pdf_to_epub(args: PdfToEpubArgs) -> Result<String, String> 
     let verifier: Option<Box<dyn babel_ebook::pdf_ocr::VerifyBackend>> = if args.no_verify {
         None
     } else {
-        let verify_api_key = args.verify_api_key.ok_or("verify_api_key is required unless no_verify is set")?;
-        let verify_base_url = args.verify_base_url.ok_or("verify_base_url is required for the verifier")?;
-        let verify_model = args.verify_model.ok_or("verify_model is required for the verifier")?;
+        let verify_api_key = args
+            .verify_api_key
+            .ok_or("verify_api_key is required unless no_verify is set")?;
+        let verify_base_url = args
+            .verify_base_url
+            .ok_or("verify_base_url is required for the verifier")?;
+        let verify_model = args
+            .verify_model
+            .ok_or("verify_model is required for the verifier")?;
         Some(Box::new(babel_ebook::pdf_ocr::OpenAiVerifyBackend::new(
             babel_ebook::pdf_ocr::OpenAiVerifyConfig {
                 api_key: verify_api_key,
@@ -485,6 +491,9 @@ pub async fn convert_pdf_to_epub(args: PdfToEpubArgs) -> Result<String, String> 
     let config = babel_ebook::pdf_ocr::PdfToEpubConfig {
         dpi: args.dpi,
         verify_threshold: args.verify_threshold,
+        verify_max_attempts: args.verify_max_attempts,
+        verify_scale_factors: args.verify_scale_factors,
+        ocr_concurrency: args.ocr_concurrency,
         ..babel_ebook::pdf_ocr::PdfToEpubConfig::default()
     };
 

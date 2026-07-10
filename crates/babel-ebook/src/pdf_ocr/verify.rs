@@ -70,7 +70,7 @@ impl VerifyBackend for OpenAiVerifyBackend {
 
         let system_message = serde_json::json!({
             "role": "system",
-            "content": "You are an OCR verifier. Compare the provided image region with the extracted text. Return only a JSON object with keys: 'text' (corrected text), 'confidence' (0.0-1.0), and 'changed' (boolean). Preserve line breaks and formatting. If the extracted text is correct, return it unchanged with changed=false."
+            "content": "You are an OCR verifier. Compare the provided image region with the extracted text. Return only a valid JSON object with keys: 'text' (corrected text), 'confidence' (0.0-1.0), and 'changed' (boolean). Preserve line breaks and formatting. If the extracted text is correct, return it unchanged with changed=false. Do not include comments or explanatory text in the JSON."
         });
 
         let user_message = serde_json::json!({
@@ -95,7 +95,10 @@ impl VerifyBackend for OpenAiVerifyBackend {
             "response_format": { "type": "json_object" }
         });
 
-        let url = format!("{}/chat/completions", self.config.base_url.trim_end_matches('/'));
+        let url = format!(
+            "{}/chat/completions",
+            self.config.base_url.trim_end_matches('/')
+        );
 
         let response = self
             .client
@@ -108,10 +111,9 @@ impl VerifyBackend for OpenAiVerifyBackend {
             .map_err(|e| BabelEbookError::ApiError(format!("verify request failed: {e}")))?;
 
         let status = response.status();
-        let response_text = response
-            .text()
-            .await
-            .map_err(|e| BabelEbookError::ApiError(format!("failed to read verify response: {e}")))?;
+        let response_text = response.text().await.map_err(|e| {
+            BabelEbookError::ApiError(format!("failed to read verify response: {e}"))
+        })?;
 
         if !status.is_success() {
             return Err(BabelEbookError::ApiError(format!(
@@ -119,8 +121,8 @@ impl VerifyBackend for OpenAiVerifyBackend {
             )));
         }
 
-        let chat_response: ChatCompletionResponse = serde_json::from_str(&response_text)
-            .map_err(|e| {
+        let chat_response: ChatCompletionResponse =
+            serde_json::from_str(&response_text).map_err(|e| {
                 BabelEbookError::ApiError(format!(
                     "failed to parse verify response: {e}. Body: {response_text}"
                 ))
@@ -133,7 +135,8 @@ impl VerifyBackend for OpenAiVerifyBackend {
             .and_then(|c| c.message.content)
             .ok_or_else(|| BabelEbookError::ApiError("empty verify response".into()))?;
 
-        let verified: VerifiedText = serde_json::from_str(&content).map_err(|e| {
+        let cleaned = super::strip_json_comments(&content);
+        let verified: VerifiedText = serde_json::from_str(&cleaned).map_err(|e| {
             BabelEbookError::ApiError(format!(
                 "failed to parse verify JSON: {e}. Content: {content}"
             ))
@@ -146,35 +149,80 @@ impl VerifyBackend for OpenAiVerifyBackend {
     }
 }
 
-/// Verify an entire page.
+/// Verify an entire page using an adaptive retry loop.
 ///
-/// Blocks whose confidence is below `threshold` are sent to the verifier.
-/// If a block has a bounding box, the region is cropped and the cropped image
-/// is sent; otherwise the full page image is used.
-pub async fn verify_page(
+/// Blocks whose confidence is below `threshold`, or whose text looks anomalous,
+/// are sent to the verifier. For each such block, the verifier is called up to
+/// `max_attempts` times with progressively larger cropped regions (controlled by
+/// `scale_factors`). The best result is kept.
+pub async fn verify_page_with_retry(
     backend: &dyn VerifyBackend,
     full_image: &[u8],
     mime_type: &str,
     page: &mut OcrPageResult,
     threshold: f32,
+    max_attempts: usize,
+    scale_factors: &[f32],
 ) -> Result<(), BabelEbookError> {
     for block in &mut page.blocks {
-        if block.confidence >= threshold {
+        let anomaly = text_anomaly_score(&block.text);
+        let needs_verify = block.confidence < threshold || anomaly > 0.3;
+        if !needs_verify {
             continue;
         }
 
-        let image_to_verify = block
-            .bbox
-            .map_or_else(|| full_image.to_vec(), |bbox| crop_image(full_image, bbox).unwrap_or_else(|_| full_image.to_vec()));
+        let mut best_text = block.text.clone();
+        let mut best_confidence = block.confidence;
+        let mut best_anomaly = anomaly;
 
-        let verified = backend
-            .verify(&image_to_verify, mime_type, &block.text)
-            .await?;
-
-        if verified.changed {
-            block.text = verified.text;
+        let factors: Vec<f32> = scale_factors.iter().copied().take(max_attempts).collect();
+        if factors.is_empty() {
+            continue;
         }
-        block.confidence = verified.confidence.max(block.confidence);
+
+        for scale in &factors {
+            let image_to_verify = block.bbox.map_or_else(
+                || full_image.to_vec(),
+                |bbox| {
+                    crop_and_scale_image(full_image, bbox, *scale)
+                        .unwrap_or_else(|_| full_image.to_vec())
+                },
+            );
+
+            let verified = match backend
+                .verify(&image_to_verify, mime_type, &block.text)
+                .await
+            {
+                Ok(v) => v,
+                Err(err) => {
+                    tracing::warn!(
+                        block_type = ?block.block_type,
+                        scale = %scale,
+                        error = %err,
+                        "verify attempt failed"
+                    );
+                    continue;
+                }
+            };
+
+            let new_anomaly = text_anomaly_score(&verified.text);
+            let is_better = verified.confidence > best_confidence
+                || (verified.confidence >= best_confidence && new_anomaly < best_anomaly);
+
+            if is_better {
+                best_text = verified.text;
+                best_confidence = verified.confidence;
+                best_anomaly = new_anomaly;
+            }
+
+            // Early stop if the result is good enough and looks normal.
+            if best_confidence >= threshold && best_anomaly <= 0.2 {
+                break;
+            }
+        }
+
+        block.text = best_text;
+        block.confidence = best_confidence.max(block.confidence);
     }
 
     page.full_text = page
@@ -187,17 +235,144 @@ pub async fn verify_page(
     Ok(())
 }
 
-fn crop_image(image_bytes: &[u8], bbox: BoundingBox) -> Result<Vec<u8>, BabelEbookError> {
+/// Compute a quick heuristic anomaly score for OCR text.
+///
+/// Returns a value between 0.0 and 1.0. Higher means more likely to be garbled.
+/// This is intentionally cheap and local; it catches obvious garbage without
+/// spending extra LLM tokens.
+#[allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
+fn text_anomaly_score(text: &str) -> f32 {
+    if text.is_empty() {
+        return 0.0;
+    }
+
+    let chars: Vec<char> = text.chars().collect();
+    let total = chars.len();
+    if total == 0 {
+        return 0.0;
+    }
+
+    // Count suspicious characters: replacement chars, control chars, excessive punctuation.
+    let suspicious: f32 = chars
+        .iter()
+        .filter(|c| {
+            matches!(c, '\u{FFFD}' | '〓' | '▯' | '□' | '■' | '●' | '▪' | '▫')
+                || c.is_control() && !c.is_whitespace()
+        })
+        .count() as f32;
+
+    // Repeated single character 4+ times (e.g. "????", "aaaa").
+    let mut repeated = 0usize;
+    let mut run = 1usize;
+    for pair in chars.windows(2) {
+        if pair[0] == pair[1] {
+            run += 1;
+        } else {
+            if run >= 4 {
+                repeated += run;
+            }
+            run = 1;
+        }
+    }
+    if run >= 4 {
+        repeated += run;
+    }
+
+    // Excessive punctuation / symbols relative to text.
+    let symbol_count = chars
+        .iter()
+        .filter(|c| {
+            c.is_ascii_punctuation()
+                || matches!(
+                    c,
+                    '。' | '，'
+                        | '、'
+                        | '；'
+                        | '：'
+                        | '？'
+                        | '！'
+                        | '“'
+                        | '”'
+                        | '‘'
+                        | '’'
+                        | '（'
+                        | '）'
+                        | '《'
+                        | '》'
+                        | '—'
+                        | '…'
+                )
+        })
+        .count();
+    let symbol_ratio = symbol_count as f32 / total as f32;
+
+    let suspicious_ratio = suspicious / total as f32;
+    let repeated_ratio = repeated as f32 / total as f32;
+
+    (repeated_ratio.mul_add(0.8, suspicious_ratio * 1.5) + symbol_ratio.clamp(0.0, 0.5))
+        .clamp(0.0, 1.0)
+}
+
+/// Crop a region from `image_bytes` according to `bbox` and scale the crop
+/// relative to the original bounding box.
+///
+/// A scale of 1.0 returns the exact bounding box. Larger scales expand the
+/// region equally in all directions, clamped to the image edges, and then
+/// resize the result to the scaled dimensions. This gives the verifier a
+/// magnified view of the text block while preserving surrounding context.
+#[allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
+fn crop_and_scale_image(
+    image_bytes: &[u8],
+    bbox: BoundingBox,
+    scale: f32,
+) -> Result<Vec<u8>, BabelEbookError> {
     let img = image::load_from_memory(image_bytes).map_err(|e| {
         BabelEbookError::Anyhow(anyhow::anyhow!("failed to decode image for cropping: {e}"))
     })?;
 
-    let cropped = img.crop_imm(bbox.x, bbox.y, bbox.w, bbox.h);
+    let (img_width, img_height) = (img.width(), img.height());
+
+    let new_w = (bbox.w as f32 * scale).round().max(1.0) as u32;
+    let new_h = (bbox.h as f32 * scale).round().max(1.0) as u32;
+    let x = bbox
+        .x
+        .saturating_sub((new_w - bbox.w) / 2)
+        .min(img_width - 1);
+    let y = bbox
+        .y
+        .saturating_sub((new_h - bbox.h) / 2)
+        .min(img_height - 1);
+    let w = new_w.min(img_width - x);
+    let h = new_h.min(img_height - y);
+
+    let cropped = img.crop_imm(x, y, w, h);
     let mut out = std::io::Cursor::new(Vec::new());
     cropped
         .write_to(&mut out, image::ImageFormat::Png)
-        .map_err(|e| BabelEbookError::Anyhow(anyhow::anyhow!("failed to encode cropped image: {e}")))?;
+        .map_err(|e| {
+            BabelEbookError::Anyhow(anyhow::anyhow!("failed to encode cropped image: {e}"))
+        })?;
     Ok(out.into_inner())
+}
+
+/// Legacy single-pass page verifier kept for callers that do not need retries.
+#[allow(dead_code)]
+pub async fn verify_page(
+    backend: &dyn VerifyBackend,
+    full_image: &[u8],
+    mime_type: &str,
+    page: &mut OcrPageResult,
+    threshold: f32,
+) -> Result<(), BabelEbookError> {
+    verify_page_with_retry(backend, full_image, mime_type, page, threshold, 1, &[1.0]).await
 }
 
 #[derive(Debug, Deserialize)]

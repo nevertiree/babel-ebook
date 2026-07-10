@@ -63,7 +63,7 @@ impl OcrBackend for QwenOcrBackend {
 
         let system_message = serde_json::json!({
             "role": "system",
-            "content": "You are an OCR engine. Extract all text from the image. Return only a JSON object with a 'blocks' array. Each block has 'text', 'confidence' (0.0-1.0), 'bbox' ({x,y,w,h} in pixels), and 'block_type' (heading, subheading, paragraph, caption, table_cell, or other). Preserve reading order."
+            "content": "You are a strict OCR engine. Your job is to extract only the text that actually appears in the provided page image.\n\nOutput format: return exactly one valid JSON object with a top-level 'blocks' array. Each block must have:\n- 'text': the exact text visible in the image (string)\n- 'confidence': 0.0-1.0\n- 'bbox': [x, y, w, h] in pixels (array of 4 integers)\n- 'block_type': one of heading, subheading, paragraph, caption, table_cell, other\n\nRules:\n1. Only output text that is visually present in the image.\n2. Do not output any instructions, examples, system messages, or task descriptions.\n3. Do not output page numbers, running headers, or footers as body text.\n4. Do not include comments, markdown, or explanatory notes in the JSON.\n5. For diagrams or figures with no readable sentences, use block_type 'other' and keep text minimal.\n\nExample of valid output:\n{\"blocks\":[{\"text\":\"Sample heading\",\"confidence\":0.98,\"bbox\":[100,50,200,30],\"block_type\":\"heading\"}]}"
         });
 
         let user_message = serde_json::json!({
@@ -117,8 +117,8 @@ impl OcrBackend for QwenOcrBackend {
             )));
         }
 
-        let chat_response: ChatCompletionResponse = serde_json::from_str(&response_text)
-            .map_err(|e| {
+        let chat_response: ChatCompletionResponse =
+            serde_json::from_str(&response_text).map_err(|e| {
                 BabelEbookError::ApiError(format!(
                     "failed to parse qwen-vl-ocr response: {e}. Body: {response_text}"
                 ))
@@ -136,10 +136,9 @@ impl OcrBackend for QwenOcrBackend {
 }
 
 fn parse_ocr_json(content: &str) -> Result<OcrPageResult, BabelEbookError> {
-    let raw: RawOcrResponse = serde_json::from_str(content).map_err(|e| {
-        BabelEbookError::ApiError(format!(
-            "failed to parse OCR JSON: {e}. Content: {content}"
-        ))
+    let cleaned = super::strip_json_comments(content);
+    let raw: RawOcrResponse = serde_json::from_str(&cleaned).map_err(|e| {
+        BabelEbookError::ApiError(format!("failed to parse OCR JSON: {e}. Content: {content}"))
     })?;
 
     let blocks: Vec<TextBlock> = raw
@@ -192,6 +191,10 @@ struct RawTextBlock {
     text: String,
     #[serde(default)]
     confidence: f32,
+    #[serde(
+        default,
+        deserialize_with = "crate::pdf_ocr::deserialize_bbox_flexible"
+    )]
     bbox: Option<BoundingBox>,
     #[serde(default)]
     block_type: BlockType,

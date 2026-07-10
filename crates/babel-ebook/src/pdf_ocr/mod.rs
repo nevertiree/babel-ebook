@@ -4,13 +4,16 @@ use std::path::{Path, PathBuf};
 
 use crate::core::BabelEbookError;
 use crate::epub::EpubBook;
+use futures_util::{StreamExt, TryStreamExt};
 
 pub mod backend;
 pub mod epub;
+pub mod post_process;
 pub mod qwen;
 pub mod render;
 pub mod verify;
 
+pub(crate) use backend::deserialize_bbox_flexible;
 pub use backend::{BlockType, BoundingBox, OcrBackend, OcrPageResult, TextBlock};
 pub use qwen::{QwenOcrBackend, QwenOcrConfig};
 pub use verify::{OpenAiVerifyBackend, OpenAiVerifyConfig, VerifyBackend};
@@ -26,6 +29,13 @@ pub struct PdfToEpubConfig {
     pub verify_threshold: f32,
     /// Maximum number of retry attempts for a failed page OCR.
     pub max_retries: usize,
+    /// Maximum number of verify attempts for a low-confidence text block.
+    pub verify_max_attempts: usize,
+    /// Scale factors applied to the cropped block image during verify retries.
+    /// Each factor is relative to the original block bounding box.
+    pub verify_scale_factors: Vec<f32>,
+    /// Number of pages to OCR concurrently.
+    pub ocr_concurrency: usize,
 }
 
 impl Default for PdfToEpubConfig {
@@ -35,6 +45,9 @@ impl Default for PdfToEpubConfig {
             dpi: 200,
             verify_threshold: 0.7,
             max_retries: 2,
+            verify_max_attempts: 3,
+            verify_scale_factors: vec![1.0, 2.0, 3.0],
+            ocr_concurrency: 3,
         }
     }
 }
@@ -70,26 +83,47 @@ pub async fn convert_pdf_to_epub(
         ));
     }
 
-    let mut pages: Vec<OcrPageResult> = Vec::with_capacity(rendered.len());
+    let concurrency = config.ocr_concurrency.max(1);
+    let mut pages: Vec<OcrPageResult> =
+        futures_util::stream::iter(rendered.into_iter().enumerate())
+            .map(|(index, image_path)| async move {
+                let page_number = index + 1;
+                let image_bytes = std::fs::read(&image_path).map_err(|e| {
+                    BabelEbookError::Anyhow(anyhow::anyhow!(
+                        "failed to read rendered page image {}: {e}",
+                        image_path.display()
+                    ))
+                })?;
 
-    for (index, image_path) in rendered.iter().enumerate() {
-        let page_number = index + 1;
-        let image_bytes = std::fs::read(image_path).map_err(|e| {
-            BabelEbookError::Anyhow(anyhow::anyhow!(
-                "failed to read rendered page image {}: {e}",
-                image_path.display()
-            ))
-        })?;
+                let mut page = run_ocr_with_retries(
+                    ocr,
+                    &image_bytes,
+                    "image/png",
+                    page_number,
+                    config.max_retries,
+                )
+                .await?;
 
-        let mut page = run_ocr_with_retries(ocr, &image_bytes, "image/png", page_number, config.max_retries).await?;
+                if let Some(v) = verifier {
+                    verify::verify_page_with_retry(
+                        v,
+                        &image_bytes,
+                        "image/png",
+                        &mut page,
+                        config.verify_threshold,
+                        config.verify_max_attempts,
+                        &config.verify_scale_factors,
+                    )
+                    .await?;
+                }
 
-        if let Some(v) = verifier {
-            verify::verify_page(v, &image_bytes, "image/png", &mut page, config.verify_threshold).await?;
-        }
+                Ok::<_, BabelEbookError>(page)
+            })
+            .buffered(concurrency)
+            .try_collect()
+            .await?;
 
-        pages.push(page);
-    }
-
+    post_process::clean_pages(&mut pages);
     Ok(epub::build_epub(title, &pages))
 }
 
@@ -136,4 +170,82 @@ pub async fn convert_pdf_to_epub_file(
 ) -> Result<(), BabelEbookError> {
     let book = convert_pdf_to_epub(pdf_path, title, ocr, verifier, config).await?;
     crate::epub::write_epub(&book, output_path)
+}
+
+/// Strip JavaScript-style comments from a JSON string.
+///
+/// Some vision models return JSON with `//` or `/* */` comments despite being
+/// asked for raw JSON. This function removes those comments while preserving
+/// content inside string literals.
+pub(crate) fn strip_json_comments(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let chars: Vec<char> = s.chars().collect();
+    let mut i = 0;
+    let mut in_string = false;
+
+    while i < chars.len() {
+        if in_string {
+            result.push(chars[i]);
+            if chars[i] == '\\' && i + 1 < chars.len() {
+                result.push(chars[i + 1]);
+                i += 2;
+                continue;
+            }
+            if chars[i] == '"' {
+                in_string = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        if chars[i] == '"' {
+            in_string = true;
+        } else if chars[i] == '/' && i + 1 < chars.len() {
+            if chars[i + 1] == '/' {
+                // Line comment: skip until newline.
+                while i < chars.len() && chars[i] != '\n' {
+                    i += 1;
+                }
+                i += 1;
+                continue;
+            } else if chars[i + 1] == '*' {
+                // Block comment: skip until */.
+                i += 2;
+                while i + 1 < chars.len() && !(chars[i] == '*' && chars[i + 1] == '/') {
+                    i += 1;
+                }
+                i += 2;
+                continue;
+            }
+        }
+        result.push(chars[i]);
+        i += 1;
+    }
+
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::strip_json_comments;
+
+    #[test]
+    fn strip_json_comments_removes_line_comments() {
+        let input = r#"{"blocks": [{"text": "hello // world", "confidence": 1.0}]} // comment"#;
+        let expected = r#"{"blocks": [{"text": "hello // world", "confidence": 1.0}]} "#;
+        assert_eq!(strip_json_comments(input), expected);
+    }
+
+    #[test]
+    fn strip_json_comments_removes_block_comments() {
+        let input = r#"{"blocks": [/* inner */{"text": "hi", "confidence": 1.0}]}"#;
+        let expected = r#"{"blocks": [{"text": "hi", "confidence": 1.0}]}"#;
+        assert_eq!(strip_json_comments(input), expected);
+    }
+
+    #[test]
+    fn strip_json_comments_preserves_escaped_quotes() {
+        let input = r#"{"text": "say \"hello\"", "confidence": 1.0}"#;
+        assert_eq!(strip_json_comments(input), input);
+    }
 }

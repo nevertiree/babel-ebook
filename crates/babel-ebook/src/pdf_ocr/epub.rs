@@ -1,5 +1,7 @@
 //! Assemble OCR page results into a valid `EpubBook`.
 
+use std::fmt::Write;
+
 use crate::epub::{Chapter, EpubBook, EpubMetadata};
 use crate::input_formats::html_or_xhtml;
 use crate::pdf_ocr::backend::{BlockType, OcrPageResult, TextBlock};
@@ -16,7 +18,19 @@ pub fn build_epub(title: &str, pages: &[OcrPageResult]) -> EpubBook {
     let mut current_body: Vec<String> = Vec::new();
 
     for page in pages {
+        let mut pending_cells: Vec<&TextBlock> = Vec::new();
+
         for block in &page.blocks {
+            if block.block_type == BlockType::TableCell {
+                pending_cells.push(block);
+                continue;
+            }
+
+            if !pending_cells.is_empty() {
+                current_body.push(render_table(&pending_cells));
+                pending_cells.clear();
+            }
+
             if block.block_type == BlockType::Heading {
                 // Close the previous chapter.
                 if !current_body.is_empty() {
@@ -32,6 +46,10 @@ pub fn build_epub(title: &str, pages: &[OcrPageResult]) -> EpubBook {
             }
 
             current_body.push(block_to_html(block));
+        }
+
+        if !pending_cells.is_empty() {
+            current_body.push(render_table(&pending_cells));
         }
     }
 
@@ -70,6 +88,57 @@ pub fn build_epub(title: &str, pages: &[OcrPageResult]) -> EpubBook {
         chapters,
         resources: vec![],
     }
+}
+
+/// Render a sequence of table cells as an HTML table, inferring rows from the
+/// vertical positions of the cells.
+fn render_table(cells: &[&TextBlock]) -> String {
+    if cells.is_empty() {
+        return String::new();
+    }
+
+    // Group cells into rows by similar y coordinate. A simple heuristic: cells
+    // whose y values differ by no more than half the median cell height belong
+    // to the same row.
+    let mut sorted: Vec<&&TextBlock> = cells.iter().collect();
+    sorted.sort_by_key(|b| b.bbox.map_or(0, |bbox| bbox.y));
+
+    let row_threshold = cells
+        .iter()
+        .filter_map(|b| b.bbox.map(|bbox| bbox.h / 2))
+        .min()
+        .unwrap_or(10)
+        .max(5);
+
+    let mut rows: Vec<Vec<&&TextBlock>> = Vec::new();
+    for cell in sorted {
+        let y = cell.bbox.map_or(0, |bbox| bbox.y);
+        if let Some(row) = rows.iter_mut().find(|r| {
+            let row_y = r[0].bbox.map_or(0, |bbox| bbox.y);
+            y.abs_diff(row_y) <= row_threshold
+        }) {
+            row.push(cell);
+        } else {
+            rows.push(vec![cell]);
+        }
+    }
+
+    // Within each row, sort cells left-to-right.
+    for row in &mut rows {
+        row.sort_by_key(|b| b.bbox.map_or(0, |bbox| bbox.x));
+    }
+
+    let mut html = String::from("<table>\n");
+    for row in rows {
+        html.push_str("  <tr>");
+        for cell in row {
+            let escaped = html_escape(&cell.text);
+            let _ = write!(html, "<td>{escaped}</td>");
+        }
+        html.push_str("</tr>\n");
+    }
+    html.push_str("</table>");
+    html
 }
 
 fn block_to_html(block: &TextBlock) -> String {

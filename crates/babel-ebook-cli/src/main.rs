@@ -116,11 +116,17 @@ struct PdfToEpubArgs {
     #[arg(long)]
     ocr_api_key: Option<String>,
     /// Base URL for the OCR provider.
-    #[arg(long, default_value = "https://dashscope.aliyuncs.com/compatible-mode/v1")]
+    #[arg(
+        long,
+        default_value = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    )]
     ocr_base_url: String,
     /// Model name for the OCR provider.
     #[arg(long, default_value = "qwen-vl-ocr")]
     ocr_model: String,
+    /// Number of pages to OCR concurrently.
+    #[arg(long, default_value_t = 3)]
+    ocr_concurrency: usize,
     /// Verifier provider short name (openai, deepseek, qwen-vl-ocr, ...).
     #[arg(long, default_value = "deepseek")]
     verify_provider: String,
@@ -142,6 +148,12 @@ struct PdfToEpubArgs {
     /// Confidence threshold below which a block is verified.
     #[arg(long, default_value_t = 0.7)]
     verify_threshold: f32,
+    /// Maximum number of verify attempts for a low-confidence block.
+    #[arg(long, default_value_t = 3)]
+    verify_max_attempts: usize,
+    /// Comma-separated scale factors for verify retry crops (e.g. 1,2,3).
+    #[arg(long, default_value = "1,2,3")]
+    verify_scale_factors: String,
     /// UI language (en, es, ja, ko, ru, zh-CN) or "auto" to detect the system locale.
     #[arg(long, default_value = "auto")]
     lang: String,
@@ -312,13 +324,11 @@ async fn run_pdf_to_epub(args: PdfToEpubArgs) -> Result<()> {
         anyhow::anyhow!("--ocr-api-key is required (or set DASHSCOPE_API_KEY in the environment)")
     })?;
 
-    let ocr = babel_ebook::pdf_ocr::QwenOcrBackend::new(
-        babel_ebook::pdf_ocr::QwenOcrConfig {
-            api_key: ocr_api_key,
-            base_url: Some(args.ocr_base_url),
-            model: args.ocr_model,
-        },
-    );
+    let ocr = babel_ebook::pdf_ocr::QwenOcrBackend::new(babel_ebook::pdf_ocr::QwenOcrConfig {
+        api_key: ocr_api_key,
+        base_url: Some(args.ocr_base_url),
+        model: args.ocr_model,
+    });
 
     let verifier: Option<Box<dyn babel_ebook::pdf_ocr::VerifyBackend>> = if args.no_verify {
         None
@@ -341,13 +351,25 @@ async fn run_pdf_to_epub(args: PdfToEpubArgs) -> Result<()> {
         )))
     };
 
-    let title = args
-        .title
-        .unwrap_or_else(|| args.pdf.file_stem().map_or_else(|| "Untitled".into(), |s| s.to_string_lossy().into_owned()));
+    let title = args.title.unwrap_or_else(|| {
+        args.pdf
+            .file_stem()
+            .map_or_else(|| "Untitled".into(), |s| s.to_string_lossy().into_owned())
+    });
+
+    let verify_scale_factors: Vec<f32> = args
+        .verify_scale_factors
+        .split(',')
+        .map(|part| part.trim().parse::<f32>())
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| anyhow::anyhow!("invalid --verify-scale-factors: {e}"))?;
 
     let config = babel_ebook::pdf_ocr::PdfToEpubConfig {
         dpi: args.dpi,
         verify_threshold: args.verify_threshold,
+        verify_max_attempts: args.verify_max_attempts,
+        verify_scale_factors,
+        ocr_concurrency: args.ocr_concurrency,
         ..babel_ebook::pdf_ocr::PdfToEpubConfig::default()
     };
 
@@ -371,7 +393,8 @@ async fn run_pdf_to_epub(args: PdfToEpubArgs) -> Result<()> {
 async fn main() -> Result<()> {
     let cmd = Cli::command();
     let matches = cmd.get_matches();
-    let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|_| panic!("{}", t!("err_parsed_args")));
+    let cli =
+        Cli::from_arg_matches(&matches).unwrap_or_else(|_| panic!("{}", t!("err_parsed_args")));
 
     match cli.command {
         Command::Translate(args) => {

@@ -100,6 +100,9 @@ pub struct PdfToEpubArgs {
     pub ocr_base_url: Option<String>,
     /// Optional model name for the OCR provider.
     pub ocr_model: Option<String>,
+    /// Number of pages to OCR concurrently.
+    #[serde(default = "default_ocr_concurrency")]
+    pub ocr_concurrency: usize,
     /// Optional API key for the verifier provider.
     pub verify_api_key: Option<String>,
     /// Optional base URL for the verifier provider.
@@ -115,6 +118,12 @@ pub struct PdfToEpubArgs {
     /// Confidence threshold below which a block is verified.
     #[serde(default = "default_verify_threshold")]
     pub verify_threshold: f32,
+    /// Maximum number of verify attempts for a low-confidence block.
+    #[serde(default = "default_verify_max_attempts")]
+    pub verify_max_attempts: usize,
+    /// Scale factors for verify retry crops.
+    #[serde(default = "default_verify_scale_factors")]
+    pub verify_scale_factors: Vec<f32>,
 }
 
 const fn default_dpi() -> u32 {
@@ -123,4 +132,16 @@ const fn default_dpi() -> u32 {
 
 const fn default_verify_threshold() -> f32 {
     0.7
+}
+
+const fn default_verify_max_attempts() -> usize {
+    3
+}
+
+fn default_verify_scale_factors() -> Vec<f32> {
+    vec![1.0, 2.0, 3.0]
+}
+
+const fn default_ocr_concurrency() -> usize {
+    3
 }
