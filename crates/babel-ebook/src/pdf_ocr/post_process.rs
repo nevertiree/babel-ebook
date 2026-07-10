@@ -28,6 +28,7 @@ pub fn clean_pages(pages: &mut [OcrPageResult]) {
     }
 
     group_diagram_labels(pages);
+    merge_adjacent_paragraphs(pages);
     merge_paragraphs_across_pages(pages);
     rebuild_full_text(pages);
 }
@@ -228,6 +229,31 @@ fn flush_diagram_run(run: &mut Vec<TextBlock>) -> TextBlock {
         block_type: BlockType::Other,
         bbox: first.bbox,
         confidence: first.confidence,
+    }
+}
+
+/// Merge adjacent paragraph blocks within each page when the first does not
+/// end a sentence and the second looks like a continuation. This fixes vision
+/// models that break a single sentence across multiple output lines.
+fn merge_adjacent_paragraphs(pages: &mut [OcrPageResult]) {
+    for page in pages.iter_mut() {
+        let mut i = 0;
+        while i + 1 < page.blocks.len() {
+            let current = &page.blocks[i];
+            let next = &page.blocks[i + 1];
+
+            let can_merge = current.block_type == BlockType::Paragraph
+                && next.block_type == BlockType::Paragraph
+                && !ends_sentence(&current.text)
+                && starts_with_sentence_fragment(&next.text);
+
+            if can_merge {
+                let next_text = page.blocks.remove(i + 1).text;
+                page.blocks[i].text.push_str(&next_text);
+            } else {
+                i += 1;
+            }
+        }
     }
 }
 

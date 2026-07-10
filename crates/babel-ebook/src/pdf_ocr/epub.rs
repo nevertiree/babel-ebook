@@ -318,10 +318,39 @@ fn finish_chapter(title: Option<&str>, body: &[String], index: usize) -> Chapter
     let chapter_title = title.unwrap_or("Chapter");
     let body_html = body.join("\n");
     let html = html_or_xhtml(&body_html, chapter_title);
+    let html_with_styles = inject_default_styles(&html);
     Chapter {
         href: format!("chapter{:03}.xhtml", index + 1),
         title: Some(chapter_title.to_string()),
-        content: html.into_bytes(),
+        content: html_with_styles.into_bytes(),
+    }
+}
+
+fn inject_default_styles(html: &str) -> String {
+    let style = r"<style>
+table, th, td {
+  border: 1px solid #333;
+  border-collapse: collapse;
+  padding: 6px;
+}
+th {
+  background-color: #f2f2f2;
+}
+figure {
+  margin: 1em 0;
+  padding: 0;
+}
+figure pre {
+  border: 1px solid #ccc;
+  background-color: #f8f8f8;
+  padding: 8px;
+  overflow-x: auto;
+}
+</style>";
+    if html.contains("</head>") {
+        html.replacen("</head>", &format!("{style}\n</head>"), 1)
+    } else {
+        format!("{style}\n{html}")
     }
 }
 
