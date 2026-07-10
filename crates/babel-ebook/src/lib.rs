@@ -28,7 +28,7 @@ pub use config::{
     TranslationStyle, KNOWN_PROVIDERS,
 };
 pub use core::{
-    estimate_source_tokens, translatable_chapters, translate_epub,
+    estimate_source_tokens, run_dry_run, translatable_chapters, translate_epub,
     translate_epub_with_cancellation, BabelEbookError, CancellationToken, ProgressCallback,
     ProgressEvent,
 };

@@ -1,10 +1,9 @@
 //! Tauri commands exposed to the desktop frontend.
 
 use babel_ebook::{
-    estimate_source_tokens, read_input_book, translatable_chapters,
+    read_input_book, run_dry_run, translatable_chapters,
     translate_epub_with_cancellation as translate_epub_core, translator::get_translator,
-    CancellationToken, ProgressCallback, ProgressEvent, ProviderConfig, TranslationCache,
-    KNOWN_PROVIDERS,
+    CancellationToken, ProgressCallback, ProviderConfig, TranslationCache, KNOWN_PROVIDERS,
 };
 
 /// Summary of a translation checkpoint returned to the frontend.
@@ -105,7 +104,7 @@ pub struct WindowProgressCallback(tauri::Window);
 
 #[cfg(not(test))]
 impl ProgressCallback for WindowProgressCallback {
-    fn on_progress(&self, event: ProgressEvent) {
+    fn on_progress(&self, event: babel_ebook::ProgressEvent) {
         let _ = self.0.emit("translation_progress", event);
     }
 }
@@ -167,10 +166,7 @@ pub async fn translate_epub_internal_with_cancellation(
                 let book = read_input_book(&config.source).map_err(|e| e.to_string())?;
                 let indices = translatable_chapters(&book, &config.skip_doc_patterns)
                     .map_err(|e| e.to_string())?;
-                let (tokens, docs) = estimate_source_tokens(&book, &indices);
-                if let Some(p) = progress_ref {
-                    p.on_progress(ProgressEvent::Completed);
-                }
+                let (tokens, docs) = run_dry_run(&book, &indices, progress_ref);
                 return Ok(format!(
                     "Estimated source tokens: {tokens} ({docs} documents)"
                 ));

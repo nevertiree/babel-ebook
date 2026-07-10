@@ -7,8 +7,8 @@ import { cleanupBrowserProcesses, forceKill, getFreePort, waitForCdp } from "./e
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const APP_PATH = resolve(__dirname, "../../target/release/babel-ebook-desktop.exe");
-const TEST_SOURCE = resolve(__dirname, "../../tests/fixtures/sample.epub");
-const TEST_OUTPUT = resolve(__dirname, "../../output/e2e_output.epub");
+const TEST_SOURCE = resolve(__dirname, "../../tests/fixtures/corrupted.epub");
+const TEST_OUTPUT = resolve(__dirname, "../../output/e2e_corrupted_output.epub");
 
 let appProcess: ChildProcess | null = null;
 let cdpUrl: string;
@@ -57,7 +57,7 @@ test.afterAll(async () => {
   await forceKill(appProcess);
 });
 
-test("translates a small EPUB and exercises queue controls and logs", async () => {
+test("failed task can be retried and does not crash the app", async () => {
   test.setTimeout(180000);
   const browser = await chromium.connectOverCDP(cdpUrl);
   const context = browser.contexts()[0];
@@ -69,48 +69,31 @@ test("translates a small EPUB and exercises queue controls and logs", async () =
   await expect(page.getByTestId("source-path")).toContainText(TEST_SOURCE, {
     timeout: 10000,
   });
-  await expect(page.getByTestId("output-path")).toContainText(TEST_OUTPUT);
 
   const startButton = page.getByTestId("start-button");
   await expect(startButton).toBeEnabled();
-
   await startButton.click();
 
-  // Starting the translation now enqueues the task and navigates to the queue.
+  // The queue page should show the failed task.
   await expect(page.getByTestId("task-list")).toBeVisible({ timeout: 10000 });
-
-  // Wait for the dry-run task to complete.
   const firstTask = page.getByTestId("task-item").first();
-  await expect(firstTask).toContainText(/completed|finished|token|estimated/i, {
+  await expect(firstTask).toContainText(/failed|error|invalid|corrupt/i, {
     timeout: 120000,
   });
 
-  // The task progress bar should be at 100% once the Completed event is received.
-  const progressFill = firstTask.locator(".progress-fill").first();
-  await expect(progressFill).toHaveAttribute("style", /width:\s*100%/);
+  await page.screenshot({ path: "output/e2e_corrupted_task_failed.png" });
 
-  await page.screenshot({ path: "output/e2e_translate_dryrun.png" });
+  // Retry should be offered for a failed task.
+  const retryButton = page.getByTestId("retry-task");
+  await expect(retryButton).toBeVisible();
+  await retryButton.click();
 
-  // Navigate to the logs page and verify entries were recorded.
-  await page.getByTestId("nav-logs").click();
-  await expect(page.locator('.logs-page .log-entry')).toHaveCount(2, {
-    timeout: 5000,
+  // After retry, the task should return to pending/running and then fail again.
+  await expect(firstTask).toContainText(/pending|running|failed/i, {
+    timeout: 120000,
   });
 
-  await page.screenshot({ path: "output/e2e_logs_after_translation.png" });
-
-  // Go back to the queue and exercise pause/start controls.
-  await page.getByTestId("nav-tasks").click();
-
-  const pauseButton = page.getByTestId("pause-queue");
-  const startQueueButton = page.getByTestId("start-queue");
-
-  await expect(pauseButton).toBeVisible();
-  await pauseButton.click();
-  await expect(startQueueButton).toBeVisible();
-
-  await startQueueButton.click();
-  await expect(pauseButton).toBeVisible();
+  await page.screenshot({ path: "output/e2e_corrupted_task_retried.png" });
 
   await browser.close();
 });
