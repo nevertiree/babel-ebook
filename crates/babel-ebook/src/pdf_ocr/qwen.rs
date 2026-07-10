@@ -61,32 +61,42 @@ impl OcrBackend for QwenOcrBackend {
         let base64_image = encode_base64(image_bytes);
         let data_url = format!("data:{mime_type};base64,{base64_image}");
 
-        let system_message = serde_json::json!({
-            "role": "system",
-            "content": "You are a strict OCR engine. Your job is to extract only the text that actually appears in the provided page image.\n\nOutput format: return exactly one valid JSON object with a top-level 'blocks' array. Each block must have:\n- 'text': the exact text visible in the image (string)\n- 'confidence': 0.0-1.0\n- 'bbox': [x, y, w, h] in pixels (array of 4 integers)\n- 'block_type': one of heading, subheading, paragraph, caption, table_cell, other\n\nRules:\n1. Only output text that is visually present in the image.\n2. Do not output any instructions, examples, system messages, or task descriptions.\n3. Do not output page numbers, running headers, or footers as body text.\n4. Do not include comments, markdown, or explanatory notes in the JSON.\n5. For diagrams or figures with no readable sentences, use block_type 'other' and keep text minimal.
-        6. For tables, output each cell as a separate table_cell block with accurate bbox, in reading order (left-to-right, top-to-bottom). If the table is complex or has many cells, you may output the whole table as a single markdown table inside a paragraph block instead.\n\nExample of valid output:\n{\"blocks\":[{\"text\":\"Sample heading\",\"confidence\":0.98,\"bbox\":[100,50,200,30],\"block_type\":\"heading\"}]}"
-        });
+        let plain_text_mode = self.config.model.to_lowercase().contains("deepseek-ocr");
 
-        let user_message = serde_json::json!({
-            "role": "user",
-            "content": [
-                {
-                    "type": "image_url",
-                    "image_url": { "url": data_url }
-                },
-                {
-                    "type": "text",
-                    "text": "Extract all text from this page image as structured JSON."
-                }
-            ]
-        });
+        let (system_message, user_message, response_format) = if plain_text_mode {
+            let system = serde_json::json!({
+                "role": "system",
+                "content": "You are a strict OCR engine. Extract only the text that actually appears in the provided page image.\n\nRules:\n1. Output the text exactly as it appears, preserving paragraphs with blank lines between them.\n2. Do not output page numbers, running headers, or footers.\n3. Do not include instructions, examples, or explanations.\n4. Use Markdown tables for tabular content when possible.\n5. Keep diagram labels short and on their own lines."
+            });
+            let user = serde_json::json!({
+                "role": "user",
+                "content": [
+                    { "type": "image_url", "image_url": { "url": data_url } },
+                    { "type": "text", "text": "Extract all text from this page image." }
+                ]
+            });
+            (system, user, serde_json::json!({ "type": "text" }))
+        } else {
+            let system = serde_json::json!({
+                "role": "system",
+                "content": "You are a strict OCR engine. Your job is to extract only the text that actually appears in the provided page image.\n\nOutput format: return exactly one valid JSON object with a top-level 'blocks' array. Each block must have:\n- 'text': the exact text visible in the image (string)\n- 'confidence': 0.0-1.0\n- 'bbox': [x, y, w, h] in pixels (array of 4 integers)\n- 'block_type': one of heading, subheading, paragraph, caption, table_cell, other\n\nRules:\n1. Only output text that is visually present in the image.\n2. Do not output any instructions, examples, system messages, or task descriptions.\n3. Do not output page numbers, running headers, or footers as body text.\n4. Do not include comments, markdown, or explanatory notes in the JSON.\n5. For diagrams or figures with no readable sentences, use block_type 'other' and keep text minimal.\n6. For tables, output each cell as a separate table_cell block with accurate bbox, in reading order (left-to-right, top-to-bottom). If the table is complex or has many cells, you may output the whole table as a single markdown table inside a paragraph block instead.\n\nExample of valid output:\n{\"blocks\":[{\"text\":\"Sample heading\",\"confidence\":0.98,\"bbox\":[100,50,200,30],\"block_type\":\"heading\"}]}"
+            });
+            let user = serde_json::json!({
+                "role": "user",
+                "content": [
+                    { "type": "image_url", "image_url": { "url": data_url } },
+                    { "type": "text", "text": "Extract all text from this page image as structured JSON." }
+                ]
+            });
+            (system, user, serde_json::json!({ "type": "json_object" }))
+        };
 
         let body = serde_json::json!({
             "model": self.config.model,
             "messages": vec![system_message, user_message],
             "temperature": 0.0,
             "max_tokens": 4096,
-            "response_format": { "type": "json_object" }
+            "response_format": response_format
         });
 
         let base_url = self.config.base_url.as_deref().unwrap_or(DEFAULT_BASE_URL);
@@ -132,7 +142,21 @@ impl OcrBackend for QwenOcrBackend {
             .and_then(|c| c.message.content)
             .ok_or_else(|| BabelEbookError::ApiError("empty response from qwen-vl-ocr".into()))?;
 
-        parse_ocr_json(&content)
+        if plain_text_mode {
+            let blocks = parse_plain_text_ocr(&content);
+            let full_text = blocks
+                .iter()
+                .map(|b| b.text.as_str())
+                .collect::<Vec<_>>()
+                .join("\n\n");
+            Ok(OcrPageResult {
+                page_number: 0,
+                blocks,
+                full_text,
+            })
+        } else {
+            parse_ocr_json(&content)
+        }
     }
 }
 
@@ -169,28 +193,51 @@ fn parse_ocr_json(content: &str) -> Result<OcrPageResult, BabelEbookError> {
 }
 
 /// Fallback parser for vision models that return plain text instead of the
-/// requested JSON structure. Splits the text into blocks and guesses block
-/// types from simple heuristics.
+/// requested JSON structure. Splits the text into blocks, merges line-broken
+/// paragraphs, and guesses block types from simple heuristics.
 fn parse_plain_text_ocr(content: &str) -> Vec<TextBlock> {
     let mut blocks = Vec::new();
     let mut pending = String::new();
 
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
+    let lines: Vec<&str> = content.lines().map(str::trim).collect();
+    for (i, line) in lines.iter().enumerate() {
+        if line.is_empty() {
             flush_plain_text_block(&mut blocks, &mut pending);
             continue;
         }
-        // Treat short standalone lines as separate blocks (likely labels/captions).
-        if trimmed.len() <= 25 && !pending.is_empty() {
+
+        let next = lines.get(i + 1).copied().unwrap_or("");
+        let should_break = if pending.is_empty() {
+            true
+        } else {
+            // Break the paragraph if the previous accumulated text ends a sentence,
+            // or if the next line clearly starts a new sentence/structural element.
+            let prev_ends = pending
+                .trim_end()
+                .ends_with(['。', '！', '？', '.', '!', '?', '"']);
+            let next_starts_new = next.is_empty()
+                || next.starts_with('#')
+                || is_plain_text_heading(next)
+                || next.starts_with('图')
+                || next.starts_with('表')
+                || next.starts_with("Fig")
+                || next.starts_with("Table");
+            prev_ends || next_starts_new
+        };
+
+        if should_break && !pending.is_empty() {
             flush_plain_text_block(&mut blocks, &mut pending);
         }
+
         if !pending.is_empty() {
-            pending.push('\n');
+            pending.push(' ');
         }
-        pending.push_str(trimmed);
+        pending.push_str(line);
     }
     flush_plain_text_block(&mut blocks, &mut pending);
+
+    // Filter out artifact-only blocks such as bare bracketed numbers.
+    blocks.retain(|b| !is_ocr_artifact(&b.text));
     blocks
 }
 
@@ -207,6 +254,27 @@ fn flush_plain_text_block(blocks: &mut Vec<TextBlock>, text: &mut String) {
         bbox: None,
     });
     text.clear();
+}
+
+fn is_plain_text_heading(line: &str) -> bool {
+    if line.is_empty() {
+        return false;
+    }
+    // Numbered headings like "1. ", "1.1 ", "1.1.1 ".
+    line.chars()
+        .take_while(|c| c.is_ascii_digit() || *c == '.')
+        .count()
+        >= 1
+        && line
+            .chars()
+            .find(|c| !(c.is_ascii_digit() || *c == '.'))
+            .is_some_and(char::is_whitespace)
+}
+
+fn is_ocr_artifact(text: &str) -> bool {
+    let trimmed = text.trim();
+    // Standalone bracketed numbers like "[1]", "[1.1  ]".
+    trimmed.len() <= 10 && trimmed.starts_with('[') && trimmed.ends_with(']')
 }
 
 fn infer_plain_text_block_type(text: &str) -> BlockType {
