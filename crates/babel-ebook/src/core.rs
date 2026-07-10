@@ -251,14 +251,31 @@ pub async fn translate_epub_with_cancellation(
     tracing::info!(output = %config.output.display(), "EPUB written successfully");
     emit_progress(progress, ProgressEvent::Completed);
 
-    if !failures.is_empty() {
-        let documents = failures
-            .iter()
-            .map(|(href, _)| href.as_str())
-            .collect::<Vec<_>>()
-            .join(", ");
-        let msg = t!("log_failed_documents", documents = documents);
-        tracing::warn!("{msg}");
+    report_failures(&failures, translatable_indices.len())
+}
+
+fn report_failures(
+    failures: &[(String, BabelEbookError)],
+    total_chapters: usize,
+) -> Result<(), BabelEbookError> {
+    if failures.is_empty() {
+        return Ok(());
+    }
+    let documents = failures
+        .iter()
+        .map(|(href, _)| href.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let msg = t!("log_failed_documents", documents = documents);
+    tracing::warn!("{msg}");
+
+    // If every translatable chapter failed, treat the whole translation as
+    // failed so callers (e.g. the desktop queue) can surface a failed status
+    // and offer a retry. Partial failures still write the best-effort EPUB.
+    if failures.len() == total_chapters {
+        return Err(BabelEbookError::ApiError(
+            t!("log_failed_documents", documents = documents).to_string(),
+        ));
     }
 
     Ok(())
@@ -271,11 +288,15 @@ fn ensure_not_cancelled(cancellation: Option<&CancellationToken>) -> Result<(), 
     Ok(())
 }
 
-fn run_dry_run(
+/// Run a dry-run translation that estimates source tokens without calling the LLM.
+///
+/// Emits `Started` and `Completed` progress events and returns the estimated
+/// token count together with the number of translatable documents.
+pub fn run_dry_run(
     book: &crate::epub::EpubBook,
     indices: &[usize],
     progress: Option<&dyn ProgressCallback>,
-) {
+) -> (usize, usize) {
     // `run_dry_run` receives an already-loaded book; the caller uses
     // `read_input_book` before invoking it.
     emit_progress(
@@ -292,6 +313,7 @@ fn run_dry_run(
     );
     tracing::info!("{msg}");
     emit_progress(progress, ProgressEvent::Completed);
+    (total, count)
 }
 
 async fn translate_title(

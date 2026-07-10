@@ -29,7 +29,6 @@ pub struct QueueState {
 #[derive(Debug, Clone, Serialize)]
 struct TaskProgressPayload {
     task_id: String,
-    #[serde(flatten)]
     event: babel_ebook::ProgressEvent,
 }
 
@@ -289,11 +288,15 @@ struct TaskProgressCallback {
 
 impl babel_ebook::ProgressCallback for TaskProgressCallback {
     fn on_progress(&self, event: babel_ebook::ProgressEvent) {
+        // Emit a per-task event so the queue UI can update the correct task.
         let payload = TaskProgressPayload {
             task_id: self.task_id.clone(),
-            event,
+            event: event.clone(),
         };
         let _ = self.window.emit("task_progress", &payload);
+        // Also emit the legacy translation_progress event so the log panel and
+        // the translate-page progress bar receive updates from queued tasks.
+        let _ = self.window.emit("translation_progress", &event);
     }
 }
 
@@ -418,5 +421,23 @@ mod tests {
         assert!(queue.state().await.running);
         queue.pause().await;
         assert!(!queue.state().await.running);
+    }
+
+    #[test]
+    fn task_progress_payload_serializes_with_nested_event() {
+        let payload = TaskProgressPayload {
+            task_id: "task-1".to_string(),
+            event: babel_ebook::ProgressEvent::Started { total: 5 },
+        };
+        let json = serde_json::to_string(&payload).unwrap();
+        assert!(json.contains("\"task_id\":\"task-1\""));
+        assert!(json.contains("\"event\":{\"Started\":{\"total\":5}}"));
+
+        let completed = TaskProgressPayload {
+            task_id: "task-1".to_string(),
+            event: babel_ebook::ProgressEvent::Completed,
+        };
+        let json_completed = serde_json::to_string(&completed).unwrap();
+        assert!(json_completed.contains("\"event\":\"Completed\""));
     }
 }
