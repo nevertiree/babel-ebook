@@ -242,10 +242,13 @@ fn merge_adjacent_paragraphs(pages: &mut [OcrPageResult]) {
             let current = &page.blocks[i];
             let next = &page.blocks[i + 1];
 
+            let current_chars = current.text.chars().count();
+            let next_chars = next.text.chars().count();
             let can_merge = current.block_type == BlockType::Paragraph
                 && next.block_type == BlockType::Paragraph
                 && !ends_sentence(&current.text)
-                && starts_with_sentence_fragment(&next.text);
+                && starts_with_sentence_fragment(&next.text)
+                && (current_chars > 15 || next_chars > 40);
 
             if can_merge {
                 let next_text = page.blocks.remove(i + 1).text;

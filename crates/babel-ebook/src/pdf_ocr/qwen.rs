@@ -216,6 +216,8 @@ fn parse_plain_text_ocr(content: &str) -> Vec<TextBlock> {
             flush_plain_text_block(&mut blocks, &mut pending);
         }
 
+        let pending_is_short = pending.trim().chars().count() <= 20;
+        let line_is_short = line.chars().count() <= 20;
         let should_break = if pending.is_empty() {
             true
         } else {
@@ -231,7 +233,9 @@ fn parse_plain_text_ocr(content: &str) -> Vec<TextBlock> {
                 || next.starts_with('表')
                 || next.starts_with("Fig")
                 || next.starts_with("Table");
-            prev_ends || next_starts_new
+            // Keep short diagram labels on separate lines instead of gluing them.
+            let looks_like_labels = pending_is_short && line_is_short;
+            prev_ends || next_starts_new || looks_like_labels
         };
 
         if should_break && !pending.is_empty() {
