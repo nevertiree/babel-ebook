@@ -207,6 +207,15 @@ fn parse_plain_text_ocr(content: &str) -> Vec<TextBlock> {
         }
 
         let next = lines.get(i + 1).copied().unwrap_or("");
+        let is_heading = is_plain_text_heading(line);
+        let is_caption = line.starts_with('图') || line.starts_with('表');
+
+        // Always break before structural lines (headings, captions) so they
+        // start their own block and can split chapters correctly.
+        if (is_heading || is_caption || line.starts_with("## ")) && !pending.is_empty() {
+            flush_plain_text_block(&mut blocks, &mut pending);
+        }
+
         let should_break = if pending.is_empty() {
             true
         } else {
@@ -260,15 +269,24 @@ fn is_plain_text_heading(line: &str) -> bool {
     if line.is_empty() {
         return false;
     }
-    // Numbered headings like "1. ", "1.1 ", "1.1.1 ".
-    line.chars()
+    // Numbered headings like "1. ", "1.1 ", "1金融", "1.1金融".
+    let prefix_len = line
+        .chars()
         .take_while(|c| c.is_ascii_digit() || *c == '.')
-        .count()
-        >= 1
-        && line
-            .chars()
-            .find(|c| !(c.is_ascii_digit() || *c == '.'))
-            .is_some_and(char::is_whitespace)
+        .count();
+    if prefix_len == 0 {
+        return false;
+    }
+    let rest = line.chars().skip(prefix_len).collect::<String>();
+    if rest.is_empty() {
+        return false;
+    }
+    // Either a space, or the rest starts with a Chinese character.
+    rest.starts_with(' ') || rest.starts_with('\u{3000}') || is_cjk(rest.chars().next().unwrap())
+}
+
+fn is_cjk(c: char) -> bool {
+    (0x4E00..=0x9FFF).contains(&(c as u32))
 }
 
 fn is_ocr_artifact(text: &str) -> bool {
@@ -282,18 +300,19 @@ fn infer_plain_text_block_type(text: &str) -> BlockType {
     if trimmed.starts_with('#') {
         return BlockType::Heading;
     }
-    // Numbered headings like "1.", "1.1", "1.1.1" or Chinese "第1章".
-    if trimmed
+    // Numbered headings like "1.", "1.1", "1金融", "1.1金融" or Chinese "第1章".
+    let prefix_len = trimmed
         .chars()
         .take_while(|c| c.is_ascii_digit() || *c == '.')
-        .count()
-        >= 1
-        && trimmed
-            .chars()
-            .find(|c| !(c.is_ascii_digit() || *c == '.'))
-            .is_some_and(char::is_whitespace)
-    {
-        return BlockType::Heading;
+        .count();
+    if prefix_len > 0 {
+        let rest = trimmed.chars().skip(prefix_len).collect::<String>();
+        if rest.starts_with(' ')
+            || rest.starts_with('\u{3000}')
+            || rest.chars().next().is_some_and(is_cjk)
+        {
+            return BlockType::Heading;
+        }
     }
     if trimmed.starts_with('图') || trimmed.starts_with('表') || trimmed.starts_with("Fig") {
         return BlockType::Caption;

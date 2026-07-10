@@ -71,6 +71,9 @@ fn is_prompt_leakage(text: &str) -> bool {
         "babelbook",
         "babel-ebook",
         "test document",
+        "## chapter",
+        "chapter 2: structure",
+        "sample heading",
     ];
     if markers.iter().any(|m| lower.contains(m)) {
         return true;
@@ -93,6 +96,17 @@ fn is_page_number(text: &str) -> bool {
     }
     // Pure digits, 1-4 digits long, not part of a larger number/date.
     if trimmed.len() <= 4 && trimmed.chars().all(|c| c.is_ascii_digit()) {
+        return true;
+    }
+    // Page ranges like "890 - 905." or "890-905".
+    if trimmed.len() <= 15
+        && trimmed.split('-').map(str::trim).all(|part| {
+            part.trim_end_matches('.')
+                .chars()
+                .all(|c| c.is_ascii_digit())
+        })
+        && trimmed.contains('-')
+    {
         return true;
     }
     false
