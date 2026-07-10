@@ -2,8 +2,9 @@
 
 use babel_ebook::{
     estimate_source_tokens, read_input_book, translatable_chapters,
-    translate_epub as translate_epub_core, translator::get_translator, ProgressCallback,
-    ProgressEvent, ProviderConfig, TranslationCache, KNOWN_PROVIDERS,
+    translate_epub_with_cancellation as translate_epub_core, translator::get_translator,
+    CancellationToken, ProgressCallback, ProgressEvent, ProviderConfig, TranslationCache,
+    KNOWN_PROVIDERS,
 };
 
 /// Summary of a translation checkpoint returned to the frontend.
@@ -119,6 +120,14 @@ pub async fn translate_epub_internal(
     args: TranslateArgs,
     progress: Option<Box<dyn ProgressCallback + Send + Sync>>,
 ) -> Result<String, String> {
+    translate_epub_internal_with_cancellation(args, progress, None).await
+}
+
+pub async fn translate_epub_internal_with_cancellation(
+    args: TranslateArgs,
+    progress: Option<Box<dyn ProgressCallback + Send + Sync>>,
+    cancellation: Option<CancellationToken>,
+) -> Result<String, String> {
     // The core translator uses `kuchiki`, whose `Rc`-based DOM is `!Send`.
     // Tauri async commands must return a `Send` future, so run the core work
     // on a blocking thread with a local current-thread Tokio runtime.
@@ -166,9 +175,15 @@ pub async fn translate_epub_internal(
 
             let cache = TranslationCache::new(config.cache_dir.clone());
 
-            translate_epub_core(&config, translator.as_ref(), Some(&cache), progress_ref)
-                .await
-                .map_err(|e| e.to_string())?;
+            translate_epub_core(
+                &config,
+                translator.as_ref(),
+                Some(&cache),
+                progress_ref,
+                cancellation.as_ref(),
+            )
+            .await
+            .map_err(|e| e.to_string())?;
 
             tracing::info!(
                 output = %config.output.display(),

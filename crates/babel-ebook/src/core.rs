@@ -1,5 +1,10 @@
 //! Core orchestration for the babel-ebook pipeline.
 
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
+
 use serde::Serialize;
 
 use crate::cache::TranslationCache;
@@ -12,6 +17,25 @@ use crate::input_formats::read_input_book;
 use crate::pipeline::run_ordered_pipeline;
 use crate::t;
 use crate::translator::Translator;
+
+/// Cooperative cancellation signal for long-running translations.
+#[derive(Clone, Debug, Default)]
+pub struct CancellationToken {
+    cancelled: Arc<AtomicBool>,
+}
+
+impl CancellationToken {
+    /// Request cancellation.
+    pub fn cancel(&self) {
+        self.cancelled.store(true, Ordering::SeqCst);
+    }
+
+    /// Return whether cancellation has been requested.
+    #[must_use]
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::SeqCst)
+    }
+}
 
 /// Progress events emitted during `translate_epub`.
 #[derive(Debug, Clone, Serialize)]
@@ -60,6 +84,9 @@ pub trait ProgressCallback: Send + Sync {
 /// Unified error type for the babel-ebook crate.
 #[derive(Debug, thiserror::Error)]
 pub enum BabelEbookError {
+    /// Translation was cancelled by the caller.
+    Cancelled,
+
     /// An API request failed after exhausting retries.
     ApiError(String),
 
@@ -76,6 +103,7 @@ pub enum BabelEbookError {
 impl std::fmt::Display for BabelEbookError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Cancelled => write!(f, "translation cancelled"),
             Self::ApiError(msg) => write!(f, "{}", t!("err_api", msg = msg.as_str())),
             Self::ProviderNotFound(provider) => {
                 write!(
@@ -112,11 +140,25 @@ pub async fn translate_epub(
     cache: Option<&TranslationCache>,
     progress: Option<&dyn ProgressCallback>,
 ) -> Result<(), BabelEbookError> {
+    translate_epub_with_cancellation(config, translator, cache, progress, None).await
+}
+
+/// Translate an EPUB with an optional cooperative cancellation signal.
+#[allow(clippy::future_not_send)]
+pub async fn translate_epub_with_cancellation(
+    config: &Config,
+    translator: &dyn Translator,
+    cache: Option<&TranslationCache>,
+    progress: Option<&dyn ProgressCallback>,
+    cancellation: Option<&CancellationToken>,
+) -> Result<(), BabelEbookError> {
     tracing::info!(
         source = %config.source.display(),
         output = %config.output.display(),
         "starting EPUB translation"
     );
+
+    ensure_not_cancelled(cancellation)?;
 
     let owned_cache = cache.map_or_else(
         || TranslationCache::new(config.cache_dir.clone()),
@@ -125,6 +167,8 @@ pub async fn translate_epub(
     let cache = &owned_cache;
 
     let mut book = read_input_book(&config.source)?;
+    ensure_not_cancelled(cancellation)?;
+
     let source_hash = CheckpointStore::source_hash(&config.source)?;
     let translatable_indices = translatable_chapters(&book, &config.skip_doc_patterns)?;
     tracing::info!(
@@ -166,9 +210,12 @@ pub async fn translate_epub(
         job_id.as_deref(),
         &source_hash,
         progress,
+        cancellation,
     )
     .await?;
     let failures = pipeline_result.failures;
+
+    ensure_not_cancelled(cancellation)?;
 
     if config.translation_scope.toc {
         let failed_hrefs: std::collections::HashSet<&str> =
@@ -181,6 +228,7 @@ pub async fn translate_epub(
                 }
                 match translate_title(&title, translator, config, cache, &href).await {
                     Ok(translated) => {
+                        ensure_not_cancelled(cancellation)?;
                         book.chapters[*index].title = Some(translated);
                     }
                     Err(err) => {
@@ -195,6 +243,8 @@ pub async fn translate_epub(
             }
         }
     }
+
+    ensure_not_cancelled(cancellation)?;
 
     tracing::info!(output = %config.output.display(), "writing translated EPUB");
     write_epub(&book, &config.output)?;
@@ -211,6 +261,13 @@ pub async fn translate_epub(
         tracing::warn!("{msg}");
     }
 
+    Ok(())
+}
+
+fn ensure_not_cancelled(cancellation: Option<&CancellationToken>) -> Result<(), BabelEbookError> {
+    if cancellation.is_some_and(CancellationToken::is_cancelled) {
+        return Err(BabelEbookError::Cancelled);
+    }
     Ok(())
 }
 
