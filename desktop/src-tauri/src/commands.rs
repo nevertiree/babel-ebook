@@ -56,7 +56,7 @@ use tauri::Emitter;
 
 #[cfg(not(test))]
 use crate::args::E2EArgs;
-use crate::args::{TestConnectionArgs, TranslateArgs};
+use crate::args::{PdfToEpubArgs, TestConnectionArgs, TranslateArgs};
 use crate::config::{build_config, build_test_config};
 use crate::queue::{QueueManager, QueueState};
 use crate::task::Task;
@@ -445,6 +445,61 @@ pub async fn list_checkpoints(checkpoint_dir: String) -> Result<Vec<CheckpointIn
 
     entries.sort_by(|a, b| a.job_id.cmp(&b.job_id));
     Ok(entries)
+}
+
+/// Convert a scanned PDF to an EPUB using OCR + LLM verification.
+#[allow(dead_code)]
+#[tauri::command]
+pub async fn convert_pdf_to_epub(args: PdfToEpubArgs) -> Result<String, String> {
+    let pdf_path = std::path::PathBuf::from(&args.pdf_path);
+    let output_path = std::path::PathBuf::from(&args.output_path);
+
+    let title = args.title.unwrap_or_else(|| {
+        pdf_path
+            .file_stem()
+            .map_or_else(|| "Untitled".into(), |s| s.to_string_lossy().into_owned())
+    });
+
+    let ocr_config = babel_ebook::pdf_ocr::QwenOcrConfig {
+        api_key: args.ocr_api_key,
+        base_url: args.ocr_base_url,
+        model: args.ocr_model.unwrap_or_else(|| "qwen-vl-ocr".into()),
+    };
+    let ocr = babel_ebook::pdf_ocr::QwenOcrBackend::new(ocr_config);
+
+    let verifier: Option<Box<dyn babel_ebook::pdf_ocr::VerifyBackend>> = if args.no_verify {
+        None
+    } else {
+        let verify_api_key = args.verify_api_key.ok_or("verify_api_key is required unless no_verify is set")?;
+        let verify_base_url = args.verify_base_url.ok_or("verify_base_url is required for the verifier")?;
+        let verify_model = args.verify_model.ok_or("verify_model is required for the verifier")?;
+        Some(Box::new(babel_ebook::pdf_ocr::OpenAiVerifyBackend::new(
+            babel_ebook::pdf_ocr::OpenAiVerifyConfig {
+                api_key: verify_api_key,
+                base_url: verify_base_url,
+                model: verify_model,
+            },
+        )))
+    };
+
+    let config = babel_ebook::pdf_ocr::PdfToEpubConfig {
+        dpi: args.dpi,
+        verify_threshold: args.verify_threshold,
+        ..babel_ebook::pdf_ocr::PdfToEpubConfig::default()
+    };
+
+    babel_ebook::pdf_ocr::convert_pdf_to_epub_file(
+        &pdf_path,
+        &output_path,
+        &title,
+        &ocr,
+        verifier.as_deref(),
+        &config,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(output_path.to_string_lossy().into_owned())
 }
 
 #[cfg(test)]

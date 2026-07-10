@@ -2,7 +2,7 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { CheckpointInfo, FormState, Page, ProgressState, ValidationResult } from "../types";
+import type { CheckpointInfo, FormState, Page, ProgressState, ProviderConfig, ValidationResult } from "../types";
 import {
   outputModes,
   recommendedModels,
@@ -66,6 +66,7 @@ interface TranslatePageProps {
   progress: ProgressState;
   validation: ValidationResult;
   onPageChange: (page: Page) => void;
+  activeProvider?: ProviderConfig;
 }
 
 export default function TranslatePage({
@@ -75,13 +76,14 @@ export default function TranslatePage({
   progress,
   validation,
   onPageChange,
+  activeProvider,
 }: TranslatePageProps) {
   const { t } = useTranslation();
   const [checkpoints, setCheckpoints] = useState<CheckpointInfo[]>([]);
   const [showCheckpoints, setShowCheckpoints] = useState(false);
+  const [pdfConverting, setPdfConverting] = useState(false);
 
   const hasProviders = form.providers.length > 0;
-  const activeProvider = form.providers.find((p) => p.provider === form.active_provider);
 
   useEffect(() => {
     let cancelled = false;
@@ -141,6 +143,54 @@ export default function TranslatePage({
   const basename = (path: string) => {
     const sep = path.includes("/") ? "/" : "\\";
     return path.split(sep).pop() || path;
+  };
+
+  const importPdf = async () => {
+    if (!activeProvider?.api_key) {
+      setForm("source", "");
+      return;
+    }
+    if (pdfConverting) return;
+
+    const pdfPath = await open({
+      filters: [{ name: t("pdf_files"), extensions: ["pdf"] }],
+    });
+    if (!pdfPath || Array.isArray(pdfPath)) return;
+
+    const stem = pdfPath.replace(/\.pdf$/i, "");
+    const outputPath = await save({
+      filters: [{ name: "EPUB", extensions: ["epub"] }],
+      defaultPath: `${stem}.epub`,
+    });
+    if (!outputPath || Array.isArray(outputPath)) return;
+
+    setPdfConverting(true);
+    try {
+      const convertedPath = await invoke<string>("convert_pdf_to_epub", {
+        args: {
+          pdf_path: pdfPath,
+          output_path: outputPath,
+          title: basename(stem),
+          ocr_api_key: activeProvider.api_key,
+          ocr_base_url: activeProvider.use_custom_base_url
+            ? activeProvider.base_url || null
+            : null,
+          ocr_model: null,
+          verify_api_key: null,
+          verify_base_url: null,
+          verify_model: null,
+          no_verify: true,
+        },
+      });
+      setForm("source", convertedPath);
+      if (form.resume) {
+        setForm("resume", "");
+      }
+    } catch (err) {
+      console.error("PDF conversion failed:", err);
+    } finally {
+      setPdfConverting(false);
+    }
   };
 
   return (
@@ -239,6 +289,15 @@ export default function TranslatePage({
           </div>
           <button type="button" onClick={selectSource}>
             {t("select_file")}
+          </button>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={importPdf}
+            disabled={!activeProvider?.api_key || pdfConverting}
+            title={!activeProvider?.api_key ? t("error_api_key") : t("import_pdf")}
+          >
+            {pdfConverting ? t("pdf_converting") : t("import_pdf")}
           </button>
         </div>
 

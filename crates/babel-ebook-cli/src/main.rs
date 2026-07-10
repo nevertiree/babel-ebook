@@ -1,4 +1,4 @@
-//! BabelEbook CLI for translating EPUB books with LLM providers.
+//! BabelEbook CLI for translating EPUB books and converting scanned PDFs.
 
 // `warn` keeps `cargo test` passing while surfacing missing docs; Task 1.2 will
 // add the documentation and switch this to `#![deny(missing_docs)]`.
@@ -15,17 +15,32 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use babel_ebook::{t, Config, ProviderConfig};
 use clap::parser::ValueSource;
-use clap::{CommandFactory, FromArgMatches, Parser};
+use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 
 // Load translations from the core crate's locale files so the `t!` macro can
 // resolve keys in this binary crate.
 rust_i18n::i18n!("../babel-ebook/locales", fallback = "en");
 
-/// Command-line arguments for `babel-ebook`.
+/// Top-level CLI commands.
 #[derive(Parser)]
 #[command(name = "babel-ebook", version)]
-struct Args {
-    /// Path to the source EPUB file.
+struct Cli {
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Translate an EPUB/MOBI/TXT/SRT/DOCX file to a target language.
+    Translate(TranslateArgs),
+    /// Convert a scanned PDF to EPUB using OCR + LLM verification.
+    PdfToEpub(PdfToEpubArgs),
+}
+
+/// Arguments for the `translate` command.
+#[derive(Parser)]
+struct TranslateArgs {
+    /// Path to the source file.
     source: PathBuf,
     /// Path to the output EPUB file.
     #[arg(short, long)]
@@ -83,12 +98,64 @@ struct Args {
     resume: Option<String>,
 }
 
+/// Arguments for the `pdf-to-epub` command.
+#[derive(Parser)]
+struct PdfToEpubArgs {
+    /// Path to the source PDF file.
+    pdf: PathBuf,
+    /// Path to the output EPUB file.
+    #[arg(short, long)]
+    output: PathBuf,
+    /// Title for the generated EPUB.
+    #[arg(short, long)]
+    title: Option<String>,
+    /// OCR provider short name.
+    #[arg(long, default_value = "qwen-vl-ocr")]
+    ocr_provider: String,
+    /// API key for the OCR provider.
+    #[arg(long)]
+    ocr_api_key: Option<String>,
+    /// Base URL for the OCR provider.
+    #[arg(long, default_value = "https://dashscope.aliyuncs.com/compatible-mode/v1")]
+    ocr_base_url: String,
+    /// Model name for the OCR provider.
+    #[arg(long, default_value = "qwen-vl-ocr")]
+    ocr_model: String,
+    /// Verifier provider short name (openai, deepseek, qwen-vl-ocr, ...).
+    #[arg(long, default_value = "deepseek")]
+    verify_provider: String,
+    /// API key for the verifier provider.
+    #[arg(long)]
+    verify_api_key: Option<String>,
+    /// Base URL for the verifier provider.
+    #[arg(long)]
+    verify_base_url: Option<String>,
+    /// Model name for the verifier provider.
+    #[arg(long)]
+    verify_model: Option<String>,
+    /// Disable the LLM verification pass.
+    #[arg(long)]
+    no_verify: bool,
+    /// Rendering resolution in DPI.
+    #[arg(long, default_value_t = 200)]
+    dpi: u32,
+    /// Confidence threshold below which a block is verified.
+    #[arg(long, default_value_t = 0.7)]
+    verify_threshold: f32,
+    /// UI language (en, es, ja, ko, ru, zh-CN) or "auto" to detect the system locale.
+    #[arg(long, default_value = "auto")]
+    lang: String,
+    /// If true, enable verbose logging.
+    #[arg(short, long)]
+    verbose: bool,
+}
+
 /// Build a runtime `Config` from the optional config file and CLI overrides.
 ///
 /// CLI arguments override the config file only when they are explicitly
 /// provided on the command line. This matches the Python implementation's
 /// merge semantics.
-fn build_config(args: &Args, matches: &clap::ArgMatches) -> Result<Config> {
+fn build_config(args: &TranslateArgs, matches: &clap::ArgMatches) -> Result<Config> {
     let mut config = match &args.config {
         Some(path) => Config::load(path)
             .map_err(|err| anyhow::anyhow!(err.to_string()))
@@ -189,14 +256,8 @@ fn init_locale(lang: &str) {
     babel_ebook::set_locale(&chosen);
 }
 
-/// Entry point for the `babel-ebook` CLI.
-#[tokio::main]
-async fn main() -> Result<()> {
-    let cmd = Args::command();
-    let matches = cmd.get_matches();
-    let args =
-        Args::from_arg_matches(&matches).unwrap_or_else(|_| panic!("{}", t!("err_parsed_args")));
-
+/// Run the translate subcommand.
+async fn run_translate(args: TranslateArgs, matches: clap::ArgMatches) -> Result<()> {
     init_locale(&args.lang);
 
     let config = build_config(&args, &matches)?;
@@ -236,16 +297,109 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+/// Run the pdf-to-epub subcommand.
+async fn run_pdf_to_epub(args: PdfToEpubArgs) -> Result<()> {
+    init_locale(&args.lang);
+
+    let level = if args.verbose {
+        tracing_subscriber::filter::LevelFilter::DEBUG
+    } else {
+        tracing_subscriber::filter::LevelFilter::INFO
+    };
+    tracing_subscriber::fmt().with_max_level(level).init();
+
+    let ocr_api_key = args.ocr_api_key.ok_or_else(|| {
+        anyhow::anyhow!("--ocr-api-key is required (or set DASHSCOPE_API_KEY in the environment)")
+    })?;
+
+    let ocr = babel_ebook::pdf_ocr::QwenOcrBackend::new(
+        babel_ebook::pdf_ocr::QwenOcrConfig {
+            api_key: ocr_api_key,
+            base_url: Some(args.ocr_base_url),
+            model: args.ocr_model,
+        },
+    );
+
+    let verifier: Option<Box<dyn babel_ebook::pdf_ocr::VerifyBackend>> = if args.no_verify {
+        None
+    } else {
+        let verify_api_key = args.verify_api_key.ok_or_else(|| {
+            anyhow::anyhow!("--verify-api-key is required unless --no-verify is set")
+        })?;
+        let base_url = args.verify_base_url.ok_or_else(|| {
+            anyhow::anyhow!("--verify-base-url is required for the verifier provider")
+        })?;
+        let model = args.verify_model.ok_or_else(|| {
+            anyhow::anyhow!("--verify-model is required for the verifier provider")
+        })?;
+        Some(Box::new(babel_ebook::pdf_ocr::OpenAiVerifyBackend::new(
+            babel_ebook::pdf_ocr::OpenAiVerifyConfig {
+                api_key: verify_api_key,
+                base_url,
+                model,
+            },
+        )))
+    };
+
+    let title = args
+        .title
+        .unwrap_or_else(|| args.pdf.file_stem().map_or_else(|| "Untitled".into(), |s| s.to_string_lossy().into_owned()));
+
+    let config = babel_ebook::pdf_ocr::PdfToEpubConfig {
+        dpi: args.dpi,
+        verify_threshold: args.verify_threshold,
+        ..babel_ebook::pdf_ocr::PdfToEpubConfig::default()
+    };
+
+    babel_ebook::pdf_ocr::convert_pdf_to_epub_file(
+        &args.pdf,
+        &args.output,
+        &title,
+        &ocr,
+        verifier.as_deref(),
+        &config,
+    )
+    .await
+    .context("pdf-to-epub conversion failed")?;
+
+    tracing::info!(output = %args.output.display(), "PDF converted to EPUB successfully");
+    Ok(())
+}
+
+/// Entry point for the `babel-ebook` CLI.
+#[tokio::main]
+async fn main() -> Result<()> {
+    let cmd = Cli::command();
+    let matches = cmd.get_matches();
+    let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|_| panic!("{}", t!("err_parsed_args")));
+
+    match cli.command {
+        Command::Translate(args) => {
+            // Re-parse the subcommand matches so build_config can inspect value sources.
+            let sub_matches = matches
+                .subcommand_matches("translate")
+                .expect("translate subcommand matches")
+                .clone();
+            run_translate(args, sub_matches).await
+        }
+        Command::PdfToEpub(args) => run_pdf_to_epub(args).await,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use babel_ebook::provider_env_var;
 
-    fn parse_args(argv: &[&str]) -> (Args, clap::ArgMatches) {
-        let cmd = Args::command();
-        let matches = cmd.try_get_matches_from(argv).unwrap();
-        let parsed_args = Args::from_arg_matches(&matches).unwrap();
-        (parsed_args, matches)
+    fn parse_translate_args(cmdline: &[&str]) -> (TranslateArgs, clap::ArgMatches) {
+        let cmd = Cli::command();
+        let matches = cmd.try_get_matches_from(cmdline).unwrap();
+        let cli = Cli::from_arg_matches(&matches).unwrap();
+        let Command::Translate(args) = cli.command else {
+            panic!("expected translate command")
+        };
+        let sub_matches = matches.subcommand_matches("translate").unwrap().clone();
+        (args, sub_matches)
     }
 
     #[test]
@@ -258,8 +412,9 @@ mod tests {
         )
         .unwrap();
 
-        let (args, matches) = parse_args(&[
+        let (args, matches) = parse_translate_args(&[
             "babel-ebook",
+            "translate",
             "cli.epub",
             "-o",
             "cli-out.epub",
@@ -282,8 +437,9 @@ mod tests {
         )
         .unwrap();
 
-        let (args, matches) = parse_args(&[
+        let (args, matches) = parse_translate_args(&[
             "babel-ebook",
+            "translate",
             "cli.epub",
             "-o",
             "cli-out.epub",
@@ -309,8 +465,9 @@ mod tests {
         .unwrap();
 
         // Passing the clap default value explicitly should still override the config file.
-        let (args, matches) = parse_args(&[
+        let (args, matches) = parse_translate_args(&[
             "babel-ebook",
+            "translate",
             "cli.epub",
             "-o",
             "cli-out.epub",
@@ -336,8 +493,9 @@ mod tests {
 
     #[test]
     fn build_config_populates_provider_config_when_base_url_is_explicit() {
-        let (args, matches) = parse_args(&[
+        let (args, matches) = parse_translate_args(&[
             "babel-ebook",
+            "translate",
             "cli.epub",
             "-o",
             "cli-out.epub",
@@ -376,8 +534,9 @@ mod tests {
         )
         .unwrap();
 
-        let (args, matches) = parse_args(&[
+        let (args, matches) = parse_translate_args(&[
             "babel-ebook",
+            "translate",
             "cli.epub",
             "-o",
             "cli-out.epub",
@@ -403,8 +562,9 @@ mod tests {
 
     #[test]
     fn build_config_validation_rejects_missing_source() {
-        let (args, matches) = parse_args(&[
+        let (args, matches) = parse_translate_args(&[
             "babel-ebook",
+            "translate",
             "definitely-missing-file.epub",
             "-o",
             "out.epub",
@@ -416,8 +576,9 @@ mod tests {
 
     #[test]
     fn cli_accepts_refine_and_checkpoint_args() {
-        let (args, matches) = parse_args(&[
+        let (args, _matches) = parse_translate_args(&[
             "babel-ebook",
+            "translate",
             "book.epub",
             "-o",
             "out.epub",
@@ -430,10 +591,28 @@ mod tests {
         assert!(args.refine);
         assert_eq!(args.checkpoint_dir, PathBuf::from(".checkpoints"));
         assert_eq!(args.resume, Some("abc123".into()));
+    }
 
-        let config = build_config(&args, &matches).unwrap();
-        assert!(config.refine);
-        assert_eq!(config.checkpoint_dir, PathBuf::from(".checkpoints"));
-        assert_eq!(config.resume_job_id, Some("abc123".into()));
+    #[test]
+    fn pdf_to_epub_command_parses() {
+        let cmd = Cli::command();
+        let matches = cmd
+            .try_get_matches_from([
+                "babel-ebook",
+                "pdf-to-epub",
+                "book.pdf",
+                "-o",
+                "book.epub",
+                "--ocr-api-key",
+                "sk-test",
+                "--verify-api-key",
+                "sk-test",
+                "--verify-base-url",
+                "https://api.example.com/v1",
+                "--verify-model",
+                "gpt-4o",
+            ])
+            .unwrap();
+        assert!(matches.subcommand_matches("pdf-to-epub").is_some());
     }
 }

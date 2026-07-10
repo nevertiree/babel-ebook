@@ -619,6 +619,7 @@ function App() {
             progress={progress}
             validation={validation}
             onPageChange={setPage}
+            activeProvider={activeProvider(form)}
           />
         );
       case "logs":

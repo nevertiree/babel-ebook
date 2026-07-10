@@ -16,6 +16,7 @@ path = "src/main.rs"
 babel-ebook = { path = "../babel-ebook" }
 clap = { version = "4", features = ["derive"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tracing = "0.1"
 tracing-subscriber = "0.3"
 anyhow = "1"
 serde_json = "1"

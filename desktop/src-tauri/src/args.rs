@@ -83,3 +83,44 @@ pub struct TestConnectionArgs {
     pub api_key: String,
     pub base_url: Option<String>,
 }
+
+/// Arguments passed from the frontend to convert a scanned PDF to EPUB.
+#[derive(Deserialize, Debug, Clone)]
+#[serde(rename_all = "snake_case")]
+pub struct PdfToEpubArgs {
+    /// Path to the source PDF file.
+    pub pdf_path: String,
+    /// Path where the output EPUB should be written.
+    pub output_path: String,
+    /// Optional title for the generated EPUB.
+    pub title: Option<String>,
+    /// API key for the OCR provider.
+    pub ocr_api_key: String,
+    /// Optional custom base URL for the OCR provider.
+    pub ocr_base_url: Option<String>,
+    /// Optional model name for the OCR provider.
+    pub ocr_model: Option<String>,
+    /// Optional API key for the verifier provider.
+    pub verify_api_key: Option<String>,
+    /// Optional base URL for the verifier provider.
+    pub verify_base_url: Option<String>,
+    /// Optional model name for the verifier provider.
+    pub verify_model: Option<String>,
+    /// If true, skip the LLM verification pass.
+    #[serde(default)]
+    pub no_verify: bool,
+    /// Rendering resolution in DPI.
+    #[serde(default = "default_dpi")]
+    pub dpi: u32,
+    /// Confidence threshold below which a block is verified.
+    #[serde(default = "default_verify_threshold")]
+    pub verify_threshold: f32,
+}
+
+const fn default_dpi() -> u32 {
+    200
+}
+
+const fn default_verify_threshold() -> f32 {
+    0.7
+}

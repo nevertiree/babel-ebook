@@ -19,6 +19,7 @@ pub mod core;
 pub mod epub;
 pub mod html;
 pub mod input_formats;
+pub mod pdf_ocr;
 pub mod pipeline;
 pub mod translator;
 

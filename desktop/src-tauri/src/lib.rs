@@ -83,6 +83,7 @@ pub fn run() {
             commands::pause_queue,
             commands::get_queue_state,
             commands::list_checkpoints,
+            commands::convert_pdf_to_epub,
         ])
         .run(tauri_context())
         .expect("error while running tauri application");
