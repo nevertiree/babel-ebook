@@ -1,11 +1,23 @@
 # Changelog
 
-## Unreleased
+## [0.2.2] - 2026-07-10
+
+### Added
+
+- Resumable checkpoint list on the Translate page is shown automatically when a
+  checkpoint directory is configured, with the task matching the current source
+  file highlighted. Resuming a task created from a different source now shows a
+  warning, and the active resume selection is surfaced next to Start Translation
+  with a one-click clear button.
+- A short cost note and a link to the refine prompt appear when the second-pass
+  refine option is enabled.
 
 ### Fixed
 
 - Desktop task queue can now cancel a running translation, so a mistaken target
   language no longer leaves the queue blocked until the current book finishes.
+- The active theme is now applied to the document root so the base text color is
+  inherited correctly everywhere.
 
 ## [0.2.1] - 2026-07-09
 
