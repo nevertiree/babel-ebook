@@ -88,13 +88,12 @@ impl OcrBackend for QwenOcrBackend {
             "response_format": { "type": "json_object" }
         });
 
-        let url = self
-            .config
-            .base_url
-            .as_deref()
-            .unwrap_or(DEFAULT_BASE_URL)
-            .to_string()
-            + "/chat/completions";
+        let base_url = self.config.base_url.as_deref().unwrap_or(DEFAULT_BASE_URL);
+        let url = if base_url.ends_with("/chat/completions") {
+            base_url.to_string()
+        } else {
+            format!("{base_url}/chat/completions")
+        };
 
         let response = self
             .client

@@ -15,6 +15,21 @@ repos:
         args: ["--maxkb=1024"]
       - id: detect-private-key
 
+      - id: detect-api-keys
+        name: Detect API keys and tokens
+        entry: bash -c '
+          set -e
+          PATTERNS="sk-[a-zA-Z0-9]{20,}|sk-(ant|live|test|proj)-[a-zA-Z0-9]{20,}|Bearer\s+[a-zA-Z0-9_-]{20,}|api[_-]?key\s*=\s*[\"\']?[a-zA-Z0-9_-]{20,}"
+          if git grep -EIn "$PATTERNS" -- "$(git ls-files)"; then
+            echo "ERROR: Potential API key or token detected in source files."
+            echo "Remove the secret and use environment variables or a keyring instead."
+            exit 1
+          fi
+        '
+        language: system
+        pass_filenames: false
+        always_run: true
+
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.18.4
     hooks:
