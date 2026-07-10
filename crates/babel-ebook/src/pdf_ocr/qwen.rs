@@ -136,22 +136,24 @@ impl OcrBackend for QwenOcrBackend {
     }
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn parse_ocr_json(content: &str) -> Result<OcrPageResult, BabelEbookError> {
     let cleaned = super::strip_json_comments(content);
-    let raw: RawOcrResponse = serde_json::from_str(&cleaned).map_err(|e| {
-        BabelEbookError::ApiError(format!("failed to parse OCR JSON: {e}. Content: {content}"))
-    })?;
 
-    let blocks: Vec<TextBlock> = raw
-        .blocks
-        .into_iter()
-        .map(|b| TextBlock {
-            text: b.text,
-            confidence: b.confidence.clamp(0.0, 1.0),
-            bbox: b.bbox,
-            block_type: b.block_type,
-        })
-        .collect();
+    let blocks: Vec<TextBlock> = if let Ok(raw) = serde_json::from_str::<RawOcrResponse>(&cleaned) {
+        raw.blocks
+            .into_iter()
+            .map(|b| TextBlock {
+                text: b.text,
+                confidence: b.confidence.clamp(0.0, 1.0),
+                bbox: b.bbox,
+                block_type: b.block_type,
+            })
+            .collect()
+    } else {
+        tracing::debug!(content = %content, "OCR response was not structured JSON; falling back to plain-text parsing");
+        parse_plain_text_ocr(content)
+    };
 
     let full_text = blocks
         .iter()
@@ -164,6 +166,71 @@ fn parse_ocr_json(content: &str) -> Result<OcrPageResult, BabelEbookError> {
         blocks,
         full_text,
     })
+}
+
+/// Fallback parser for vision models that return plain text instead of the
+/// requested JSON structure. Splits the text into blocks and guesses block
+/// types from simple heuristics.
+fn parse_plain_text_ocr(content: &str) -> Vec<TextBlock> {
+    let mut blocks = Vec::new();
+    let mut pending = String::new();
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            flush_plain_text_block(&mut blocks, &mut pending);
+            continue;
+        }
+        // Treat short standalone lines as separate blocks (likely labels/captions).
+        if trimmed.len() <= 25 && !pending.is_empty() {
+            flush_plain_text_block(&mut blocks, &mut pending);
+        }
+        if !pending.is_empty() {
+            pending.push('\n');
+        }
+        pending.push_str(trimmed);
+    }
+    flush_plain_text_block(&mut blocks, &mut pending);
+    blocks
+}
+
+fn flush_plain_text_block(blocks: &mut Vec<TextBlock>, text: &mut String) {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+    let block_type = infer_plain_text_block_type(trimmed);
+    blocks.push(TextBlock {
+        text: trimmed.to_string(),
+        block_type,
+        confidence: 0.8,
+        bbox: None,
+    });
+    text.clear();
+}
+
+fn infer_plain_text_block_type(text: &str) -> BlockType {
+    let trimmed = text.trim();
+    if trimmed.starts_with('#') {
+        return BlockType::Heading;
+    }
+    // Numbered headings like "1.", "1.1", "1.1.1" or Chinese "第1章".
+    if trimmed
+        .chars()
+        .take_while(|c| c.is_ascii_digit() || *c == '.')
+        .count()
+        >= 1
+        && trimmed
+            .chars()
+            .find(|c| !(c.is_ascii_digit() || *c == '.'))
+            .is_some_and(char::is_whitespace)
+    {
+        return BlockType::Heading;
+    }
+    if trimmed.starts_with('图') || trimmed.starts_with('表') || trimmed.starts_with("Fig") {
+        return BlockType::Caption;
+    }
+    BlockType::Paragraph
 }
 
 #[derive(Debug, Deserialize)]
