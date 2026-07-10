@@ -230,7 +230,10 @@ fn block_to_html(block: &TextBlock) -> String {
 /// Render a Markdown table embedded in a paragraph as an HTML table.
 /// Returns `None` if the text does not contain a Markdown table.
 fn render_markdown_table(text: &str) -> Option<String> {
-    let lines: Vec<&str> = text.lines().collect();
+    // Some models concatenate Markdown rows with spaces; normalize to one row
+    // per line first.
+    let normalized = normalize_markdown_table(text);
+    let lines: Vec<&str> = normalized.lines().collect();
     let mut table_lines: Vec<&str> = Vec::new();
     let mut in_table = false;
 
@@ -277,6 +280,30 @@ fn render_markdown_table(text: &str) -> Option<String> {
     }
     html.push_str("  </tbody>\n</table>");
     Some(html)
+}
+
+/// Some vision models emit Markdown tables with rows concatenated on a single
+/// line separated by spaces. Split them into one row per line.
+fn normalize_markdown_table(text: &str) -> String {
+    // Match sequences like "| a | b | | c | d |" and split after every closing
+    // pipe that is followed by a space and another pipe.
+    let mut result = String::new();
+    let mut row = String::new();
+    let chars: Vec<char> = text.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        row.push(chars[i]);
+        if chars[i] == '|' && i + 2 < chars.len() && chars[i + 1] == ' ' && chars[i + 2] == '|' {
+            result.push_str(row.trim());
+            result.push('\n');
+            row.clear();
+        }
+        i += 1;
+    }
+    if !row.is_empty() {
+        result.push_str(row.trim());
+    }
+    result
 }
 
 fn split_markdown_row(row: &str) -> Vec<&str> {
