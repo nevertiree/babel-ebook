@@ -10,7 +10,7 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use crate::cache::TranslationCache;
 use crate::checkpoint::{ChapterCheckpoint, ChapterStatus, Checkpoint, CheckpointStore};
 use crate::config::Config;
-use crate::core::{BabelEbookError, ProgressCallback, ProgressEvent};
+use crate::core::{BabelEbookError, CancellationToken, ProgressCallback, ProgressEvent};
 use crate::epub::{Chapter, EpubBook};
 use crate::html::process_document;
 use crate::translator::Translator;
@@ -43,6 +43,7 @@ pub async fn run_ordered_pipeline(
     job_id: Option<&str>,
     source_hash: &str,
     progress: Option<&dyn ProgressCallback>,
+    cancellation: Option<&CancellationToken>,
 ) -> Result<PipelineResult, BabelEbookError> {
     if indices.is_empty() {
         return Ok(PipelineResult {
@@ -64,6 +65,8 @@ pub async fn run_ordered_pipeline(
     let mut futures = FuturesUnordered::new();
 
     for &index in &pending_indices {
+        ensure_not_cancelled(cancellation)?;
+
         let href = book.chapters[index].href.clone();
         let content = book.chapters[index].content.clone();
         let semaphore = Arc::clone(&semaphore);
@@ -80,7 +83,11 @@ pub async fn run_ordered_pipeline(
             );
             let result = match acquire_permit(semaphore).await {
                 Ok(permit) => {
-                    let output = process_document(&content, translator, config, cache, &href).await;
+                    let output = if cancellation.is_some_and(CancellationToken::is_cancelled) {
+                        Err(BabelEbookError::Cancelled)
+                    } else {
+                        process_document(&content, translator, config, cache, &href).await
+                    };
                     drop(permit);
                     output
                 }
@@ -95,7 +102,12 @@ pub async fn run_ordered_pipeline(
 
     let mut results = Vec::with_capacity(pending_indices.len());
     while let Some(item) = futures.next().await {
-        results.push(item?);
+        let (index, result) = item?;
+        if matches!(result, Err(BabelEbookError::Cancelled)) {
+            return Err(BabelEbookError::Cancelled);
+        }
+        results.push((index, result));
+        ensure_not_cancelled(cancellation)?;
     }
     results.sort_by_key(|(index, _)| *index);
 
@@ -138,6 +150,13 @@ pub async fn run_ordered_pipeline(
         failures,
         chapters: book.chapters.clone(),
     })
+}
+
+fn ensure_not_cancelled(cancellation: Option<&CancellationToken>) -> Result<(), BabelEbookError> {
+    if cancellation.is_some_and(CancellationToken::is_cancelled) {
+        return Err(BabelEbookError::Cancelled);
+    }
+    Ok(())
 }
 
 fn resolve_job_id(
@@ -436,6 +455,7 @@ mod tests {
             Some(&job_id),
             "hash",
             None,
+            None,
         )
         .await
         .unwrap();
@@ -443,6 +463,34 @@ mod tests {
         assert!(String::from_utf8_lossy(&book.chapters[0].content).contains("DONE"));
         assert!(String::from_utf8_lossy(&book.chapters[1].content).contains("[beta]"));
         assert!(String::from_utf8_lossy(&book.chapters[2].content).contains("[gamma]"));
+    }
+
+    #[tokio::test]
+    async fn pipeline_stops_before_scheduling_when_cancelled() {
+        let mut book = make_book(vec!["alpha", "beta"]);
+        let config = make_config();
+        let cache = TranslationCache::new(config.cache_dir.clone());
+        let cancellation = CancellationToken::default();
+        cancellation.cancel();
+
+        let result = run_ordered_pipeline(
+            &mut book,
+            vec![0, 1],
+            &DummyTranslator,
+            &config,
+            &cache,
+            None,
+            None,
+            "",
+            None,
+            Some(&cancellation),
+        )
+        .await;
+        let Err(err) = result else {
+            panic!("expected cancelled pipeline");
+        };
+
+        assert!(matches!(err, BabelEbookError::Cancelled));
     }
 
     #[test]
@@ -466,6 +514,7 @@ mod tests {
                     None,
                     None,
                     "",
+                    None,
                     None,
                 )
                 .await

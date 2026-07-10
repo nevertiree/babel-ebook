@@ -6,12 +6,13 @@
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use babel_ebook::CancellationToken;
 use serde::Serialize;
 use tauri::{Emitter, Manager};
 use tokio::sync::{Mutex, Notify};
 
 use crate::args::TranslateArgs;
-use crate::commands::translate_epub_internal;
+use crate::commands::translate_epub_internal_with_cancellation;
 use crate::task::{Task, TaskStatus};
 
 /// Snapshot of the queue exposed to the frontend.
@@ -36,6 +37,7 @@ struct QueueInner {
     tasks: Vec<Task>,
     running: bool,
     current_task_id: Option<String>,
+    current_cancellation: Option<CancellationToken>,
 }
 
 /// Shared queue manager installed as Tauri state.
@@ -54,6 +56,7 @@ impl QueueManager {
                 tasks: Vec::new(),
                 running: false,
                 current_task_id: None,
+                current_cancellation: None,
             })),
             notifier: Arc::new(Notify::new()),
         }
@@ -89,7 +92,9 @@ impl QueueManager {
                     continue;
                 };
 
-                self.set_current_task(Some(task.id.clone())).await;
+                let cancellation = CancellationToken::default();
+                self.set_current_task(Some(task.id.clone()), Some(cancellation.clone()))
+                    .await;
                 if let Some(w) = app_handle.get_webview_window("main") {
                     let _ = w.emit("queue_state_changed", ());
                 }
@@ -102,7 +107,12 @@ impl QueueManager {
                     }) as Box<dyn babel_ebook::ProgressCallback + Send + Sync>
                 });
 
-                let result = translate_epub_internal(task.args, progress).await;
+                let result = translate_epub_internal_with_cancellation(
+                    task.args,
+                    progress,
+                    Some(cancellation),
+                )
+                .await;
 
                 let now = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
@@ -111,10 +121,18 @@ impl QueueManager {
 
                 // Update the current task id only after releasing any lock held
                 // during the translation above.
-                self.set_current_task(None).await;
+                self.set_current_task(None, None).await;
 
                 let mut guard = self.inner.lock().await;
                 if let Some(t) = guard.tasks.iter_mut().find(|t| t.id == task_id) {
+                    if t.status == TaskStatus::Cancelled {
+                        t.completed_at = Some(now);
+                        drop(guard);
+                        if let Some(w) = window {
+                            let _ = w.emit("queue_state_changed", ());
+                        }
+                        continue;
+                    }
                     match result {
                         Ok(message) => {
                             t.status = TaskStatus::Completed;
@@ -138,9 +156,10 @@ impl QueueManager {
         });
     }
 
-    async fn set_current_task(&self, id: Option<String>) {
+    async fn set_current_task(&self, id: Option<String>, cancellation: Option<CancellationToken>) {
         let mut guard = self.inner.lock().await;
         guard.current_task_id = id;
+        guard.current_cancellation = cancellation;
     }
 
     /// Add a new pending translation task to the queue.
@@ -193,19 +212,29 @@ impl QueueManager {
         Ok(())
     }
 
-    /// Mark a pending task as cancelled.
+    /// Mark a pending or running task as cancelled.
     pub async fn cancel(&self, id: &str) -> Result<(), String> {
         let mut guard = self.inner.lock().await;
+        let current_cancellation = guard.current_cancellation.clone();
         let task = guard
             .tasks
             .iter_mut()
             .find(|t| t.id == id)
             .ok_or_else(|| "task not found".to_string())?;
-        if task.status != TaskStatus::Pending {
-            return Err("only pending tasks can be cancelled".to_string());
+        match task.status {
+            TaskStatus::Pending => {
+                task.status = TaskStatus::Cancelled;
+                task.message = "Cancelled".to_string();
+            }
+            TaskStatus::Running => {
+                task.status = TaskStatus::Cancelled;
+                task.message = "Cancelling".to_string();
+                if let Some(token) = current_cancellation {
+                    token.cancel();
+                }
+            }
+            _ => return Err("only pending or running tasks can be cancelled".to_string()),
         }
-        task.status = TaskStatus::Cancelled;
-        task.message = "Cancelled".to_string();
         Ok(())
     }
 
@@ -327,6 +356,25 @@ mod tests {
         queue.cancel(&task.id).await.unwrap();
         let state = queue.state().await;
         assert_eq!(state.tasks[0].status, TaskStatus::Cancelled);
+    }
+
+    #[tokio::test]
+    async fn cancel_running_task_requests_current_cancellation() {
+        let queue = QueueManager::new();
+        let task = queue.enqueue(sample_args("a.epub", "a.out.epub")).await;
+        let token = CancellationToken::default();
+        {
+            let mut guard = queue.inner.lock().await;
+            guard.tasks[0].status = TaskStatus::Running;
+            guard.current_task_id = Some(task.id.clone());
+            guard.current_cancellation = Some(token.clone());
+        }
+
+        queue.cancel(&task.id).await.unwrap();
+
+        let state = queue.state().await;
+        assert_eq!(state.tasks[0].status, TaskStatus::Cancelled);
+        assert!(token.is_cancelled());
     }
 
     #[tokio::test]

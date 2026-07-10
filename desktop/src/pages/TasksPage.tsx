@@ -71,7 +71,7 @@ export default function TasksPage({
               </div>
 
               <div className="task-actions">
-                {task.status === "pending" && (
+                {(task.status === "pending" || task.status === "running") && (
                   <button type="button" onClick={() => void onCancel(task.id)}>
                     {t("cancel")}
                   </button>

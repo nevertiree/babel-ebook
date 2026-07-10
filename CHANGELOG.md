@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Desktop task queue can now cancel a running translation, so a mistaken target
+  language no longer leaves the queue blocked until the current book finishes.
+
 ## [0.2.1] - 2026-07-09
 
 - Release version 0.2.1.
