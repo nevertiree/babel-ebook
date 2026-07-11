@@ -38,6 +38,7 @@
   rendering and accessibility.
 - Provider cards and the translate-page provider selector show a type-specific SVG
   icon for each configured LLM provider.
+- Task error detail modal can be closed with the Esc key.
 
 ### Fixed
 

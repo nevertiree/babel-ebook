@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import type { Page, QueueState, Task } from "../types";
@@ -35,6 +35,17 @@ export default function TasksPage({
   const { t } = useTranslation();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [detailTask, setDetailTask] = useState<Task | null>(null);
+
+  useEffect(() => {
+    if (!detailTask) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setDetailTask(null);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [detailTask]);
 
   const statusClass = (status: Task["status"]) => `task-status task-status-${status}`;
 
