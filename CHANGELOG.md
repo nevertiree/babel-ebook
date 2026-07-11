@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.3.2] - 2026-07-11
+
+- Release version 0.3.2.
+
 ## [0.3.1] - 2026-07-11
 
 - Release version 0.3.1.
