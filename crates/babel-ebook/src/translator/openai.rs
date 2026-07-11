@@ -9,11 +9,13 @@ use async_openai::{
     Client,
 };
 use async_trait::async_trait;
+use std::time::Duration;
 
 use crate::core::BabelEbookError;
 use crate::translator::{TranslateContext, Translator};
 
 const DEFAULT_MODEL: &str = "gpt-4o-mini";
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// Translator using the `OpenAI` API or an OpenAI-compatible endpoint.
 pub struct OpenAiTranslator {
@@ -64,6 +66,16 @@ impl Translator for OpenAiTranslator {
             .map_err(|e| BabelEbookError::ApiError(e.to_string()))
     }
 
+    async fn list_models(&self) -> Result<Vec<String>, BabelEbookError> {
+        let response = self
+            .client
+            .models()
+            .list()
+            .await
+            .map_err(|e| BabelEbookError::ApiError(e.to_string()))?;
+        Ok(response.data.into_iter().map(|m| m.id).collect())
+    }
+
     async fn translate(
         &self,
         text: &str,
@@ -95,11 +107,9 @@ impl Translator for OpenAiTranslator {
             .build()
             .map_err(|e| BabelEbookError::ApiError(e.to_string()))?;
 
-        let response = self
-            .client
-            .chat()
-            .create(request)
+        let response = tokio::time::timeout(REQUEST_TIMEOUT, self.client.chat().create(request))
             .await
+            .map_err(|_| BabelEbookError::ApiError("OpenAI request timed out".into()))?
             .map_err(|e| BabelEbookError::ApiError(e.to_string()))?;
 
         response
@@ -108,5 +118,23 @@ impl Translator for OpenAiTranslator {
             .next()
             .and_then(|c| c.message.content)
             .ok_or_else(|| BabelEbookError::ApiError("empty response from OpenAI".into()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn list_models_returns_api_error_for_unreachable_endpoint() {
+        let translator = OpenAiTranslator::new(
+            "fake-key".to_string(),
+            None,
+            Some("http://localhost:0".to_string()),
+            2000,
+            0.3,
+        );
+        let err = translator.list_models().await.unwrap_err();
+        assert!(matches!(err, BabelEbookError::ApiError(_)));
     }
 }

@@ -2,12 +2,14 @@
 
 use async_trait::async_trait;
 use serde_json::json;
+use std::time::Duration;
 
 use crate::core::BabelEbookError;
 use crate::translator::{TranslateContext, Translator};
 
 const DEFAULT_BASE_URL: &str = "http://localhost:11434";
 const DEFAULT_MODEL: &str = "llama3";
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// Translator using a local `Ollama` instance.
 pub struct OllamaTranslator {
@@ -57,6 +59,35 @@ impl Translator for OllamaTranslator {
         Ok(())
     }
 
+    async fn list_models(&self) -> Result<Vec<String>, BabelEbookError> {
+        let response = self
+            .client
+            .get(format!("{}/api/tags", self.base_url))
+            .timeout(Duration::from_secs(10))
+            .send()
+            .await
+            .map_err(|e| BabelEbookError::ApiError(format!("Ollama list models failed: {e}")))?;
+
+        if !response.status().is_success() {
+            let body = response.text().await.unwrap_or_default();
+            return Err(BabelEbookError::ApiError(format!("Ollama error: {body}")));
+        }
+
+        let json: serde_json::Value = response.json().await.map_err(|e| {
+            BabelEbookError::ApiError(format!("failed to parse Ollama models: {e}"))
+        })?;
+
+        let models = json["models"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|m| m["name"].as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+        Ok(models)
+    }
+
     async fn translate(
         &self,
         text: &str,
@@ -75,6 +106,7 @@ impl Translator for OllamaTranslator {
             .client
             .post(format!("{}/api/chat", self.base_url))
             .json(&body)
+            .timeout(REQUEST_TIMEOUT)
             .send()
             .await
             .map_err(|e| BabelEbookError::ApiError(format!("Ollama request failed: {e}")))?;
@@ -94,5 +126,25 @@ impl Translator for OllamaTranslator {
             .and_then(|v| v.as_str())
             .map(std::string::ToString::to_string)
             .ok_or_else(|| BabelEbookError::ApiError("empty response from Ollama".into()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn list_models_parses_local_models() {
+        let json = serde_json::json!({
+            "models": [
+                {"name": "llama3.2:latest"},
+                {"name": "qwen2:latest"},
+            ]
+        });
+        let names: Vec<String> = json["models"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|m| m["name"].as_str().map(String::from))
+            .collect();
+        assert_eq!(names, vec!["llama3.2:latest", "qwen2:latest"]);
     }
 }

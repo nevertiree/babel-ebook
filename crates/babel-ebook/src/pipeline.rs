@@ -33,6 +33,7 @@ pub struct PipelineResult {
 /// Callers that need a `Send` future should run the work on a local runtime.
 #[allow(clippy::future_not_send)]
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_lines)]
 pub async fn run_ordered_pipeline(
     book: &mut EpubBook,
     indices: Vec<usize>,
@@ -75,19 +76,22 @@ pub async fn run_ordered_pipeline(
         let store = checkpoint_store.cloned();
         let job_id = job_id.clone();
         futures.push(async move {
-            emit_progress(
-                progress,
-                ProgressEvent::ChapterStarted {
-                    index,
-                    href: href.clone(),
-                },
-            );
             let result = match acquire_permit(semaphore).await {
                 Ok(permit) => {
+                    emit_progress(
+                        progress,
+                        ProgressEvent::ChapterStarted {
+                            index,
+                            href: href.clone(),
+                        },
+                    );
                     let output = if cancellation.is_some_and(CancellationToken::is_cancelled) {
                         Err(BabelEbookError::Cancelled)
                     } else {
-                        process_document(&content, translator, config, cache, &href).await
+                        process_document(
+                            &content, translator, config, cache, index, &href, progress,
+                        )
+                        .await
                     };
                     drop(permit);
                     output
@@ -321,7 +325,10 @@ fn emit_progress(progress: Option<&dyn ProgressCallback>, event: ProgressEvent) 
 mod tests {
     use std::collections::HashMap;
     use std::path::PathBuf;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
     use std::thread;
+    use std::time::Duration;
 
     use super::*;
     use crate::config::{Config, OutputMode, PromptTemplates, TranslationScope, TranslationStyle};
@@ -533,6 +540,85 @@ mod tests {
                 assert!(texts[0].contains("[alpha]"));
                 assert!(texts[1].contains("[bravo]"));
                 assert!(texts[2].contains("[charlie]"));
+            });
+        });
+        handle.join().expect("test thread panicked");
+    }
+
+    #[test]
+    fn pipeline_respects_concurrency() {
+        struct CountingTranslator {
+            active: Arc<AtomicUsize>,
+            max_active: Arc<AtomicUsize>,
+        }
+
+        #[async_trait]
+        impl Translator for CountingTranslator {
+            fn name(&self) -> String {
+                "counting".into()
+            }
+
+            fn max_output_tokens(&self) -> usize {
+                1000
+            }
+
+            async fn translate(
+                &self,
+                text: &str,
+                _ctx: &TranslateContext<'_>,
+            ) -> Result<String, BabelEbookError> {
+                let active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
+                let mut max = self.max_active.load(Ordering::SeqCst);
+                while max < active {
+                    match self.max_active.compare_exchange_weak(
+                        max,
+                        active,
+                        Ordering::SeqCst,
+                        Ordering::SeqCst,
+                    ) {
+                        Ok(_) => break,
+                        Err(current) => max = current,
+                    }
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                self.active.fetch_sub(1, Ordering::SeqCst);
+                Ok(format!("[{}]", text.trim()))
+            }
+        }
+
+        let handle = thread::spawn(|| {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("build current-thread runtime");
+
+            rt.block_on(async {
+                let mut book = make_book(vec!["alpha", "bravo", "charlie", "delta", "echo"]);
+                let mut config = make_config();
+                config.concurrency = 2;
+                let active = Arc::new(AtomicUsize::new(0));
+                let max_active = Arc::new(AtomicUsize::new(0));
+                let translator = CountingTranslator {
+                    active: Arc::clone(&active),
+                    max_active: Arc::clone(&max_active),
+                };
+                let cache = TranslationCache::new(config.cache_dir.clone());
+                let result = run_ordered_pipeline(
+                    &mut book,
+                    vec![0, 1, 2, 3, 4],
+                    &translator,
+                    &config,
+                    &cache,
+                    None,
+                    None,
+                    "",
+                    None,
+                    None,
+                )
+                .await
+                .unwrap();
+                assert!(result.failures.is_empty());
+                assert_eq!(max_active.load(Ordering::SeqCst), 2);
             });
         });
         handle.join().expect("test thread panicked");

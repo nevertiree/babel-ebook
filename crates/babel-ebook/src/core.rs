@@ -59,6 +59,28 @@ pub enum ProgressEvent {
         /// Href of the chapter document.
         href: String,
     },
+    /// A chunk of text inside a chapter has started translation.
+    ChunkStarted {
+        /// Index of the chapter in the EPUB spine.
+        index: usize,
+        /// Href of the chapter document.
+        href: String,
+        /// 0-based index of this chunk within the current text block.
+        chunk_index: usize,
+        /// Total number of chunks in the current text block.
+        chunk_total: usize,
+    },
+    /// A chunk of text inside a chapter has finished translation.
+    ChunkFinished {
+        /// Index of the chapter in the EPUB spine.
+        index: usize,
+        /// Href of the chapter document.
+        href: String,
+        /// 0-based index of this chunk within the current text block.
+        chunk_index: usize,
+        /// Total number of chunks in the current text block.
+        chunk_total: usize,
+    },
     /// A chapter failed to translate.
     Failed {
         /// Index of the chapter in the EPUB spine.
@@ -226,7 +248,9 @@ pub async fn translate_epub_with_cancellation(
                 if failed_hrefs.contains(href.as_str()) {
                     continue;
                 }
-                match translate_title(&title, translator, config, cache, &href).await {
+                match translate_title(*index, &title, translator, config, cache, &href, progress)
+                    .await
+                {
                     Ok(translated) => {
                         ensure_not_cancelled(cancellation)?;
                         book.chapters[*index].title = Some(translated);
@@ -317,14 +341,19 @@ pub fn run_dry_run(
 }
 
 async fn translate_title(
+    index: usize,
     title: &str,
     translator: &dyn Translator,
     config: &Config,
     cache: &TranslationCache,
     href: &str,
+    _progress: Option<&dyn ProgressCallback>,
 ) -> Result<String, BabelEbookError> {
     let prompt_key = format!("toc:{href}");
-    translate_text(title, translator, config, cache, &prompt_key).await
+    // Do not emit chunk progress for title translation; the chapter is already
+    // marked finished and extra chunk events would make the progress bar jump
+    // backwards.
+    translate_text(title, translator, config, cache, index, &prompt_key, None).await
 }
 
 fn emit_progress(progress: Option<&dyn ProgressCallback>, event: ProgressEvent) {

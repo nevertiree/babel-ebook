@@ -41,6 +41,14 @@ pub trait Translator: Send + Sync {
     async fn health_check(&self) -> Result<(), BabelEbookError> {
         Ok(())
     }
+
+    /// Return the list of model identifiers available from this provider.
+    ///
+    /// The default implementation returns an empty list; providers should
+    /// override it to query their model API when one is available.
+    async fn list_models(&self) -> Result<Vec<String>, BabelEbookError> {
+        Ok(Vec::new())
+    }
 }
 
 pub use registry::get_translator;

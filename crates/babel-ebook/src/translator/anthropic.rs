@@ -2,6 +2,7 @@
 
 use async_trait::async_trait;
 use serde_json::json;
+use std::time::Duration;
 
 use crate::core::BabelEbookError;
 use crate::translator::{TranslateContext, Translator};
@@ -9,6 +10,7 @@ use crate::translator::{TranslateContext, Translator};
 const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
 const DEFAULT_MODEL: &str = "claude-3-5-sonnet-20241022";
 const DEFAULT_ANTHROPIC_VERSION: &str = "2023-06-01";
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// Translator using the Anthropic Messages API.
 pub struct AnthropicTranslator {
@@ -68,6 +70,40 @@ impl Translator for AnthropicTranslator {
         Ok(())
     }
 
+    async fn list_models(&self) -> Result<Vec<String>, BabelEbookError> {
+        let response = self
+            .client
+            .get(format!("{}/v1/models", self.base_url))
+            .header("x-api-key", &self.api_key)
+            .header("anthropic-version", DEFAULT_ANTHROPIC_VERSION)
+            .timeout(Duration::from_secs(10))
+            .send()
+            .await
+            .map_err(|e| BabelEbookError::ApiError(e.to_string()))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(BabelEbookError::ApiError(format!(
+                "Anthropic list models failed: HTTP {status}: {body}"
+            )));
+        }
+
+        let json: serde_json::Value = response.json().await.map_err(|e| {
+            BabelEbookError::ApiError(format!("failed to parse Anthropic models: {e}"))
+        })?;
+
+        let models = json["data"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|m| m["id"].as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+        Ok(models)
+    }
+
     async fn translate(
         &self,
         text: &str,
@@ -94,6 +130,7 @@ impl Translator for AnthropicTranslator {
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", DEFAULT_ANTHROPIC_VERSION)
             .json(&body)
+            .timeout(REQUEST_TIMEOUT)
             .send()
             .await
             .map_err(|e| BabelEbookError::ApiError(e.to_string()))?;
@@ -139,6 +176,19 @@ mod tests {
         let translator = AnthropicTranslator::new("fake-key".into(), None, None, 2000, 0.3);
         assert_eq!(translator.name(), "anthropic:claude-3-5-sonnet-20241022");
         assert_eq!(translator.max_output_tokens(), 2000);
+    }
+
+    #[tokio::test]
+    async fn list_models_returns_api_error_for_unreachable_endpoint() {
+        let translator = AnthropicTranslator::new(
+            "fake-key".to_string(),
+            None,
+            Some("http://localhost:0".to_string()),
+            2000,
+            0.3,
+        );
+        let err = translator.list_models().await.unwrap_err();
+        assert!(matches!(err, BabelEbookError::ApiError(_)));
     }
 
     #[tokio::test]

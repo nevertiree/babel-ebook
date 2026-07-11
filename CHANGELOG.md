@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.3.3] - 2026-07-11
+
+- Release version 0.3.3.
+
+## [0.3.2] - 2026-07-11
+
+### Fixed
+
+- Desktop task queue now persists `chapter_total` and `chapters_completed` on each
+  task, so refreshing the queue state no longer resets the progress bar to zero.
+- Queue pause cancels the currently running translation and marks the task as
+  `paused`; retrying resumes from the last checkpoint instead of restarting.
+- Per-task pause is now available in the task list.
+- Chapter chunk progress is now computed across the whole chapter, so translating
+  multi-element chapters no longer loops the progress bar at the same percentage.
+- Title translation no longer emits extra chunk events that could make the
+  overall progress jump backwards.
+
+### Changed
+
+- Queue manager methods are now synchronous; Tauri commands remain unchanged.
+
+## [0.3.1] - 2026-07-11
+
+- Release version 0.3.1.
+
+## [0.3.0] - 2026-07-11
+
+- Release version 0.3.0.
+
 ## [0.2.2] - 2026-07-10
 
 ### Added

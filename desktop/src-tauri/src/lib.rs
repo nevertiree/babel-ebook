@@ -71,6 +71,7 @@ pub fn run() {
             commands::check_file_exists,
             commands::suggest_output_path,
             commands::test_connection,
+            commands::list_models,
             commands::get_e2e_args,
             commands::get_app_version,
             commands::get_default_prompts,
@@ -81,6 +82,7 @@ pub fn run() {
             commands::retry_task,
             commands::start_queue,
             commands::pause_queue,
+            commands::pause_task,
             commands::get_queue_state,
             commands::list_checkpoints,
         ])
