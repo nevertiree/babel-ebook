@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
+import { confirm } from "@tauri-apps/plugin-dialog";
 import type { ProviderConfig } from "../types";
 import { providers as knownProviders } from "../types";
 import ProviderCard from "../components/ProviderCard";
@@ -58,7 +59,12 @@ export default function ComputeSettingsPage({
     onChangeActiveProvider(name);
   };
 
-  const removeProvider = (name: string) => {
+  const removeProvider = async (name: string) => {
+    const confirmed = await confirm(
+      t("confirm_remove_provider", { name }),
+      { title: t("confirm_remove_provider_title"), kind: "warning" }
+    );
+    if (!confirmed) return;
     const next = providers.filter((p) => p.name !== name);
     onChangeProviders(next);
     if (activeProvider === name && next.length > 0) {

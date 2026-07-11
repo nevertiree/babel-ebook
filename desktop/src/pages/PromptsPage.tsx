@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
+import { confirm } from "@tauri-apps/plugin-dialog";
 import type { FormState, PromptTemplates } from "../types";
 
 interface PromptsPageProps {
@@ -63,6 +64,11 @@ export default function PromptsPage({ form, setForm }: PromptsPageProps) {
   };
 
   const handleReset = async () => {
+    const confirmed = await confirm(t("confirm_reset_prompts"), {
+      title: t("confirm_reset_prompts_title"),
+      kind: "warning",
+    });
+    if (!confirmed) return;
     setForm("system_prompt", "");
     try {
       const defaults = await invoke<PromptTemplates>("get_default_prompts");

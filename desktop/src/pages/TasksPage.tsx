@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { confirm } from "@tauri-apps/plugin-dialog";
 import type { Page, QueueState, Task } from "../types";
 
 interface TasksPageProps {
@@ -72,6 +73,11 @@ export default function TasksPage({
 
   const handleBatchRemove = async () => {
     if (selectedList.length === 0) return;
+    const confirmed = await confirm(
+      t("confirm_remove_tasks", { count: selectedList.length }),
+      { title: t("confirm_remove_tasks_title"), kind: "warning" }
+    );
+    if (!confirmed) return;
     await onRemove(selectedList.map((t) => t.id));
     setSelected(new Set());
   };
@@ -209,7 +215,13 @@ export default function TasksPage({
                     <button
                       type="button"
                       className="danger"
-                      onClick={() => void onRemove([task.id])}
+                      onClick={async () => {
+                        const confirmed = await confirm(
+                          t("confirm_remove_task", { file: formatPath(task.source_path) }),
+                          { title: t("confirm_remove_task_title"), kind: "warning" }
+                        );
+                        if (confirmed) await onRemove([task.id]);
+                      }}
                       data-testid="remove-task"
                     >
                       {t("remove")}
