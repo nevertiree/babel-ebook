@@ -5,7 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import "./App.css";
 import type { FormState, LogEntry, Page, ProgressState, ProviderConfig, QueueState, Task, ValidationResult } from "./types";
-import { defaults, recommendedModels, targetLanguages } from "./types";
+import { defaults, recommendedModels } from "./types";
 import TranslatePage from "./pages/TranslatePage";
 import ComputeSettingsPage from "./pages/ComputeSettingsPage";
 import ModelParamsPage from "./pages/ModelParamsPage";
@@ -55,15 +55,11 @@ function generateId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-function initialGeneralFromLocalStorage(): GeneralSettings {
-  const ui_language = localStorage.getItem("ui_language");
-  return {
-    ui_language:
-      ui_language && targetLanguages.some((l) => l.code === ui_language) ? ui_language : "en",
-    theme: "dark",
-    follow_system_language: localStorage.getItem("follow_system_language") !== "false",
-  };
-}
+const DEFAULT_GENERAL: GeneralSettings = {
+  ui_language: "en",
+  theme: "dark",
+  follow_system_language: true,
+};
 
 function activeProvider(form: FormState): ProviderConfig | undefined {
   return form.providers.find((p) => p.name === form.active_provider);
@@ -190,7 +186,7 @@ function App() {
     percent: 0,
     message: "",
   });
-  const [general, setGeneral] = useState<GeneralSettings>(initialGeneralFromLocalStorage);
+  const [general, setGeneral] = useState<GeneralSettings>(DEFAULT_GENERAL);
   const [detectedLocale, setDetectedLocale] = useState<string>("en");
   const [queue, setQueue] = useState<QueueState>({
     tasks: [],
@@ -261,13 +257,20 @@ function App() {
 
         setForm(merged);
 
+        // Apply UI language after settings are loaded so we use the persisted
+        // preference rather than the hard-coded default. When following the
+        // system language, resolve the system locale first.
         if (e2e.ui_language) {
-          void i18n.changeLanguage(e2e.ui_language);
-        } else if (!generalSettings.follow_system_language) {
-          void i18n.changeLanguage(generalSettings.ui_language);
+          await i18n.changeLanguage(e2e.ui_language);
+        } else if (generalSettings.follow_system_language) {
+          const locale = await invoke<string>("get_system_locale");
+          setDetectedLocale(locale);
+          await i18n.changeLanguage(locale);
+        } else {
+          await i18n.changeLanguage(generalSettings.ui_language);
         }
       } catch (err) {
-        console.error("[E2E] settings initialization failed:", err);
+        console.error("[settings] initialization failed:", err);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -329,21 +332,24 @@ function App() {
     document.documentElement.setAttribute("data-theme", general.theme);
   }, [general.theme]);
 
-  // System language detection.
+  // Keep the UI language in sync with general settings. When following the
+  // system language, re-resolve the locale whenever the toggle is turned on.
   useEffect(() => {
-    void invoke<string>("get_system_locale").then((locale) => {
-      setDetectedLocale(locale);
-      if (general.follow_system_language) {
-        void i18n.changeLanguage(locale);
-      }
-    });
-  }, [general.follow_system_language, i18n]);
-
-  useEffect(() => {
-    if (!general.follow_system_language) {
-      void i18n.changeLanguage(general.ui_language);
+    if (general.follow_system_language) {
+      void invoke<string>("get_system_locale")
+        .then((locale) => {
+          setDetectedLocale(locale);
+          return i18n.changeLanguage(locale);
+        })
+        .catch((err) => {
+          console.error("[locale] failed to apply system language:", err);
+        });
+    } else {
+      void i18n.changeLanguage(general.ui_language).catch((err) => {
+        console.error("[locale] failed to apply UI language:", err);
+      });
     }
-  }, [general.ui_language, general.follow_system_language, i18n]);
+  }, [general.follow_system_language, general.ui_language, i18n]);
 
   useEffect(() => {
     void (async () => {
@@ -625,6 +631,8 @@ function App() {
             progress={progress}
             validation={validation}
             onPageChange={setPage}
+            logs={logs}
+            onClearLogs={clearLogs}
           />
         );
       case "logs":

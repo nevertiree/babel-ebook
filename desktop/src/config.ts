@@ -144,42 +144,7 @@ async function writeSettingsFile(payload: VersionedSettings): Promise<void> {
   await writeTextFile(path, JSON.stringify(payload, null, 2));
 }
 
-/**
- * Strip secrets from provider configs before writing to disk.
- */
-function providersForStorage(providers: ProviderConfig[]): Omit<ProviderConfig, "api_key">[] {
-  return providers.map((p) => ({
-    name: p.name,
-    provider: p.provider,
-    base_url: p.base_url,
-    use_custom_base_url: p.use_custom_base_url,
-  }));
-}
 
-/**
- * Persist each provider's API key to the OS keyring.
- */
-async function saveApiKeys(providers: ProviderConfig[]): Promise<void> {
-  for (const p of providers) {
-    if (p.api_key) {
-      await invoke("store_api_key", { provider: p.provider, apiKey: p.api_key });
-    } else {
-      await invoke("delete_api_key", { provider: p.provider }).catch(() => undefined);
-    }
-  }
-}
-
-/**
- * Load API keys from the OS keyring and inject them into provider configs.
- */
-async function hydrateApiKeys(providers: ProviderConfig[]): Promise<ProviderConfig[]> {
-  const hydrated: ProviderConfig[] = [];
-  for (const p of providers) {
-    const apiKey = await invoke<string | null>("load_api_key", { provider: p.provider }).catch(() => null);
-    hydrated.push({ ...p, api_key: apiKey ?? "" });
-  }
-  return hydrated;
-}
 
 /**
  * Migrate legacy flat settings to the provider-array layout.
@@ -205,7 +170,11 @@ async function migrateFromFlatSettings(versioned: VersionedSettings): Promise<Pa
 
   const oldProvider = typeof raw.provider === "string" ? raw.provider : "deepseek";
   const oldBaseUrl = typeof raw.base_url === "string" ? raw.base_url : "";
-  const oldApiKey = await invoke<string | null>("load_api_key", { provider: oldProvider }).catch(() => null);
+  // Try to migrate an existing API key from the legacy keyring storage into
+  // the plaintext settings file. Going forward keys are stored in settings.json.
+  const oldApiKey =
+    (await invoke<string | null>("load_api_key", { provider: oldProvider }).catch(() => null)) ??
+    "";
 
   const used = new Set<string>();
   const makeUniqueName = (p: ProviderConfig) => {
@@ -234,6 +203,22 @@ async function migrateFromFlatSettings(versioned: VersionedSettings): Promise<Pa
   return migrated;
 }
 
+function normalizeProvider(p: unknown): ProviderConfig {
+  const raw = p as Record<string, unknown>;
+  return {
+    name: typeof raw.name === "string" && raw.name.trim().length > 0 ? raw.name : "Provider",
+    provider: typeof raw.provider === "string" && raw.provider.trim().length > 0 ? raw.provider : "deepseek",
+    api_key: typeof raw.api_key === "string" ? raw.api_key : "",
+    base_url: typeof raw.base_url === "string" ? raw.base_url : "",
+    use_custom_base_url: typeof raw.use_custom_base_url === "boolean" ? raw.use_custom_base_url : false,
+  };
+}
+
+function normalizeProviders(providers: unknown): ProviderConfig[] {
+  if (!Array.isArray(providers)) return [];
+  return providers.map(normalizeProvider);
+}
+
 /**
  * Load the translation-related subset of FormState from persistent storage.
  */
@@ -242,9 +227,6 @@ export async function loadSettings(): Promise<Partial<FormState>> {
 
   if (versioned?.version === SETTINGS_VERSION) {
     const translation = versioned.translation ?? {};
-    if (Array.isArray(translation.providers)) {
-      translation.providers = await hydrateApiKeys(translation.providers);
-    }
     const docs = await documentDir();
     if (!translation.checkpoint_dir || typeof translation.checkpoint_dir !== "string" || translation.checkpoint_dir.trim().length === 0) {
       translation.checkpoint_dir = await join(docs, DEFAULT_CHECKPOINT_DIR);
@@ -255,6 +237,7 @@ export async function loadSettings(): Promise<Partial<FormState>> {
     if (typeof translation.resume !== "string") {
       translation.resume = "";
     }
+    translation.providers = normalizeProviders(translation.providers);
     return translation;
   }
 
@@ -270,6 +253,7 @@ export async function loadSettings(): Promise<Partial<FormState>> {
   if (migrated.resume === undefined) {
     migrated.resume = "";
   }
+  migrated.providers = normalizeProviders(migrated.providers);
   await writeSettingsFile({
     version: SETTINGS_VERSION,
     translation: migrated,
@@ -290,11 +274,7 @@ export async function saveSettings(form: FormState): Promise<void> {
 
   const translation: Partial<FormState> = {};
   for (const key of TRANSLATION_KEYS) {
-    if (key === "providers") {
-      translation.providers = providersForStorage(form.providers) as ProviderConfig[];
-    } else {
-      (translation[key] as FormState[typeof key]) = form[key];
-    }
+    (translation[key] as FormState[typeof key]) = form[key];
   }
 
   await writeSettingsFile({
@@ -302,7 +282,6 @@ export async function saveSettings(form: FormState): Promise<void> {
     translation,
     general: versioned?.general ?? DEFAULT_GENERAL,
   });
-  await saveApiKeys(form.providers);
 }
 
 /**

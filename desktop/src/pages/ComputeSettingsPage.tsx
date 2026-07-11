@@ -25,9 +25,7 @@ export default function ComputeSettingsPage({
   const usedNames = new Set(providers.map((p) => p.name));
 
   const updateProvider = (name: string, patch: Partial<ProviderConfig>) => {
-    onChangeProviders(
-      providers.map((p) => (p.name === name ? { ...p, ...patch } : p))
-    );
+    onChangeProviders(providers.map((p) => (p.name === name ? { ...p, ...patch } : p)));
   };
 
   const makeUniqueName = (base: string): string => {
@@ -123,7 +121,7 @@ export default function ComputeSettingsPage({
   const canAddProvider = providers.length < knownProviders.length;
 
   return (
-    <div className="page settings-page">
+    <div className="page settings-page compute-settings-page">
       <h2>{t("settings_compute")}</h2>
 
       {providers.length === 0 && (
@@ -144,7 +142,7 @@ export default function ComputeSettingsPage({
             key={p.name}
             className={`provider-config ${isActive ? "active" : ""}`}
           >
-            <div className="provider-row">
+            <div className="provider-row compact">
               <label className="provider-type-label">
                 <span>{t("provider_type")}</span>
                 <select
@@ -159,50 +157,7 @@ export default function ComputeSettingsPage({
                 </select>
               </label>
 
-              <div className="provider-api-key">
-                <label>
-                  <span>{t("api_key")}</span>
-                  <div className="input-with-toggle">
-                    <input
-                      type={showKeyFor === p.name ? "text" : "password"}
-                      value={p.api_key}
-                      onChange={(e) => updateProvider(p.name, { api_key: e.target.value })}
-                      placeholder="sk-..."
-                    />
-                    <button
-                      type="button"
-                      className="input-toggle"
-                      onClick={() =>
-                        setShowKeyFor((prev) => (prev === p.name ? null : p.name))
-                      }
-                      title={showKeyFor === p.name ? t("hide") : t("show")}
-                    >
-                      {showKeyFor === p.name ? "🙈" : "👁"}
-                    </button>
-                  </div>
-                </label>
-                {keyLooksWrong && <span className="format-hint">{t("api_key_format_hint")}</span>}
-              </div>
-
-              <button
-                type="button"
-                onClick={() => runTest(p.name)}
-                disabled={testingFor === p.name}
-              >
-                {testingFor === p.name ? t("testing_connection") : t("test_connection")}
-              </button>
-            </div>
-
-            {result && (
-              <span
-                className={`test-result ${result.ok ? "test-result-ok" : "test-result-error"}`}
-              >
-                {result.message}
-              </span>
-            )}
-
-            <div className="provider-row provider-meta-row">
-              <label>
+              <label className="provider-name-label" title={p.name}>
                 <span>{t("provider_name")}</span>
                 <input
                   type="text"
@@ -211,7 +166,29 @@ export default function ComputeSettingsPage({
                 />
               </label>
 
-              <label className="checkbox">
+              <label className="provider-api-key" title={p.api_key}>
+                <span>{t("api_key")}</span>
+                <div className="input-with-toggle">
+                  <input
+                    type={showKeyFor === p.name ? "text" : "password"}
+                    value={p.api_key}
+                    onChange={(e) => updateProvider(p.name, { api_key: e.target.value })}
+                    placeholder="sk-..."
+                  />
+                  <button
+                    type="button"
+                    className="input-toggle"
+                    onClick={() =>
+                      setShowKeyFor((prev) => (prev === p.name ? null : p.name))
+                    }
+                    title={showKeyFor === p.name ? t("hide") : t("show")}
+                  >
+                    {showKeyFor === p.name ? "🙈" : "👁"}
+                  </button>
+                </div>
+              </label>
+
+              <label className="provider-base-url-checkbox checkbox">
                 <input
                   type="checkbox"
                   checked={p.use_custom_base_url}
@@ -225,28 +202,13 @@ export default function ComputeSettingsPage({
                 {t("use_custom_base_url")}
               </label>
 
-              {p.use_custom_base_url && (
-                <label>
-                  <span>{t("base_url")}</span>
-                  <input
-                    type="text"
-                    value={p.base_url}
-                    onChange={(e) => updateProvider(p.name, { base_url: e.target.value })}
-                    placeholder={t("base_url_placeholder")}
-                  />
-                </label>
-              )}
-
-              {!p.use_custom_base_url && (
-                <span className="hint">{t("default_base_url")}</span>
-              )}
-
               <button
                 type="button"
-                className="text-button danger"
-                onClick={() => removeProvider(p.name)}
+                className="test-button"
+                onClick={() => runTest(p.name)}
+                disabled={testingFor === p.name}
               >
-                {t("remove_provider")}
+                {testingFor === p.name ? t("testing_connection") : t("test_connection")}
               </button>
 
               <button
@@ -257,7 +219,45 @@ export default function ComputeSettingsPage({
               >
                 {isActive ? t("active_provider") : t("set_active_provider")}
               </button>
+
+              <button
+                type="button"
+                className="text-button danger"
+                onClick={() => removeProvider(p.name)}
+              >
+                {t("remove_provider")}
+              </button>
             </div>
+
+            {p.use_custom_base_url && (
+              <div className="provider-row base-url-row">
+                <label className="provider-base-url">
+                  <span>{t("base_url")}</span>
+                  <input
+                    type="text"
+                    value={p.base_url}
+                    onChange={(e) => updateProvider(p.name, { base_url: e.target.value })}
+                    placeholder={t("base_url_placeholder")}
+                  />
+                </label>
+              </div>
+            )}
+
+            {!p.use_custom_base_url && (
+              <span className="hint default-base-url-hint">{t("default_base_url")}</span>
+            )}
+
+            {keyLooksWrong && (
+              <span className="format-hint">{t("api_key_format_hint")}</span>
+            )}
+
+            {result && (
+              <span
+                className={`test-result ${result.ok ? "test-result-ok" : "test-result-error"}`}
+              >
+                {result.message}
+              </span>
+            )}
           </div>
         );
       })}
