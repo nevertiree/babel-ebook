@@ -1540,7 +1540,8 @@ button .loading-spinner {
 }
 
 .settings-tab-icon {
-  font-size: 0.9rem;
+  width: 1rem;
+  height: 1rem;
 }
 
 .settings-tab:hover:not(:disabled) {

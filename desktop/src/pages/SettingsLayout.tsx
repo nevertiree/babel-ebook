@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import type { Page } from "../types";
+import SettingsTabIcon, { type SettingsTabIconProps } from "../components/SettingsTabIcon";
 
 interface SettingsLayoutProps {
   activePage: Page;
@@ -7,13 +8,13 @@ interface SettingsLayoutProps {
   children: React.ReactNode;
 }
 
-const settingsTabs: { page: Page; labelKey: string; icon: string }[] = [
-  { page: "settings-compute", labelKey: "settings_compute", icon: "⚙️" },
-  { page: "settings-model", labelKey: "settings_model", icon: "🧠" },
-  { page: "settings-translation", labelKey: "settings_translation", icon: "🌐" },
-  { page: "settings-prompts", labelKey: "settings_prompts", icon: "📝" },
-  { page: "settings-output", labelKey: "settings_output", icon: "📁" },
-  { page: "settings-general", labelKey: "settings_general", icon: "🎛️" },
+const settingsTabs: { page: Page; labelKey: string; icon: SettingsTabIconProps["icon"] }[] = [
+  { page: "settings-compute", labelKey: "settings_compute", icon: "compute" },
+  { page: "settings-model", labelKey: "settings_model", icon: "model" },
+  { page: "settings-translation", labelKey: "settings_translation", icon: "translation" },
+  { page: "settings-prompts", labelKey: "settings_prompts", icon: "prompts" },
+  { page: "settings-output", labelKey: "settings_output", icon: "output" },
+  { page: "settings-general", labelKey: "settings_general", icon: "general" },
 ];
 
 export default function SettingsLayout({ activePage, onNavigate, children }: SettingsLayoutProps) {
@@ -32,7 +33,7 @@ export default function SettingsLayout({ activePage, onNavigate, children }: Set
             className={`settings-tab ${activePage === page ? "active" : ""}`}
             onClick={() => onNavigate(page)}
           >
-            <span className="settings-tab-icon" aria-hidden="true">{icon}</span>
+            <SettingsTabIcon icon={icon} className="settings-tab-icon" />
             {t(labelKey)}
           </button>
         ))}

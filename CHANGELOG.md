@@ -34,6 +34,8 @@
 - Task error detail modal includes a **Copy error** button.
 - Source and output paths on the translate page can be cleared with a single click.
 - Alt+1..5 keyboard shortcuts jump to Translate, Logs, Tasks, Settings, and About.
+- Settings tab icons are now SVG instead of emoji for consistent cross-platform
+  rendering and accessibility.
 
 ### Fixed
 
