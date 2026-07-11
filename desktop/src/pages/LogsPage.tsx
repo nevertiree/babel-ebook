@@ -11,23 +11,56 @@ function formatTime(timestamp: number) {
   return new Date(timestamp).toLocaleString();
 }
 
+const LEVELS: Array<LogEntry["kind"] | "all"> = ["all", "info", "chapter", "success", "error"];
+
 export default function LogsPage({ entries, onClear }: LogsPageProps) {
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
+  const [level, setLevel] = useState<LogEntry["kind"] | "all">("all");
+  const [isAtBottom, setIsAtBottom] = useState(true);
+  const [hasNewEntries, setHasNewEntries] = useState(false);
+  const listRef = useRef<HTMLUListElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return entries;
     return entries.filter((e) => {
+      const matchesLevel = level === "all" || e.kind === level;
+      if (!matchesLevel) return false;
+      if (!q) return true;
       const text = `${formatTime(e.timestamp)} ${e.message} ${e.details ?? ""}`.toLowerCase();
       return text.includes(q);
     });
-  }, [entries, query]);
+  }, [entries, query, level]);
+
+  const checkScrollPosition = () => {
+    const list = listRef.current;
+    if (!list) return;
+    const threshold = 24;
+    const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < threshold;
+    setIsAtBottom(atBottom);
+    if (atBottom) setHasNewEntries(false);
+  };
 
   useEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    list.addEventListener("scroll", checkScrollPosition);
+    return () => list.removeEventListener("scroll", checkScrollPosition);
+  }, []);
+
+  useEffect(() => {
+    if (!isAtBottom) {
+      setHasNewEntries(true);
+      return;
+    }
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [filtered]);
+  }, [filtered, isAtBottom]);
+
+  const scrollToBottom = () => {
+    setHasNewEntries(false);
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
 
   const copyToClipboard = async () => {
     const text = entries
@@ -59,6 +92,21 @@ export default function LogsPage({ entries, onClear }: LogsPageProps) {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
+
+        <div className="log-level-filter" role="group" aria-label={t("log_level_filter")}>
+          {LEVELS.map((l) => (
+            <button
+              key={l}
+              type="button"
+              className={level === l ? "active" : ""}
+              onClick={() => setLevel(l)}
+              aria-pressed={level === l}
+            >
+              {t(`log_level_${l}`)}
+            </button>
+          ))}
+        </div>
+
         <div className="log-actions">
           <button type="button" onClick={copyToClipboard} disabled={entries.length === 0}>
             {t("copy_log")}
@@ -69,10 +117,16 @@ export default function LogsPage({ entries, onClear }: LogsPageProps) {
         </div>
       </div>
 
+      {hasNewEntries && (
+        <button type="button" className="new-entries-toast" onClick={scrollToBottom}>
+          {t("new_log_entries")}
+        </button>
+      )}
+
       {filtered.length === 0 ? (
         <p className="hint">{entries.length === 0 ? t("waiting") : t("no_search_results")}</p>
       ) : (
-        <ul className="log-list">
+        <ul className="log-list" ref={listRef}>
           {filtered.map((entry) => (
             <li key={entry.id} className={`log-entry ${entry.kind}`}>
               <span className="log-timestamp">{formatTime(entry.timestamp)}</span>

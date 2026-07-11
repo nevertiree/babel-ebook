@@ -5,7 +5,7 @@ repos:
       - id: trailing-whitespace
         exclude: '^(desktop/pnpm-lock\.yaml|Cargo\.lock)$'
       - id: end-of-file-fixer
-        exclude: '^(desktop/pnpm-lock\.yaml|Cargo\.lock)$'
+        exclude: '^(desktop/pnpm-lock\.yaml|Cargo\.lock|.*\.epub)$'
       - id: check-yaml
       - id: check-json
         exclude: 'tsconfig.*\.json$'

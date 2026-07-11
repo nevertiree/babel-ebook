@@ -1,8 +1,73 @@
 # Changelog
 
+## [0.4.0] - 2026-07-11
+
+### Changed
+
+- Removed the prominent red validation banner and inline error messages from the
+  translate page; required-field validation is now communicated only by disabling
+  the Start/Dry-run buttons, keeping the form clean until the user is ready to act.
+
 ## [0.3.3] - 2026-07-11
 
-- Release version 0.3.3.
+### Added
+
+- Desktop translate page now shows a configuration summary card and an **Estimate**
+  (dry run) button next to Start Translation.
+- Task queue supports multi-select, batch retry/cancel/remove, and up/down reordering
+  for pending tasks.
+- Logs page adds log-level filtering and pauses auto-scroll when the user scrolls up,
+  with a "new logs" indicator and a jump-to-bottom control.
+- Confirmation dialogs for destructive actions: removing tasks/providers and resetting
+  custom prompts.
+- `Ctrl+Enter` keyboard shortcut to start translation from the translate page.
+
+### Changed
+
+- Settings navigation is now grouped under a single **Settings** sidebar entry with
+  tabbed sub-pages (Providers, Model, Translation, Output, Prompts, General).
+- Provider cards were redesigned with clearer information hierarchy, accessible
+  tooltips, and SVG show/hide icons for API keys.
+- Numeric model parameters now validate ranges immediately and show min/max errors.
+- "Compute" settings were relabeled to **Providers** and the prompt reset button now
+  reads **Reset to defaults** in all locales.
+- The translate page keeps the running/completed task visible in the progress panel
+  instead of switching pages after start.
+- License page renders the MIT text as readable paragraphs instead of a `<pre>` block.
+- Source file picker shows a warning when a non-EPUB file is selected.
+- Source file card now supports drag-and-drop highlighting and opens the file picker
+  on drop for a smoother import flow.
+- Empty states use consistent SVG icons instead of emoji for better cross-platform
+  rendering and accessibility.
+- Task error detail modal includes a **Copy error** button.
+- Source and output paths on the translate page can be cleared with a single click.
+- Alt+1..5 keyboard shortcuts jump to Translate, Logs, Tasks, Settings, and About.
+- Settings tab icons are now SVG instead of emoji for consistent cross-platform
+  rendering and accessibility.
+- Provider cards and the translate-page provider selector show a type-specific SVG
+  icon for each configured LLM provider.
+- Task error detail modal can be closed with the Esc key.
+- Sidebar navigation is split: Translate/Tasks/Logs stay at the top, while Settings
+  and About are pushed to the bottom.
+- Sidebar nav items now have SVG icons and "Task Queue" is renamed to "Tasks" in
+  all locales.
+- Sidebar width is now resizable via drag (140px–320px) and starts at a narrower
+  180px default.
+- Settings page header now places the "Settings" title and the horizontal sub-page
+  tabs on the same line, saving vertical space.
+- Settings sub-page tabs are forced into a single horizontal row with horizontal
+  scrolling when needed, instead of wrapping vertically. (Root cause: the global
+  `nav { flex-direction: column }` rule for the sidebar was also applying to the
+  settings tab nav; now explicitly overridden.)
+
+### Fixed
+
+- Validation errors (missing source/output/API key) are now shown prominently on the
+  translate page with direct links to the relevant settings.
+- Running panel displays correct status labels (Running/Completed/Failed) and uses
+  appropriate success/error colors.
+- Unused CSS classes, the orphaned `LogPanel` component, and stale i18n keys were
+  removed.
 
 ## [0.3.2] - 2026-07-11
 

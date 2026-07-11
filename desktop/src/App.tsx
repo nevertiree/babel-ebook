@@ -4,7 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import "./App.css";
-import type { FormState, LogEntry, Page, ProgressState, ProviderConfig, QueueState, Task, ValidationResult } from "./types";
+import type { FormState, LogEntry, Page, ProviderConfig, QueueState, Task, ValidationResult } from "./types";
 import { defaults } from "./types";
 import TranslatePage from "./pages/TranslatePage";
 import ComputeSettingsPage from "./pages/ComputeSettingsPage";
@@ -17,6 +17,10 @@ import AboutPage from "./pages/AboutPage";
 import LegalPage from "./pages/LegalPage";
 import LogsPage from "./pages/LogsPage";
 import TasksPage from "./pages/TasksPage";
+import SettingsLayout from "./pages/SettingsLayout";
+import ToastContainer from "./components/ToastContainer";
+import type { Toast } from "./components/ToastContainer";
+import NavIcon from "./components/NavIcon";
 import {
   loadGeneralSettings,
   loadSettings,
@@ -43,15 +47,6 @@ type ProgressPayload =
   | { ChunkFinished: { index: number; href: string; chunk_index: number; chunk_total: number } }
   | { Failed: { index: number; href: string; error: string } }
   | "Completed";
-
-const settingsPages: { page: Page; labelKey: string }[] = [
-  { page: "settings-compute", labelKey: "settings_compute" },
-  { page: "settings-model", labelKey: "settings_model" },
-  { page: "settings-translation", labelKey: "settings_translation" },
-  { page: "settings-prompts", labelKey: "settings_prompts" },
-  { page: "settings-output", labelKey: "settings_output" },
-  { page: "settings-general", labelKey: "settings_general" },
-];
 
 function generateId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -238,17 +233,103 @@ function App() {
   }));
   const [page, setPage] = useState<Page>("translate");
   const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [toasts, setToasts] = useState<Toast[]>([]);
 
-  const [progress, setProgress] = useState<ProgressState>({
-    percent: 0,
-    message: "",
-  });
   const [general, setGeneral] = useState<GeneralSettings>(DEFAULT_GENERAL);
   const [detectedLocale, setDetectedLocale] = useState<string>("en");
   const [queue, setQueue] = useState<QueueState>({
     tasks: [],
     running: false,
   });
+
+  const [lastTaskId, setLastTaskId] = useState<string | undefined>();
+
+  const [sidebarWidth, setSidebarWidth] = useState(180);
+  const isResizing = useRef(false);
+  const startX = useRef(0);
+  const startWidth = useRef(0);
+
+  const beginResize = (e: React.MouseEvent) => {
+    isResizing.current = true;
+    startX.current = e.clientX;
+    startWidth.current = sidebarWidth;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing.current) return;
+      const delta = e.clientX - startX.current;
+      const next = Math.max(140, Math.min(320, startWidth.current + delta));
+      setSidebarWidth(next);
+    };
+    const handleMouseUp = () => {
+      if (!isResizing.current) return;
+      isResizing.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [sidebarWidth]);
+
+  useEffect(() => {
+    if (queue.current_task_id) {
+      setLastTaskId(queue.current_task_id);
+    }
+  }, [queue.current_task_id]);
+
+  const currentTask = useMemo(() => {
+    if (queue.current_task_id) {
+      return queue.tasks.find((t) => t.id === queue.current_task_id);
+    }
+    if (lastTaskId) {
+      return queue.tasks.find((t) => t.id === lastTaskId);
+    }
+    return undefined;
+  }, [queue, lastTaskId]);
+
+  const runningTaskCount = useMemo(
+    () => queue.tasks.filter((t) => t.status === "running").length,
+    [queue]
+  );
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      switch (e.key) {
+        case "1":
+          e.preventDefault();
+          setPage("translate");
+          break;
+        case "2":
+          e.preventDefault();
+          setPage("logs");
+          break;
+        case "3":
+          e.preventDefault();
+          setPage("tasks");
+          break;
+        case "4":
+          e.preventDefault();
+          setPage("settings-compute");
+          break;
+        case "5":
+          e.preventDefault();
+          setPage("about");
+          break;
+        default:
+          break;
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
 
   const completedRef = useRef(0);
   const totalRef = useRef(0);
@@ -434,7 +515,9 @@ function App() {
             if (t.id !== task_id) return t;
             return applyProgressToTask(t, progressEvent);
           });
-          return { ...prev, tasks };
+          // Ensure the running task is surfaced even if queue_state_changed is delayed.
+          const current_task_id = prev.current_task_id ?? task_id;
+          return { ...prev, tasks, current_task_id };
         });
       }
     );
@@ -511,16 +594,19 @@ function App() {
           ];
         }
         if (typeof payload === "object" && "ChapterFinished" in payload) {
+          const message = t("log_chapter_finished", {
+            href: payload.ChapterFinished.href,
+            current: completedRef.current,
+            total: totalRef.current,
+          });
+          completedRef.current += 1;
+          delete chapterProgressRef.current[payload.ChapterFinished.index];
           return [
             ...prev,
             {
               id: generateId(), timestamp: Date.now(),
               kind: "chapter",
-              message: t("log_chapter_finished", {
-                href: payload.ChapterFinished.href,
-                current: completedRef.current,
-                total: totalRef.current,
-              }),
+              message,
             },
           ];
         }
@@ -576,72 +662,6 @@ function App() {
         }
         return prev;
       });
-
-      setProgress((prev) => {
-        if (typeof payload === "string" && payload === "Completed") {
-          return { percent: 100, message: t("completed") };
-        }
-        if (typeof payload === "object" && "Started" in payload) {
-          totalRef.current = payload.Started.total;
-          completedRef.current = 0;
-          chapterProgressRef.current = {};
-          return { percent: 0, message: t("started") };
-        }
-        if (typeof payload === "object" && "ChapterStarted" in payload) {
-          return {
-            ...prev,
-            message: `${t("started")}: ${payload.ChapterStarted.href}`,
-          };
-        }
-        if (typeof payload === "object" && "ChapterFinished" in payload) {
-          completedRef.current += 1;
-          delete chapterProgressRef.current[payload.ChapterFinished.index];
-          const percent = computeChunkProgressPercent(
-            totalRef.current,
-            completedRef.current,
-            chapterProgressRef.current
-          );
-          return {
-            percent,
-            message: `${t("completed")}: ${payload.ChapterFinished.href}`,
-          };
-        }
-        if (typeof payload === "object" && "ChunkStarted" in payload) {
-          chapterProgressRef.current[payload.ChunkStarted.index] = {
-            chunk_total: payload.ChunkStarted.chunk_total,
-            chunks_done: payload.ChunkStarted.chunk_index,
-          };
-          return {
-            ...prev,
-            percent: computeChunkProgressPercent(
-              totalRef.current,
-              completedRef.current,
-              chapterProgressRef.current
-            ),
-          };
-        }
-        if (typeof payload === "object" && "ChunkFinished" in payload) {
-          chapterProgressRef.current[payload.ChunkFinished.index] = {
-            chunk_total: payload.ChunkFinished.chunk_total,
-            chunks_done: payload.ChunkFinished.chunk_index + 1,
-          };
-          return {
-            ...prev,
-            percent: computeChunkProgressPercent(
-              totalRef.current,
-              completedRef.current,
-              chapterProgressRef.current
-            ),
-          };
-        }
-        if (typeof payload === "object" && "Failed" in payload) {
-          return {
-            ...prev,
-            message: `${t("error")}: ${payload.Failed.error}`,
-          };
-        }
-        return prev;
-      });
     });
     return () => {
       void unlisten.then((f) => f());
@@ -669,7 +689,23 @@ function App() {
       const args = buildTranslateArgs(form);
       await invoke("enqueue_task", { args });
       await invoke("start_queue");
-      setPage("tasks");
+      await refreshQueue();
+    } catch (err) {
+      const message = `${t("error")}: ${err}`;
+      setLogs((prev) => [
+        ...prev,
+        { id: generateId(), timestamp: Date.now(), kind: "error", message },
+      ]);
+    }
+  }
+
+  async function handleDryRun() {
+    if (!validation.valid) return;
+    try {
+      const args = { ...buildTranslateArgs(form), dry_run: true };
+      await invoke("enqueue_task", { args });
+      await invoke("start_queue");
+      await refreshQueue();
     } catch (err) {
       const message = `${t("error")}: ${err}`;
       setLogs((prev) => [
@@ -705,6 +741,15 @@ function App() {
 
   const clearLogs = () => setLogs([]);
 
+  const showToast = (message: string, kind: Toast["kind"] = "info") => {
+    const id = generateId();
+    setToasts((prev) => [...prev, { id, message, kind }]);
+  };
+
+  const dismissToast = (id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  };
+
   const refreshQueue = async () => {
     const state = await invoke<QueueState>("get_queue_state").catch(() => ({
       tasks: [],
@@ -713,23 +758,23 @@ function App() {
     setQueue(state);
   };
 
-  const enqueueTask = async (args: object) => {
-    await invoke("enqueue_task", { args });
+  const removeTask = async (ids: string[]) => {
+    await Promise.all(ids.map((id) => invoke("remove_task", { id })));
     await refreshQueue();
   };
 
-  const removeTask = async (id: string) => {
-    await invoke("remove_task", { id });
+  const retryTask = async (ids: string[]) => {
+    await Promise.all(ids.map((id) => invoke("retry_task", { id })));
     await refreshQueue();
   };
 
-  const retryTask = async (id: string) => {
-    await invoke("retry_task", { id });
+  const cancelTask = async (ids: string[]) => {
+    await Promise.all(ids.map((id) => invoke("cancel_task", { id })));
     await refreshQueue();
   };
 
-  const cancelTask = async (id: string) => {
-    await invoke("cancel_task", { id });
+  const reorderTasks = async (ids: string[]) => {
+    await invoke("reorder_tasks", { ids });
     await refreshQueue();
   };
 
@@ -748,9 +793,6 @@ function App() {
     await refreshQueue();
   };
 
-  // enqueueTask is reserved for the upcoming task-creation flow.
-  void enqueueTask;
-
   const renderPage = () => {
     switch (page) {
       case "translate":
@@ -759,7 +801,8 @@ function App() {
             form={form}
             setForm={updateForm}
             onStart={handleStart}
-            progress={progress}
+            onDryRun={handleDryRun}
+            currentTask={currentTask}
             validation={validation}
             onPageChange={setPage}
             logs={logs}
@@ -778,49 +821,56 @@ function App() {
             onPauseTask={pauseTask}
             onStart={startQueue}
             onPause={pauseQueue}
+            onReorder={reorderTasks}
+            onNavigate={setPage}
           />
         );
       case "settings-compute":
-        return (
-          <ComputeSettingsPage
-            providers={form.providers}
-            activeProvider={form.active_provider}
-            onChangeProviders={updateProviders}
-            onChangeActiveProvider={(provider) => updateForm("active_provider", provider)}
-          />
-        );
       case "settings-model":
-        return <ModelParamsPage form={form} setForm={updateForm} />;
       case "settings-translation":
-        return <TranslationSettingsPage form={form} setForm={updateForm} />;
       case "settings-prompts":
-        return <PromptsPage form={form} setForm={updateForm} />;
       case "settings-output":
-        return <OutputSettingsPage form={form} setForm={updateForm} />;
       case "settings-general":
         return (
-          <GeneralSettingsPage
-            general={general}
-            setGeneral={setGeneral}
-            detectedLocale={detectedLocale}
-            onImport={async (settings) => {
-              const merged = { ...form, ...settings.translation } as FormState;
-              if (
-                !merged.active_provider ||
-                !merged.providers.some((p) => p.name === merged.active_provider)
-              ) {
-                merged.active_provider = merged.providers[0]?.name ?? "";
-              }
-              const general = {
-                ...settings.general,
-                theme: normalizeTheme(settings.general.theme),
-              };
-              setForm(merged);
-              setGeneral(general);
-              await saveSettings(merged);
-              await saveGeneralSettings(general);
-            }}
-          />
+          <SettingsLayout activePage={page} onNavigate={setPage}>
+            {page === "settings-compute" && (
+              <ComputeSettingsPage
+                providers={form.providers}
+                activeProvider={form.active_provider}
+                onChangeProviders={updateProviders}
+                onChangeActiveProvider={(provider) => updateForm("active_provider", provider)}
+              />
+            )}
+            {page === "settings-model" && <ModelParamsPage form={form} setForm={updateForm} />}
+            {page === "settings-translation" && <TranslationSettingsPage form={form} setForm={updateForm} />}
+            {page === "settings-prompts" && <PromptsPage form={form} setForm={updateForm} />}
+            {page === "settings-output" && <OutputSettingsPage form={form} setForm={updateForm} />}
+            {page === "settings-general" && (
+              <GeneralSettingsPage
+                general={general}
+                setGeneral={setGeneral}
+                detectedLocale={detectedLocale}
+                onToast={showToast}
+                onImport={async (settings) => {
+                  const merged = { ...form, ...settings.translation } as FormState;
+                  if (
+                    !merged.active_provider ||
+                    !merged.providers.some((p) => p.name === merged.active_provider)
+                  ) {
+                    merged.active_provider = merged.providers[0]?.name ?? "";
+                  }
+                  const general = {
+                    ...settings.general,
+                    theme: normalizeTheme(settings.general.theme),
+                  };
+                  setForm(merged);
+                  setGeneral(general);
+                  await saveSettings(merged);
+                  await saveGeneralSettings(general);
+                }}
+              />
+            )}
+          </SettingsLayout>
         );
       case "about":
         return <AboutPage onOpenLegal={() => setPage("legal")} />;
@@ -833,64 +883,83 @@ function App() {
 
   return (
     <div className="app-shell" data-theme={general.theme}>
-      <aside className="sidebar">
+      <aside
+        className="sidebar"
+        style={{ width: sidebarWidth, minWidth: sidebarWidth }}
+      >
         <div className="brand">
           <h1>{t("app_title")}</h1>
         </div>
 
         <nav>
-          <button
-            type="button"
-            className={`nav-item ${page === "translate" ? "active" : ""}`}
-            onClick={() => setPage("translate")}
-            data-testid="nav-translate"
-          >
-            {t("nav_translate")}
-          </button>
+          <div className="nav-group-top">
+            <button
+              type="button"
+              className={`nav-item ${page === "translate" ? "active" : ""}`}
+              onClick={() => setPage("translate")}
+              data-testid="nav-translate"
+            >
+              <NavIcon icon="translate" className="nav-item-icon" />
+              <span className="nav-item-label">{t("nav_translate")}</span>
+            </button>
 
-          <button
-            type="button"
-            className={`nav-item ${page === "logs" ? "active" : ""}`}
-            onClick={() => setPage("logs")}
-            data-testid="nav-logs"
-          >
-            {t("nav_logs")}
-          </button>
+            <button
+              type="button"
+              className={`nav-item ${page === "tasks" ? "active" : ""}`}
+              onClick={() => setPage("tasks")}
+              data-testid="nav-tasks"
+            >
+              <NavIcon icon="tasks" className="nav-item-icon" />
+              <span className="nav-item-label">{t("nav_tasks")}</span>
+              {runningTaskCount > 0 && (
+                <span className="nav-badge" aria-label={t("task_status_running")}>
+                  {runningTaskCount}
+                </span>
+              )}
+            </button>
 
-          <button
-            type="button"
-            className={`nav-item ${page === "tasks" ? "active" : ""}`}
-            onClick={() => setPage("tasks")}
-            data-testid="nav-tasks"
-          >
-            {t("nav_tasks")}
-          </button>
-
-          <div className="nav-group">
-            <span className="nav-group-label">{t("nav_settings")}</span>
-            {settingsPages.map(({ page: p, labelKey }) => (
-              <button
-                key={p}
-                type="button"
-                className={`nav-item ${page === p ? "active" : ""}`}
-                onClick={() => setPage(p)}
-              >
-                {t(labelKey)}
-              </button>
-            ))}
+            <button
+              type="button"
+              className={`nav-item ${page === "logs" ? "active" : ""}`}
+              onClick={() => setPage("logs")}
+              data-testid="nav-logs"
+            >
+              <NavIcon icon="logs" className="nav-item-icon" />
+              <span className="nav-item-label">{t("nav_logs")}</span>
+            </button>
           </div>
 
-          <button
-            type="button"
-            className={`nav-item ${page === "about" ? "active" : ""}`}
-            onClick={() => setPage("about")}
-          >
-            {t("nav_about")}
-          </button>
+          <div className="nav-group-bottom">
+            <button
+              type="button"
+              className={`nav-item ${page.startsWith("settings-") ? "active" : ""}`}
+              onClick={() => setPage("settings-compute")}
+              data-testid="nav-settings"
+            >
+              <NavIcon icon="settings" className="nav-item-icon" />
+              <span className="nav-item-label">{t("nav_settings")}</span>
+            </button>
+
+            <button
+              type="button"
+              className={`nav-item ${page === "about" ? "active" : ""}`}
+              onClick={() => setPage("about")}
+            >
+              <NavIcon icon="about" className="nav-item-icon" />
+              <span className="nav-item-label">{t("nav_about")}</span>
+            </button>
+          </div>
         </nav>
+
+        <div
+          className="sidebar-resizer"
+          onMouseDown={beginResize}
+          title="Drag to resize sidebar"
+        />
       </aside>
 
       <main className="main-content">{renderPage()}</main>
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 }
