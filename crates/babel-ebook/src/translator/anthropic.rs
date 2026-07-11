@@ -88,10 +88,9 @@ impl Translator for AnthropicTranslator {
             )));
         }
 
-        let json: serde_json::Value = response
-            .json()
-            .await
-            .map_err(|e| BabelEbookError::ApiError(format!("failed to parse Anthropic models: {e}")))?;
+        let json: serde_json::Value = response.json().await.map_err(|e| {
+            BabelEbookError::ApiError(format!("failed to parse Anthropic models: {e}"))
+        })?;
 
         let models = json["data"]
             .as_array()

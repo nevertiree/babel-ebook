@@ -154,10 +154,9 @@ impl Translator for DeepSeekTranslator {
             )));
         }
 
-        let json: serde_json::Value = response
-            .json()
-            .await
-            .map_err(|e| BabelEbookError::ApiError(format!("failed to parse DeepSeek models: {e}")))?;
+        let json: serde_json::Value = response.json().await.map_err(|e| {
+            BabelEbookError::ApiError(format!("failed to parse DeepSeek models: {e}"))
+        })?;
 
         let models = json["data"]
             .as_array()
