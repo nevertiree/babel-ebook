@@ -551,6 +551,22 @@ button:disabled {
   font-size: 0.75rem;
 }
 
+.running-panel.status-completed .progress-fill {
+  background: var(--success);
+}
+
+.running-panel.status-failed .progress-fill {
+  background: var(--error);
+}
+
+.running-panel.status-completed .progress-status {
+  color: var(--success);
+}
+
+.running-panel.status-failed .progress-status {
+  color: var(--error);
+}
+
 .log {
   background: var(--elevated);
   padding: 1rem 1.25rem;

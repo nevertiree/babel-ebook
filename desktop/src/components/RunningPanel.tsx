@@ -18,6 +18,7 @@ export default function RunningPanel({
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(true);
 
+  const status = currentTask?.status ?? (currentTask === undefined ? "waiting" : "running");
   const percent = currentTask?.progress_percent ?? progress?.percent ?? 0;
   const message =
     currentTask?.status === "completed"
@@ -27,6 +28,15 @@ export default function RunningPanel({
       : currentTask?.message || progress?.message || t("waiting");
   const isRunning = currentTask?.status === "running";
   const hasContent = currentTask !== undefined || logs.length > 0;
+
+  const statusLabel =
+    currentTask?.status === "completed"
+      ? t("task_status_completed")
+      : currentTask?.status === "failed"
+      ? t("task_status_failed")
+      : currentTask?.status === "running"
+      ? t("task_status_running")
+      : t("waiting");
 
   const copyToClipboard = async () => {
     const text = logs
@@ -44,7 +54,11 @@ export default function RunningPanel({
   };
 
   return (
-    <section className="running-panel" data-testid="running-panel">
+    <section
+      className={`running-panel status-${status}`}
+      data-testid="running-panel"
+      data-status={status}
+    >
       <button
         type="button"
         className="running-panel-header"
@@ -65,7 +79,7 @@ export default function RunningPanel({
         <div className="running-panel-body">
           <div className="running-panel-progress">
             <div className="progress-header">
-              <span>{isRunning ? t("task_status_running") : t("waiting")}</span>
+              <span className="progress-status">{statusLabel}</span>
               <span>{percent}%</span>
             </div>
             <div className="progress-bar">
