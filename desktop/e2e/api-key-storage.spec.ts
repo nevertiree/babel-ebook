@@ -70,15 +70,12 @@ function seedSettingsWithPlaintextKey() {
   writeFileSync(SETTINGS_PATH, JSON.stringify(payload, null, 2));
 }
 
-function settingsHasNoApiKeys(): boolean {
+function getProviderApiKey(name: string): string | undefined {
   const text = readFileSync(SETTINGS_PATH, "utf-8");
   const parsed = JSON.parse(text) as {
-    translation?: { providers?: Array<{ api_key?: string }> };
+    translation?: { providers?: Array<{ name?: string; api_key?: string }> };
   };
-  if (!parsed.translation?.providers) return true;
-  return parsed.translation.providers.every(
-    (p) => p.api_key === undefined || p.api_key === ""
-  );
+  return parsed.translation?.providers?.find((p) => p.name === name)?.api_key;
 }
 
 test.beforeAll(async () => {
@@ -114,7 +111,7 @@ test.afterAll(async () => {
   await forceKill(appProcess);
 });
 
-test("migrates plaintext API keys to keyring and never writes them back to settings.json", async () => {
+test("keeps API keys in plaintext settings.json and reloads them on restart", async () => {
   test.setTimeout(60000);
   const browser = await chromium.connectOverCDP(cdpUrl);
   const context = browser.contexts()[0];
@@ -123,10 +120,9 @@ test("migrates plaintext API keys to keyring and never writes them back to setti
     console.log(`[browser console] ${msg.type()}: ${msg.text()}`);
   });
 
-  // The app loads settings on mount and should have already migrated the
-  // plaintext key into the OS keyring.
+  // The seeded plaintext key should be preserved on load.
   await expect(page.getByTestId("nav-translate")).toBeVisible({ timeout: 10000 });
-  expect(settingsHasNoApiKeys()).toBe(true);
+  expect(getProviderApiKey("deepseek")).toBe("sk-plaintext-secret");
 
   // Open the Compute settings page and enter a new API key.
   await page.getByRole("button", { name: "Compute" }).click();
@@ -137,8 +133,8 @@ test("migrates plaintext API keys to keyring and never writes them back to setti
   // Wait for the debounced autosave (500 ms) to finish.
   await page.waitForTimeout(1000);
 
-  // settings.json must still not contain the API key in plaintext.
-  expect(settingsHasNoApiKeys()).toBe(true);
+  // settings.json should now contain the updated API key in plaintext.
+  expect(getProviderApiKey("deepseek")).toBe("sk-ui-secret-key");
 
   await browser.close();
 });

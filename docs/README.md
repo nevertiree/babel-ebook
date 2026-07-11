@@ -158,8 +158,8 @@ A：在主界面或 CLI 中使用 **Dry Run（仅估算）** 模式，
 可以只统计 token 数量而不实际调用 API。
 
 **Q：我的 API Key 安全吗？**
-A：安全。API Key 默认存储在 Windows 的凭据管理器（Credential Manager）中，
-不会以明文保存在配置文件里。
+A：API Key 保存在桌面端的 `settings.json` 配置文件中（路径：`Documents/BabelEbook/settings.json`）。
+该文件不会上传，但请妥善保管，不要分享给他人或提交到版本控制。
 
 ---
 
@@ -213,7 +213,6 @@ pnpm tauri dev
 │   │   │   ├── args.rs      # frontend argument types
 │   │   │   ├── commands.rs  # Tauri commands
 │   │   │   ├── config.rs    # Config builder
-│   │   │   ├── keyring.rs   # credential store helpers
 │   │   │   └── lib.rs       # app entry point
 │   ├── e2e/                # Playwright GUI tests
 │   ├── scripts/            # build & release helpers
@@ -372,7 +371,7 @@ cargo run --release -p babel-ebook-cli -- input.epub -o output.epub --config con
 ## 安全
 
 - **不要提交 API 密钥**：
-  - 使用环境变量、操作系统 keyring 或被 `.gitignore` 忽略的本地配置文件。
+  - 桌面端将 API Key 保存在本地 `settings.json` 中，请确保该文件不被上传或共享。
   - 不要把 API Key 写入代码或提交到 Git。
 - 发现安全漏洞请通过 [.github/SECURITY.md](./.github/SECURITY.md) 中的方式私下报告。
 

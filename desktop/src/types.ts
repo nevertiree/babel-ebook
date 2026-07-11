@@ -30,9 +30,8 @@ export interface QueueState {
 /**
  * A single provider/API configuration.
  *
- * API keys are stored in the OS credential store (keyring / Credential Manager)
- * and are never written to `settings.json`. The `api_key` field here lives only
- * in memory while the app is running.
+ * API keys are stored alongside the provider configuration in `settings.json`.
+ * Keep the settings file private and do not share it.
  */
 export interface ProviderConfig {
   name: string;

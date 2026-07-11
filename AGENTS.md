@@ -198,7 +198,7 @@ code is merged directly into `master`.
 
 ## Security & Secrets
 
-- **Never commit API keys.** Use environment variables, keyring, or local config files ignored by `.gitignore`.
+- **Never commit API keys.** The desktop app stores API keys in `Documents/BabelEbook/settings.json`; do not share or commit this file.
 - `test_config.json` and `.env` are already ignored.
 - The E2E script accepts `BABEL_EBOOK_E2E_API_KEY` from the environment only.
 
@@ -210,4 +210,4 @@ code is merged directly into `master`.
   processes are still running. Kill them first.
 - WebView2 CDP port `9222` may already be occupied by a system `msedgewebview2.exe`;
   use a different port or kill the existing process.
-- The desktop app stores settings via Tauri Store and the OS keyring; clean these if tests behave unexpectedly.
+- The desktop app stores settings (including API keys) in `Documents/BabelEbook/settings.json`; delete or edit this file if tests behave unexpectedly.

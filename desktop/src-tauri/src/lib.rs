@@ -13,7 +13,6 @@
 mod args;
 mod commands;
 mod config;
-mod keyring;
 mod queue;
 mod task;
 
@@ -85,9 +84,6 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::translate_epub,
             commands::get_system_locale,
-            keyring::store_api_key,
-            keyring::load_api_key,
-            keyring::delete_api_key,
             commands::check_file_exists,
             commands::suggest_output_path,
             commands::test_connection,

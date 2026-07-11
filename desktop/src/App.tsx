@@ -318,13 +318,23 @@ function App() {
 
         // Apply UI language after settings are loaded so we use the persisted
         // preference rather than the hard-coded default. When following the
-        // system language, resolve the system locale first.
+        // system language, resolve the system locale first and mirror it into
+        // ui_language so the settings page stays in sync.
+        let resolvedLanguage = generalSettings.ui_language;
         if (e2e.ui_language) {
-          await i18n.changeLanguage(e2e.ui_language);
+          resolvedLanguage = e2e.ui_language;
+          await i18n.changeLanguage(resolvedLanguage);
         } else if (generalSettings.follow_system_language) {
-          const locale = await invoke<string>("get_system_locale");
-          setDetectedLocale(locale);
-          await i18n.changeLanguage(locale);
+          try {
+            const locale = await invoke<string>("get_system_locale");
+            resolvedLanguage = locale;
+            setDetectedLocale(locale);
+            setGeneral({ ...generalSettings, ui_language: locale });
+            await i18n.changeLanguage(locale);
+          } catch (err) {
+            console.error("[locale] failed to detect system language:", err);
+            await i18n.changeLanguage(generalSettings.ui_language);
+          }
         } else {
           await i18n.changeLanguage(generalSettings.ui_language);
         }
@@ -336,8 +346,7 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Save settings when form changes (debounced). API keys are persisted to the
-  // OS keyring inside saveSettings.
+  // Save settings when form changes (debounced).
   useEffect(() => {
     const timer = setTimeout(() => {
       void saveSettings(form);
@@ -393,7 +402,8 @@ function App() {
   }, [general.theme]);
 
   // Keep the UI language in sync with general settings. When following the
-  // system language, re-resolve the locale whenever the toggle is turned on.
+  // system language, re-resolve the locale whenever the toggle is turned on
+  // and mirror it into ui_language so the settings page stays in sync.
   // Skip the initial mount because the settings-loading effect above already
   // applied the persisted (or E2E-injected) language.
   useEffect(() => {
@@ -402,6 +412,7 @@ function App() {
       void invoke<string>("get_system_locale")
         .then((locale) => {
           setDetectedLocale(locale);
+          setGeneral((prev) => ({ ...prev, ui_language: locale }));
           return i18n.changeLanguage(locale);
         })
         .catch((err) => {
