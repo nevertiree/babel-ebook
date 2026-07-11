@@ -6,6 +6,7 @@ interface TasksPageProps {
   onRemove: (id: string) => Promise<void>;
   onRetry: (id: string) => Promise<void>;
   onCancel: (id: string) => Promise<void>;
+  onPauseTask: (id: string) => Promise<void>;
   onStart: () => Promise<void>;
   onPause: () => Promise<void>;
 }
@@ -20,6 +21,7 @@ export default function TasksPage({
   onRemove,
   onRetry,
   onCancel,
+  onPauseTask,
   onStart,
   onPause,
 }: TasksPageProps) {
@@ -71,12 +73,17 @@ export default function TasksPage({
               </div>
 
               <div className="task-actions">
+                {task.status === "running" && (
+                  <button type="button" onClick={() => void onPauseTask(task.id)} data-testid="pause-task">
+                    {t("pause")}
+                  </button>
+                )}
                 {(task.status === "pending" || task.status === "running") && (
                   <button type="button" onClick={() => void onCancel(task.id)} data-testid="cancel-task">
                     {t("cancel")}
                   </button>
                 )}
-                {(task.status === "failed" || task.status === "cancelled") && (
+                {(task.status === "failed" || task.status === "cancelled" || task.status === "paused") && (
                   <button type="button" onClick={() => void onRetry(task.id)} data-testid="retry-task">
                     {t("retry")}
                   </button>

@@ -13,6 +13,9 @@ pub enum TaskStatus {
     Completed,
     Failed,
     Cancelled,
+    /// Paused by the user. The task was running and has been cancelled; it can
+    /// be resumed from the last checkpoint.
+    Paused,
 }
 
 /// A single queued translation job.
@@ -23,6 +26,11 @@ pub struct Task {
     pub output_path: String,
     pub status: TaskStatus,
     pub progress_percent: u32,
+    /// Total number of translatable chapters, populated when the task starts.
+    pub chapter_total: Option<u32>,
+    /// Number of chapters that have already finished, used to resume progress
+    /// after a queue state refresh.
+    pub chapters_completed: Option<u32>,
     pub message: String,
     pub error: Option<String>,
     #[serde(skip)]
@@ -44,6 +52,8 @@ impl Task {
             output_path: args.output.clone(),
             status: TaskStatus::Pending,
             progress_percent: 0,
+            chapter_total: None,
+            chapters_completed: None,
             message: String::new(),
             error: None,
             args,

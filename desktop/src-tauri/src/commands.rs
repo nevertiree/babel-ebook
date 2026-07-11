@@ -1,5 +1,10 @@
 //! Tauri commands exposed to the desktop frontend.
 
+// Tauri command signatures are driven by the framework: arguments are passed by
+// value and commands return `Result` so serialization errors are handled.
+#![allow(clippy::needless_pass_by_value)]
+#![allow(clippy::unnecessary_wraps)]
+
 use babel_ebook::{
     read_input_book, run_dry_run, translatable_chapters,
     translate_epub_with_cancellation as translate_epub_core, translator::get_translator,
@@ -383,65 +388,72 @@ pub fn get_app_version() -> String {
 /// Add a book to the translation queue using the current form arguments.
 #[allow(dead_code)]
 #[tauri::command]
-pub async fn enqueue_task(
+pub fn enqueue_task(
     args: TranslateArgs,
     queue: tauri::State<'_, QueueManager>,
 ) -> Result<Task, String> {
-    Ok(queue.enqueue(args).await)
+    Ok(queue.enqueue(args))
 }
 
 /// Remove a pending or finished task from the queue.
 #[allow(dead_code)]
 #[tauri::command]
-pub async fn remove_task(id: String, queue: tauri::State<'_, QueueManager>) -> Result<(), String> {
-    queue.remove(&id).await
+pub fn remove_task(id: String, queue: tauri::State<'_, QueueManager>) -> Result<(), String> {
+    queue.remove(&id)
 }
 
 /// Reorder pending tasks to match the provided list of ids.
 #[allow(dead_code)]
 #[tauri::command]
-pub async fn reorder_tasks(
+pub fn reorder_tasks(
     ids: Vec<String>,
     queue: tauri::State<'_, QueueManager>,
 ) -> Result<(), String> {
-    queue.reorder(ids).await
+    queue.reorder(&ids)
 }
 
 /// Cancel a pending task.
 #[allow(dead_code)]
 #[tauri::command]
-pub async fn cancel_task(id: String, queue: tauri::State<'_, QueueManager>) -> Result<(), String> {
-    queue.cancel(&id).await
+pub fn cancel_task(id: String, queue: tauri::State<'_, QueueManager>) -> Result<(), String> {
+    queue.cancel(&id)
 }
 
 /// Retry a failed or cancelled task.
 #[allow(dead_code)]
 #[tauri::command]
-pub async fn retry_task(id: String, queue: tauri::State<'_, QueueManager>) -> Result<(), String> {
-    queue.retry(&id).await
+pub fn retry_task(id: String, queue: tauri::State<'_, QueueManager>) -> Result<(), String> {
+    queue.retry(&id)
 }
 
 /// Start processing the queue.
 #[allow(dead_code)]
 #[tauri::command]
-pub async fn start_queue(queue: tauri::State<'_, QueueManager>) -> Result<(), String> {
-    queue.start().await;
+pub fn start_queue(queue: tauri::State<'_, QueueManager>) -> Result<(), String> {
+    queue.start();
     Ok(())
 }
 
 /// Pause after the current task finishes.
 #[allow(dead_code)]
 #[tauri::command]
-pub async fn pause_queue(queue: tauri::State<'_, QueueManager>) -> Result<(), String> {
-    queue.pause().await;
+pub fn pause_queue(queue: tauri::State<'_, QueueManager>) -> Result<(), String> {
+    queue.pause();
     Ok(())
+}
+
+/// Pause the currently running task so it can be resumed later.
+#[allow(dead_code)]
+#[tauri::command]
+pub fn pause_task(id: String, queue: tauri::State<'_, QueueManager>) -> Result<(), String> {
+    queue.pause_task(&id)
 }
 
 /// Return the current queue state.
 #[allow(dead_code)]
 #[tauri::command]
-pub async fn get_queue_state(queue: tauri::State<'_, QueueManager>) -> Result<QueueState, String> {
-    Ok(queue.state().await)
+pub fn get_queue_state(queue: tauri::State<'_, QueueManager>) -> Result<QueueState, String> {
+    Ok(queue.state())
 }
 
 /// List translation checkpoints stored in `checkpoint_dir`.

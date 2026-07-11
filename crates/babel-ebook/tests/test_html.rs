@@ -76,7 +76,7 @@ async fn translate_text_translates_and_caches() {
     let (_dir, cache) = test_cache();
     let config = test_config();
 
-    let result = translate_text("hello world", &FakeTranslator, &config, &cache, "")
+    let result = translate_text("hello world", &FakeTranslator, &config, &cache, 0, "", None)
         .await
         .expect("translation should succeed");
     assert_eq!(result, "[ZH] hello world");
@@ -91,9 +91,17 @@ async fn process_document_translates_headings_and_paragraphs() {
     let config = test_config();
     let html = r#"<html><body><h1>Title</h1><p>Hello world.</p></body></html>"#;
 
-    let out = process_document(html.as_bytes(), &FakeTranslator, &config, &cache, "")
-        .await
-        .expect("processing should succeed");
+    let out = process_document(
+        html.as_bytes(),
+        &FakeTranslator,
+        &config,
+        &cache,
+        0,
+        "",
+        None,
+    )
+    .await
+    .expect("processing should succeed");
     let out_str = String::from_utf8(out).expect("valid UTF-8");
 
     assert!(
@@ -124,9 +132,17 @@ async fn process_document_skips_code_blocks() {
     let config = test_config();
     let html = r#"<html><body><p>Translate me.</p><pre><code>skip me</code></pre></body></html>"#;
 
-    let out = process_document(html.as_bytes(), &FakeTranslator, &config, &cache, "")
-        .await
-        .expect("processing should succeed");
+    let out = process_document(
+        html.as_bytes(),
+        &FakeTranslator,
+        &config,
+        &cache,
+        0,
+        "",
+        None,
+    )
+    .await
+    .expect("processing should succeed");
     let out_str = String::from_utf8(out).expect("valid UTF-8");
 
     assert!(
@@ -146,9 +162,17 @@ async fn process_document_adds_lang_attributes() {
     let config = test_config();
     let html = r#"<html><body><p>Hello.</p></body></html>"#;
 
-    let out = process_document(html.as_bytes(), &FakeTranslator, &config, &cache, "")
-        .await
-        .expect("processing should succeed");
+    let out = process_document(
+        html.as_bytes(),
+        &FakeTranslator,
+        &config,
+        &cache,
+        0,
+        "",
+        None,
+    )
+    .await
+    .expect("processing should succeed");
     let out_str = String::from_utf8(out).expect("valid UTF-8");
 
     assert!(out_str.contains("lang=\"zh-CN\""), "target lang missing");
@@ -162,9 +186,17 @@ async fn process_document_skips_short_text_and_single_cjk_char() {
     // A single CJK character is 3 UTF-8 bytes but only 1 Unicode code point.
     let html = r#"<html><body><p>A</p><p>中</p></body></html>"#;
 
-    let out = process_document(html.as_bytes(), &FakeTranslator, &config, &cache, "")
-        .await
-        .expect("processing should succeed");
+    let out = process_document(
+        html.as_bytes(),
+        &FakeTranslator,
+        &config,
+        &cache,
+        0,
+        "",
+        None,
+    )
+    .await
+    .expect("processing should succeed");
     let out_str = String::from_utf8(out).expect("valid UTF-8");
 
     assert!(
@@ -190,9 +222,17 @@ async fn process_document_skips_nested_translatable_children() {
     // The outer div should be skipped; the inner <p> should be translated.
     let html = r#"<html><body><div><p>Inner paragraph.</p></div></body></html>"#;
 
-    let out = process_document(html.as_bytes(), &FakeTranslator, &config, &cache, "")
-        .await
-        .expect("processing should succeed");
+    let out = process_document(
+        html.as_bytes(),
+        &FakeTranslator,
+        &config,
+        &cache,
+        0,
+        "",
+        None,
+    )
+    .await
+    .expect("processing should succeed");
     let out_str = String::from_utf8(out).expect("valid UTF-8");
 
     assert!(
@@ -218,9 +258,17 @@ async fn process_document_ignores_skipped_descendants_when_checking_children() {
     // The <div> should still be translated because the skipped <p> is ignored.
     let html = r#"<html><body><div><pre><p>code</p></pre></div></body></html>"#;
 
-    let out = process_document(html.as_bytes(), &FakeTranslator, &config, &cache, "")
-        .await
-        .expect("processing should succeed");
+    let out = process_document(
+        html.as_bytes(),
+        &FakeTranslator,
+        &config,
+        &cache,
+        0,
+        "",
+        None,
+    )
+    .await
+    .expect("processing should succeed");
     let out_str = String::from_utf8(out).expect("valid UTF-8");
 
     assert!(
@@ -241,9 +289,17 @@ async fn process_document_handles_list_items() {
     let config = test_config();
     let html = r#"<html><body><ul><li>Item one</li></ul></body></html>"#;
 
-    let out = process_document(html.as_bytes(), &FakeTranslator, &config, &cache, "")
-        .await
-        .expect("processing should succeed");
+    let out = process_document(
+        html.as_bytes(),
+        &FakeTranslator,
+        &config,
+        &cache,
+        0,
+        "",
+        None,
+    )
+    .await
+    .expect("processing should succeed");
     let out_str = String::from_utf8(out).expect("valid UTF-8");
 
     assert!(
@@ -265,9 +321,17 @@ async fn translation_only_replaces_original() {
     config.output_mode = OutputMode::TranslationOnly;
     let html = r#"<html><body><p>Hello</p></body></html>"#;
 
-    let out = process_document(html.as_bytes(), &FakeTranslator, &config, &cache, "")
-        .await
-        .unwrap();
+    let out = process_document(
+        html.as_bytes(),
+        &FakeTranslator,
+        &config,
+        &cache,
+        0,
+        "",
+        None,
+    )
+    .await
+    .unwrap();
     let s = String::from_utf8(out).unwrap();
 
     assert!(s.contains("[ZH] Hello"));
@@ -281,9 +345,17 @@ async fn exclude_selector_skips_matching_element() {
     config.exclude_selectors = vec![".no-translate".into()];
     let html = r#"<html><body><p class="no-translate">Skip</p><p>Translate</p></body></html>"#;
 
-    let out = process_document(html.as_bytes(), &FakeTranslator, &config, &cache, "")
-        .await
-        .unwrap();
+    let out = process_document(
+        html.as_bytes(),
+        &FakeTranslator,
+        &config,
+        &cache,
+        0,
+        "",
+        None,
+    )
+    .await
+    .unwrap();
     let s = String::from_utf8(out).unwrap();
 
     assert!(
@@ -307,9 +379,17 @@ async fn translate_attributes_translates_configured_attributes() {
     let html =
         r#"<html><body><img src="a.jpg" alt="Photo" title="A picture"><p>Hello</p></body></html>"#;
 
-    let out = process_document(html.as_bytes(), &FakeTranslator, &config, &cache, "")
-        .await
-        .unwrap();
+    let out = process_document(
+        html.as_bytes(),
+        &FakeTranslator,
+        &config,
+        &cache,
+        0,
+        "",
+        None,
+    )
+    .await
+    .unwrap();
     let s = String::from_utf8(out).unwrap();
 
     assert!(
@@ -338,9 +418,17 @@ async fn exclude_selector_skips_attributes() {
     config.exclude_selectors = vec![".no-translate".into()];
     let html = r#"<html><body><img class="no-translate" src="a.jpg" title="Skip this"><p>Translate</p></body></html>"#;
 
-    let out = process_document(html.as_bytes(), &FakeTranslator, &config, &cache, "")
-        .await
-        .unwrap();
+    let out = process_document(
+        html.as_bytes(),
+        &FakeTranslator,
+        &config,
+        &cache,
+        0,
+        "",
+        None,
+    )
+    .await
+    .unwrap();
     let s = String::from_utf8(out).unwrap();
 
     assert!(
@@ -363,9 +451,17 @@ async fn short_attribute_values_are_not_translated() {
     config.translate_attributes = vec!["title".into()];
     let html = r#"<html><body><img src="a.jpg" title="x"></body></html>"#;
 
-    let out = process_document(html.as_bytes(), &FakeTranslator, &config, &cache, "")
-        .await
-        .unwrap();
+    let out = process_document(
+        html.as_bytes(),
+        &FakeTranslator,
+        &config,
+        &cache,
+        0,
+        "",
+        None,
+    )
+    .await
+    .unwrap();
     let s = String::from_utf8(out).unwrap();
 
     assert!(
@@ -387,9 +483,17 @@ async fn process_document_interleaved_paragraph() {
     config.output_mode = OutputMode::Interleaved;
     let html = r#"<html><body><p>Hello</p></body></html>"#;
 
-    let out = process_document(html.as_bytes(), &FakeTranslator, &config, &cache, "")
-        .await
-        .expect("processing should succeed");
+    let out = process_document(
+        html.as_bytes(),
+        &FakeTranslator,
+        &config,
+        &cache,
+        0,
+        "",
+        None,
+    )
+    .await
+    .expect("processing should succeed");
     let out_str = String::from_utf8(out).expect("valid UTF-8");
 
     let original_pos = out_str
@@ -412,9 +516,17 @@ async fn translation_scope_body_false_skips_paragraphs() {
     config.translation_scope.body = false;
     let html = r#"<html><body><p>Hello world.</p><h1>Title</h1></body></html>"#;
 
-    let out = process_document(html.as_bytes(), &FakeTranslator, &config, &cache, "")
-        .await
-        .expect("processing should succeed");
+    let out = process_document(
+        html.as_bytes(),
+        &FakeTranslator,
+        &config,
+        &cache,
+        0,
+        "",
+        None,
+    )
+    .await
+    .expect("processing should succeed");
     let out_str = String::from_utf8(out).expect("valid UTF-8");
 
     assert!(
@@ -433,9 +545,17 @@ async fn translation_scope_alt_text_false_skips_alt_attributes() {
     config.translation_scope.alt_text = false;
     let html = r#"<html><body><img src="a.jpg" alt="Photo" title="A picture"></body></html>"#;
 
-    let out = process_document(html.as_bytes(), &FakeTranslator, &config, &cache, "")
-        .await
-        .unwrap();
+    let out = process_document(
+        html.as_bytes(),
+        &FakeTranslator,
+        &config,
+        &cache,
+        0,
+        "",
+        None,
+    )
+    .await
+    .unwrap();
     let s = String::from_utf8(out).unwrap();
 
     assert!(
@@ -457,9 +577,17 @@ async fn exclude_selector_protects_descendants() {
     config.exclude_selectors = vec![".no-translate".into()];
     let html = r#"<html><body><div class="no-translate"><p>Inside excluded div.</p></div><p>Outside.</p></body></html>"#;
 
-    let out = process_document(html.as_bytes(), &FakeTranslator, &config, &cache, "")
-        .await
-        .unwrap();
+    let out = process_document(
+        html.as_bytes(),
+        &FakeTranslator,
+        &config,
+        &cache,
+        0,
+        "",
+        None,
+    )
+    .await
+    .unwrap();
     let s = String::from_utf8(out).unwrap();
 
     assert!(
@@ -481,9 +609,17 @@ async fn preserve_classes_copies_original_class() {
     config.preserve_classes = true;
     let html = r#"<html><body><p class="intro">Hello</p></body></html>"#;
 
-    let out = process_document(html.as_bytes(), &FakeTranslator, &config, &cache, "")
-        .await
-        .unwrap();
+    let out = process_document(
+        html.as_bytes(),
+        &FakeTranslator,
+        &config,
+        &cache,
+        0,
+        "",
+        None,
+    )
+    .await
+    .unwrap();
     let s = String::from_utf8(out).unwrap();
 
     assert!(
@@ -504,7 +640,7 @@ async fn refine_false_returns_first_pass_only() {
     let config = test_config();
     assert!(!config.refine);
 
-    let result = translate_text("hello world", &FakeTranslator, &config, &cache, "")
+    let result = translate_text("hello world", &FakeTranslator, &config, &cache, 0, "", None)
         .await
         .expect("translation should succeed");
     assert_eq!(result, "[ZH] hello world");
@@ -516,7 +652,7 @@ async fn refine_true_applies_second_pass() {
     let mut config = test_config();
     config.refine = true;
 
-    let result = translate_text("hello world", &FakeTranslator, &config, &cache, "")
+    let result = translate_text("hello world", &FakeTranslator, &config, &cache, 0, "", None)
         .await
         .expect("translation should succeed");
     assert_eq!(result, "[ZH] [ZH] hello world");
@@ -528,7 +664,7 @@ async fn refine_pass_is_cached() {
     let mut config = test_config();
     config.refine = true;
 
-    let result = translate_text("hello world", &FakeTranslator, &config, &cache, "")
+    let result = translate_text("hello world", &FakeTranslator, &config, &cache, 0, "", None)
         .await
         .expect("translation should succeed");
     assert_eq!(result, "[ZH] [ZH] hello world");
@@ -549,9 +685,17 @@ async fn process_document_injects_output_font_css() {
 <body><p>Hello.</p></body>
 </html>"#;
 
-    let out = process_document(html.as_bytes(), &FakeTranslator, &config, &cache, "")
-        .await
-        .unwrap();
+    let out = process_document(
+        html.as_bytes(),
+        &FakeTranslator,
+        &config,
+        &cache,
+        0,
+        "",
+        None,
+    )
+    .await
+    .unwrap();
     let s = String::from_utf8(out).unwrap();
 
     assert!(

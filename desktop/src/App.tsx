@@ -39,6 +39,8 @@ type ProgressPayload =
   | { Started: { total: number } }
   | { ChapterStarted: { index: number; href: string } }
   | { ChapterFinished: { index: number; href: string } }
+  | { ChunkStarted: { index: number; href: string; chunk_index: number; chunk_total: number } }
+  | { ChunkFinished: { index: number; href: string; chunk_index: number; chunk_total: number } }
   | { Failed: { index: number; href: string; error: string } }
   | "Completed";
 
@@ -97,6 +99,19 @@ function ensureProvider(form: FormState, providerType: string): FormState {
   };
 }
 
+function computeChunkProgressPercent(
+  chapterTotal: number,
+  chaptersCompleted: number,
+  chapterProgress: Record<number, { chunk_total: number; chunks_done: number }>
+): number {
+  if (chapterTotal <= 0) return 0;
+  const inFlight = Object.values(chapterProgress).reduce((sum, p) => {
+    if (p.chunk_total <= 0) return sum;
+    return sum + p.chunks_done / p.chunk_total;
+  }, 0);
+  return Math.min(99, Math.round(((chaptersCompleted + inFlight) / chapterTotal) * 100));
+}
+
 function applyProgressToTask(task: Task, payload: ProgressPayload): Task {
   if (typeof payload === "string" && payload === "Completed") {
     return { ...task, progress_percent: 100, status: "completed" };
@@ -107,24 +122,66 @@ function applyProgressToTask(task: Task, payload: ProgressPayload): Task {
       progress_percent: 0,
       status: "running",
       chapter_total: payload.Started.total,
+      chapter_progress: {},
+      chapters_completed: 0,
       error: undefined,
     };
   }
   if (typeof payload === "object" && "ChapterStarted" in payload) {
     const total = task.chapter_total ?? 0;
-    const percent =
-      total > 0
-        ? Math.round((payload.ChapterStarted.index / total) * 100)
-        : task.progress_percent;
-    return { ...task, progress_percent: Math.min(99, percent), status: "running" };
+    const chapterProgress = { ...(task.chapter_progress ?? {}) };
+    chapterProgress[payload.ChapterStarted.index] = chapterProgress[payload.ChapterStarted.index] ?? {
+      chunk_total: 1,
+      chunks_done: 0,
+    };
+    const completed = task.chapters_completed ?? 0;
+    return {
+      ...task,
+      progress_percent: computeChunkProgressPercent(total, completed, chapterProgress),
+      status: "running",
+      chapter_progress: chapterProgress,
+    };
   }
   if (typeof payload === "object" && "ChapterFinished" in payload) {
     const total = task.chapter_total ?? 0;
-    const percent =
-      total > 0
-        ? Math.round(((payload.ChapterFinished.index + 1) / total) * 100)
-        : task.progress_percent;
-    return { ...task, progress_percent: Math.min(99, percent), status: "running" };
+    const chapterProgress = { ...(task.chapter_progress ?? {}) };
+    delete chapterProgress[payload.ChapterFinished.index];
+    const completed = (task.chapters_completed ?? 0) + 1;
+    return {
+      ...task,
+      progress_percent: computeChunkProgressPercent(total, completed, chapterProgress),
+      status: "running",
+      chapter_progress: chapterProgress,
+      chapters_completed: completed,
+    };
+  }
+  if (typeof payload === "object" && "ChunkStarted" in payload) {
+    const total = task.chapter_total ?? 0;
+    const chapterProgress = { ...(task.chapter_progress ?? {}) };
+    chapterProgress[payload.ChunkStarted.index] = {
+      chunk_total: payload.ChunkStarted.chunk_total,
+      chunks_done: payload.ChunkStarted.chunk_index,
+    };
+    return {
+      ...task,
+      progress_percent: computeChunkProgressPercent(total, task.chapters_completed ?? 0, chapterProgress),
+      status: "running",
+      chapter_progress: chapterProgress,
+    };
+  }
+  if (typeof payload === "object" && "ChunkFinished" in payload) {
+    const total = task.chapter_total ?? 0;
+    const chapterProgress = { ...(task.chapter_progress ?? {}) };
+    chapterProgress[payload.ChunkFinished.index] = {
+      chunk_total: payload.ChunkFinished.chunk_total,
+      chunks_done: payload.ChunkFinished.chunk_index + 1,
+    };
+    return {
+      ...task,
+      progress_percent: computeChunkProgressPercent(total, task.chapters_completed ?? 0, chapterProgress),
+      status: "running",
+      chapter_progress: chapterProgress,
+    };
   }
   if (typeof payload === "object" && "Failed" in payload) {
     return {
@@ -195,6 +252,7 @@ function App() {
 
   const completedRef = useRef(0);
   const totalRef = useRef(0);
+  const chapterProgressRef = useRef<Record<number, { chunk_total: number; chunks_done: number }>>({});
   const e2eOutputRef = useRef<string | null>(null);
   const generalLoadedRef = useRef(false);
   const initialLanguageAppliedRef = useRef(false);
@@ -432,6 +490,7 @@ function App() {
         if (typeof payload === "object" && "Started" in payload) {
           totalRef.current = payload.Started.total;
           completedRef.current = 0;
+          chapterProgressRef.current = {};
           return [
             ...prev,
             {
@@ -465,6 +524,42 @@ function App() {
             },
           ];
         }
+        if (typeof payload === "object" && "ChunkStarted" in payload) {
+          chapterProgressRef.current[payload.ChunkStarted.index] = {
+            chunk_total: payload.ChunkStarted.chunk_total,
+            chunks_done: payload.ChunkStarted.chunk_index,
+          };
+          return [
+            ...prev,
+            {
+              id: generateId(), timestamp: Date.now(),
+              kind: "chapter",
+              message: t("log_chunk_started", {
+                chunk_index: payload.ChunkStarted.chunk_index + 1,
+                chunk_total: payload.ChunkStarted.chunk_total,
+                href: payload.ChunkStarted.href,
+              }),
+            },
+          ];
+        }
+        if (typeof payload === "object" && "ChunkFinished" in payload) {
+          chapterProgressRef.current[payload.ChunkFinished.index] = {
+            chunk_total: payload.ChunkFinished.chunk_total,
+            chunks_done: payload.ChunkFinished.chunk_index + 1,
+          };
+          return [
+            ...prev,
+            {
+              id: generateId(), timestamp: Date.now(),
+              kind: "chapter",
+              message: t("log_chunk_finished", {
+                chunk_index: payload.ChunkFinished.chunk_index + 1,
+                chunk_total: payload.ChunkFinished.chunk_total,
+                href: payload.ChunkFinished.href,
+              }),
+            },
+          ];
+        }
         if (typeof payload === "object" && "Failed" in payload) {
           return [
             ...prev,
@@ -489,6 +584,7 @@ function App() {
         if (typeof payload === "object" && "Started" in payload) {
           totalRef.current = payload.Started.total;
           completedRef.current = 0;
+          chapterProgressRef.current = {};
           return { percent: 0, message: t("started") };
         }
         if (typeof payload === "object" && "ChapterStarted" in payload) {
@@ -499,16 +595,43 @@ function App() {
         }
         if (typeof payload === "object" && "ChapterFinished" in payload) {
           completedRef.current += 1;
-          const percent =
-            totalRef.current > 0
-              ? Math.min(
-                  100,
-                  Math.round((completedRef.current / totalRef.current) * 100)
-                )
-              : prev.percent;
+          delete chapterProgressRef.current[payload.ChapterFinished.index];
+          const percent = computeChunkProgressPercent(
+            totalRef.current,
+            completedRef.current,
+            chapterProgressRef.current
+          );
           return {
             percent,
             message: `${t("completed")}: ${payload.ChapterFinished.href}`,
+          };
+        }
+        if (typeof payload === "object" && "ChunkStarted" in payload) {
+          chapterProgressRef.current[payload.ChunkStarted.index] = {
+            chunk_total: payload.ChunkStarted.chunk_total,
+            chunks_done: payload.ChunkStarted.chunk_index,
+          };
+          return {
+            ...prev,
+            percent: computeChunkProgressPercent(
+              totalRef.current,
+              completedRef.current,
+              chapterProgressRef.current
+            ),
+          };
+        }
+        if (typeof payload === "object" && "ChunkFinished" in payload) {
+          chapterProgressRef.current[payload.ChunkFinished.index] = {
+            chunk_total: payload.ChunkFinished.chunk_total,
+            chunks_done: payload.ChunkFinished.chunk_index + 1,
+          };
+          return {
+            ...prev,
+            percent: computeChunkProgressPercent(
+              totalRef.current,
+              completedRef.current,
+              chapterProgressRef.current
+            ),
           };
         }
         if (typeof payload === "object" && "Failed" in payload) {
@@ -610,6 +733,11 @@ function App() {
     await refreshQueue();
   };
 
+  const pauseTask = async (id: string) => {
+    await invoke("pause_task", { id });
+    await refreshQueue();
+  };
+
   const startQueue = async () => {
     await invoke("start_queue");
     await refreshQueue();
@@ -647,6 +775,7 @@ function App() {
             onRemove={removeTask}
             onRetry={retryTask}
             onCancel={cancelTask}
+            onPauseTask={pauseTask}
             onStart={startQueue}
             onPause={pauseQueue}
           />
