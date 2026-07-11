@@ -334,6 +334,32 @@ pub async fn test_connection(args: TestConnectionArgs) -> Result<String, String>
     .map(|()| "connection ok".to_string())
 }
 
+/// List available models for the given provider.
+#[allow(dead_code)]
+#[tauri::command]
+pub async fn list_models(args: TestConnectionArgs) -> Result<Vec<String>, String> {
+    validate_connection_args(&args)?;
+    tokio::task::spawn_blocking(move || {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| e.to_string())?;
+
+        rt.block_on(async {
+            let config = build_test_config(&args)?;
+            let mut provider_config = ProviderConfig::for_provider(&args.provider);
+            provider_config.base_url = args.base_url.clone().filter(|url| !url.is_empty());
+
+            let translator = get_translator(&args.provider, Some(&provider_config), &config, false)
+                .map_err(|e| e.to_string())?;
+
+            translator.list_models().await.map_err(|e| e.to_string())
+        })
+    })
+    .await
+    .map_err(|e| format!("list models task panicked: {e}"))?
+}
+
 /// Return the built-in default prompt templates for each translation style.
 #[allow(dead_code)]
 #[tauri::command]

@@ -71,6 +71,7 @@ pub fn run() {
             commands::check_file_exists,
             commands::suggest_output_path,
             commands::test_connection,
+            commands::list_models,
             commands::get_e2e_args,
             commands::get_app_version,
             commands::get_default_prompts,
