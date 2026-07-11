@@ -74,7 +74,6 @@
   "model_custom_placeholder": "输入模型名称",
   "model_list_error": "无法加载模型列表",
   "api_key_format_hint": "该密钥格式与所选提供商不匹配。",
-  "remember_api_key": "安全记住 API 密钥",
   "exclude_selectors_help": "不应被翻译的元素的 CSS 选择器（如代码块）。",
   "translate_attributes_help": "还需要翻译值的 HTML 属性。",
   "concurrency_help": "同时向 LLM 发送的章节翻译请求数量。数值越大整体翻译越快，但会消耗更多 token 并可能触发接口速率限制。",

@@ -2,6 +2,7 @@
 
 mod anthropic;
 mod deepseek;
+mod http_common;
 mod ollama;
 mod openai;
 mod registry;
