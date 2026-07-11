@@ -130,7 +130,7 @@ export default function ComputeSettingsPage({
         </div>
       )}
 
-      {providers.map((p) => {
+      {providers.map((p, index) => {
         const isActive = activeProvider === p.name;
         const expectedPrefix = providerApiKeyHints[p.provider];
         const keyLooksWrong =
@@ -139,7 +139,7 @@ export default function ComputeSettingsPage({
 
         return (
           <div
-            key={p.name}
+            key={index}
             className={`provider-config ${isActive ? "active" : ""}`}
           >
             <div className="provider-row compact">
