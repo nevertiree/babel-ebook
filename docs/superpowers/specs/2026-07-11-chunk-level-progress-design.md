@@ -61,7 +61,7 @@ In `desktop/src/App.tsx`:
   `chunk_total` and `chunks_done`.
 - In `applyProgressToTask`, update the map on chunk events and compute:
 
-```
+```text
 completed = number of fully finished chapters
 in_flight = sum(chunks_done / chunk_total) for chapters that have started but not finished
 percent   = min(99, round((completed + in_flight) / total_chapters * 100))
