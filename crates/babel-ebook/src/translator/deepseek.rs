@@ -133,6 +133,43 @@ impl Translator for DeepSeekTranslator {
         }
     }
 
+    async fn list_models(&self) -> Result<Vec<String>, BabelEbookError> {
+        use async_openai::config::Config;
+        let config = self.client.config();
+        let url = config.url("/models");
+        let client = reqwest::Client::new();
+        let response = client
+            .get(&url)
+            .headers(config.headers())
+            .timeout(Duration::from_secs(10))
+            .send()
+            .await
+            .map_err(|e| BabelEbookError::ApiError(e.to_string()))?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            return Err(BabelEbookError::ApiError(format!(
+                "DeepSeek list models failed: HTTP {status}: {body}"
+            )));
+        }
+
+        let json: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| BabelEbookError::ApiError(format!("failed to parse DeepSeek models: {e}")))?;
+
+        let models = json["data"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|m| m["id"].as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+        Ok(models)
+    }
+
     async fn translate(
         &self,
         text: &str,
@@ -167,5 +204,23 @@ impl Translator for DeepSeekTranslator {
         Err(BabelEbookError::ApiError(format!(
             "DeepSeek API failed after {MAX_RETRIES} retries: {last_error}"
         )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn list_models_returns_api_error_for_unreachable_endpoint() {
+        let translator = DeepSeekTranslator::new(
+            "fake-key".to_string(),
+            None,
+            Some("http://localhost:0".to_string()),
+            2000,
+            0.3,
+        );
+        let err = translator.list_models().await.unwrap_err();
+        assert!(matches!(err, BabelEbookError::ApiError(_)));
     }
 }
