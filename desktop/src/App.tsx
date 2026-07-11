@@ -5,7 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import "./App.css";
 import type { FormState, LogEntry, Page, ProgressState, ProviderConfig, QueueState, Task, ValidationResult } from "./types";
-import { defaults, recommendedModels } from "./types";
+import { defaults } from "./types";
 import TranslatePage from "./pages/TranslatePage";
 import ComputeSettingsPage from "./pages/ComputeSettingsPage";
 import ModelParamsPage from "./pages/ModelParamsPage";
@@ -560,11 +560,9 @@ function App() {
     setForm((prev) => {
       const next = { ...prev, [key]: value } as FormState;
       if (key === "active_provider") {
-        const active = next.providers.find((p) => p.name === value);
-        const providerType = active?.provider ?? (value as string);
-        const models = recommendedModels[providerType] ?? [];
-        if (models.length > 0 && !models.some((m) => m.value === next.model)) {
-          next.model = models[0].value;
+        const activeStillExists = next.providers.some((p) => p.name === value);
+        if (!activeStillExists && next.providers.length > 0) {
+          next.active_provider = next.providers[0].name;
         }
       }
       return next;
