@@ -27,8 +27,9 @@ export interface QueueState {
 /**
  * A single provider/API configuration.
  *
- * API keys are stored in the OS keyring keyed by `provider`; this struct only
- * keeps the non-secret parts in Tauri Store.
+ * API keys are stored in plaintext in the user's `settings.json` so they
+ * survive reinstalls and are easy to back up or migrate. Keep the settings
+ * file private.
  */
 export interface ProviderConfig {
   name: string;

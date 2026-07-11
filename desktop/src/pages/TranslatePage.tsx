@@ -2,13 +2,14 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { CheckpointInfo, FormState, Page, ProgressState, ValidationResult } from "../types";
+import type { CheckpointInfo, FormState, LogEntry, Page, ProgressState, ValidationResult } from "../types";
 import {
   outputModes,
   recommendedModels,
   sourceLanguages,
   targetLanguages,
 } from "../types";
+import LogPanel from "../components/LogPanel";
 
 interface ModelSelectProps {
   provider: string;
@@ -66,6 +67,8 @@ interface TranslatePageProps {
   progress: ProgressState;
   validation: ValidationResult;
   onPageChange: (page: Page) => void;
+  logs: LogEntry[];
+  onClearLogs: () => void;
 }
 
 export default function TranslatePage({
@@ -75,12 +78,14 @@ export default function TranslatePage({
   progress,
   validation,
   onPageChange,
+  logs,
+  onClearLogs,
 }: TranslatePageProps) {
   const { t } = useTranslation();
   const [checkpoints, setCheckpoints] = useState<CheckpointInfo[]>([]);
 
   const hasProviders = form.providers.length > 0;
-  const activeProvider = form.providers.find((p) => p.provider === form.active_provider);
+  const activeProvider = form.providers.find((p) => p.name === form.active_provider);
   const selectedCheckpoint = checkpoints.find((cp) => cp.job_id === form.resume);
 
   useEffect(() => {
@@ -396,6 +401,8 @@ export default function TranslatePage({
           {progress.message || t("waiting")}
         </p>
       </section>
+
+      <LogPanel entries={logs} onClear={onClearLogs} />
     </div>
   );
 }
