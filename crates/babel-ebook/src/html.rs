@@ -26,12 +26,15 @@ fn is_translatable_text(text: &str) -> bool {
 /// Mirrors the Python implementation: checks the cache, splits oversized text
 /// into chunks, translates each chunk, caches results, and joins them with a
 /// single space after normalising internal newlines.
+#[allow(clippy::too_many_lines)]
 pub async fn translate_text(
     text: &str,
     translator: &dyn Translator,
     config: &Config,
     cache: &TranslationCache,
+    chapter_index: usize,
     chapter_href: &str,
+    progress: Option<&dyn crate::core::ProgressCallback>,
 ) -> Result<String, BabelEbookError> {
     // First pass. When refinement is disabled we can return a cached full-text
     // result immediately; otherwise the cached translation still needs to be
@@ -47,10 +50,27 @@ pub async fn translate_text(
         let target_lang = &config.target_lang;
 
         let chunks = split_text_chunks(text, max_source);
-        let mut translated_parts = Vec::with_capacity(chunks.len());
-        for chunk in chunks {
-            if let Some(cached) = cache.get(&translator.name(), &chunk) {
+        let chunk_total = chunks.len();
+        let mut translated_parts = Vec::with_capacity(chunk_total);
+        for (chunk_index, chunk) in chunks.iter().enumerate() {
+            emit_chunk_progress(
+                progress,
+                chapter_index,
+                chapter_href,
+                chunk_index,
+                chunk_total,
+                false,
+            );
+            if let Some(cached) = cache.get(&translator.name(), chunk) {
                 translated_parts.push(cached);
+                emit_chunk_progress(
+                    progress,
+                    chapter_index,
+                    chapter_href,
+                    chunk_index,
+                    chunk_total,
+                    true,
+                );
                 continue;
             }
 
@@ -58,10 +78,18 @@ pub async fn translate_text(
                 system_prompt: &system_prompt,
                 target_lang,
             };
-            let result = translator.translate(&chunk, &context).await?;
-            let tokens = count_tokens(&chunk) + count_tokens(&result);
-            cache.put(&translator.name(), &chunk, &result, Some(tokens));
+            let result = translator.translate(chunk, &context).await?;
+            let tokens = count_tokens(chunk) + count_tokens(&result);
+            cache.put(&translator.name(), chunk, &result, Some(tokens));
             translated_parts.push(result);
+            emit_chunk_progress(
+                progress,
+                chapter_index,
+                chapter_href,
+                chunk_index,
+                chunk_total,
+                true,
+            );
         }
 
         translated_parts
@@ -82,10 +110,27 @@ pub async fn translate_text(
     let refine_name = format!("{}-refine", translator.name());
 
     let chunks = split_text_chunks(&first_pass, max_refine_source);
-    let mut refined_parts = Vec::with_capacity(chunks.len());
-    for chunk in chunks {
-        if let Some(cached) = cache.get(&refine_name, &chunk) {
+    let chunk_total = chunks.len();
+    let mut refined_parts = Vec::with_capacity(chunk_total);
+    for (chunk_index, chunk) in chunks.iter().enumerate() {
+        emit_chunk_progress(
+            progress,
+            chapter_index,
+            chapter_href,
+            chunk_index,
+            chunk_total,
+            false,
+        );
+        if let Some(cached) = cache.get(&refine_name, chunk) {
             refined_parts.push(cached);
+            emit_chunk_progress(
+                progress,
+                chapter_index,
+                chapter_href,
+                chunk_index,
+                chunk_total,
+                true,
+            );
             continue;
         }
 
@@ -93,10 +138,18 @@ pub async fn translate_text(
             system_prompt: &refine_prompt,
             target_lang,
         };
-        let result = translator.translate(&chunk, &context).await?;
-        let tokens = count_tokens(&chunk) + count_tokens(&result);
-        cache.put(&refine_name, &chunk, &result, Some(tokens));
+        let result = translator.translate(chunk, &context).await?;
+        let tokens = count_tokens(chunk) + count_tokens(&result);
+        cache.put(&refine_name, chunk, &result, Some(tokens));
         refined_parts.push(result);
+        emit_chunk_progress(
+            progress,
+            chapter_index,
+            chapter_href,
+            chunk_index,
+            chunk_total,
+            true,
+        );
     }
 
     let refined = refined_parts
@@ -118,7 +171,9 @@ pub async fn process_document(
     translator: &dyn Translator,
     config: &Config,
     cache: &TranslationCache,
+    chapter_index: usize,
     chapter_href: &str,
+    progress: Option<&dyn crate::core::ProgressCallback>,
 ) -> Result<Vec<u8>, BabelEbookError> {
     let html_str = std::str::from_utf8(html)
         .map_err(|e| BabelEbookError::Configuration(format!("invalid UTF-8 HTML: {e}")))?;
@@ -157,8 +212,16 @@ pub async fn process_document(
         if has_translatable_child(node, &translate_tags) {
             continue;
         }
-        translate_element_text_and_attributes(&element, translator, config, cache, chapter_href)
-            .await?;
+        translate_element_text_and_attributes(
+            &element,
+            translator,
+            config,
+            cache,
+            chapter_index,
+            chapter_href,
+            progress,
+        )
+        .await?;
     }
 
     Ok(doc.to_string().into_bytes())
@@ -209,7 +272,9 @@ async fn translate_element_text_and_attributes(
     translator: &dyn Translator,
     config: &Config,
     cache: &TranslationCache,
+    chapter_index: usize,
     chapter_href: &str,
+    progress: Option<&dyn crate::core::ProgressCallback>,
 ) -> Result<(), BabelEbookError> {
     let node = element.as_node();
     let tag_name = element.name.local.as_ref();
@@ -217,12 +282,20 @@ async fn translate_element_text_and_attributes(
     if should_translate_element_text(tag_name, &config.translation_scope) {
         let text = normalize_text(node);
         if is_translatable_text(&text) {
-            let translated = translate_text(&text, translator, config, cache, chapter_href)
-                .await
-                .map_err(|err| {
-                    tracing::error!("Failed to translate element <{}>: {err}", tag_name);
-                    err
-                })?;
+            let translated = translate_text(
+                &text,
+                translator,
+                config,
+                cache,
+                chapter_index,
+                chapter_href,
+                progress,
+            )
+            .await
+            .map_err(|err| {
+                tracing::error!("Failed to translate element <{}>: {err}", tag_name);
+                err
+            })?;
 
             if !translated.is_empty() {
                 let target_lang = &config.target_lang;
@@ -256,17 +329,24 @@ async fn translate_element_text_and_attributes(
         let attr_value = element.attributes.borrow().get(attr_name).map(String::from);
         if let Some(value) = attr_value {
             if is_translatable_text(&value) {
-                let translated_attr =
-                    translate_text(&value, translator, config, cache, chapter_href)
-                        .await
-                        .map_err(|err| {
-                            tracing::error!(
-                                "Failed to translate attribute {} on <{}>: {err}",
-                                attr_name,
-                                tag_name
-                            );
-                            err
-                        })?;
+                let translated_attr = translate_text(
+                    &value,
+                    translator,
+                    config,
+                    cache,
+                    chapter_index,
+                    chapter_href,
+                    progress,
+                )
+                .await
+                .map_err(|err| {
+                    tracing::error!(
+                        "Failed to translate attribute {} on <{}>: {err}",
+                        attr_name,
+                        tag_name
+                    );
+                    err
+                })?;
                 element
                     .attributes
                     .borrow_mut()
@@ -519,5 +599,33 @@ fn clone_subtree(node: &NodeRef) -> NodeRef {
             }
             cloned
         }
+    }
+}
+
+fn emit_chunk_progress(
+    progress: Option<&dyn crate::core::ProgressCallback>,
+    index: usize,
+    href: &str,
+    chunk_index: usize,
+    chunk_total: usize,
+    finished: bool,
+) {
+    let event = if finished {
+        crate::core::ProgressEvent::ChunkFinished {
+            index,
+            href: href.to_string(),
+            chunk_index,
+            chunk_total,
+        }
+    } else {
+        crate::core::ProgressEvent::ChunkStarted {
+            index,
+            href: href.to_string(),
+            chunk_index,
+            chunk_total,
+        }
+    };
+    if let Some(p) = progress {
+        p.on_progress(event);
     }
 }

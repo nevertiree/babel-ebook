@@ -103,6 +103,8 @@
   "log_chapter_started": "正在翻译：{{href}}",
   "log_chapter_finished": "已完成：{{href}}（{{current}}/{{total}}）",
   "log_chapter_failed": "失败：{{href}} — {{error}}",
+  "log_chunk_started": "正在翻译切片 {{chunk_index}}/{{chunk_total}}：{{href}}",
+  "log_chunk_finished": "已完成切片 {{chunk_index}}/{{chunk_total}}：{{href}}",
   "welcome_title": "准备开始翻译",
   "welcome_body": "选择一本 EPUB 文件，配置好供应商，然后点击开始翻译。",
   "select_epub": "选择 EPUB",

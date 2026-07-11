@@ -212,6 +212,30 @@ async fn core_translate_epub_emits_progress_events() {
             [
                 ProgressEvent::Started { total: 1 },
                 ProgressEvent::ChapterStarted { index: 1, .. },
+                ProgressEvent::ChunkStarted {
+                    index: 1,
+                    chunk_index: 0,
+                    chunk_total: 1,
+                    ..
+                },
+                ProgressEvent::ChunkFinished {
+                    index: 1,
+                    chunk_index: 0,
+                    chunk_total: 1,
+                    ..
+                },
+                ProgressEvent::ChunkStarted {
+                    index: 1,
+                    chunk_index: 0,
+                    chunk_total: 1,
+                    ..
+                },
+                ProgressEvent::ChunkFinished {
+                    index: 1,
+                    chunk_index: 0,
+                    chunk_total: 1,
+                    ..
+                },
                 ProgressEvent::ChapterFinished { index: 1, .. },
                 ProgressEvent::Completed,
             ]

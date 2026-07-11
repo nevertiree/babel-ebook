@@ -33,6 +33,7 @@ pub struct PipelineResult {
 /// Callers that need a `Send` future should run the work on a local runtime.
 #[allow(clippy::future_not_send)]
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_lines)]
 pub async fn run_ordered_pipeline(
     book: &mut EpubBook,
     indices: Vec<usize>,
@@ -87,7 +88,10 @@ pub async fn run_ordered_pipeline(
                     let output = if cancellation.is_some_and(CancellationToken::is_cancelled) {
                         Err(BabelEbookError::Cancelled)
                     } else {
-                        process_document(&content, translator, config, cache, &href).await
+                        process_document(
+                            &content, translator, config, cache, index, &href, progress,
+                        )
+                        .await
                     };
                     drop(permit);
                     output

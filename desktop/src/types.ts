@@ -16,6 +16,8 @@ export interface Task {
   created_at: number;
   completed_at?: number;
   chapter_total?: number;
+  chapter_progress?: Record<number, { chunk_total: number; chunks_done: number }>;
+  chapters_completed?: number;
 }
 
 export interface QueueState {
