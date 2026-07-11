@@ -16,6 +16,7 @@ use std::time::Duration;
 const DEFAULT_BASE_URL: &str = "https://api.deepseek.com";
 const DEFAULT_MODEL: &str = "deepseek-chat";
 const MAX_RETRIES: u32 = 3;
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// Translator using the `DeepSeek` API.
 pub struct DeepSeekTranslator {
@@ -72,11 +73,9 @@ impl DeepSeekTranslator {
             ..Default::default()
         };
 
-        let response = self
-            .client
-            .chat()
-            .create(request)
+        let response = tokio::time::timeout(REQUEST_TIMEOUT, self.client.chat().create(request))
             .await
+            .map_err(|_| BabelEbookError::ApiError("DeepSeek request timed out".into()))?
             .map_err(|e| BabelEbookError::Anyhow(e.into()))?;
 
         let content = response

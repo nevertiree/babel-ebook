@@ -10,6 +10,7 @@ use crate::translator::{TranslateContext, Translator};
 const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
 const DEFAULT_MODEL: &str = "claude-3-5-sonnet-20241022";
 const DEFAULT_ANTHROPIC_VERSION: &str = "2023-06-01";
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// Translator using the Anthropic Messages API.
 pub struct AnthropicTranslator {
@@ -129,6 +130,7 @@ impl Translator for AnthropicTranslator {
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", DEFAULT_ANTHROPIC_VERSION)
             .json(&body)
+            .timeout(REQUEST_TIMEOUT)
             .send()
             .await
             .map_err(|e| BabelEbookError::ApiError(e.to_string()))?;

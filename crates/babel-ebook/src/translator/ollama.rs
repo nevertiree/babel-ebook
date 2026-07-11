@@ -9,6 +9,7 @@ use crate::translator::{TranslateContext, Translator};
 
 const DEFAULT_BASE_URL: &str = "http://localhost:11434";
 const DEFAULT_MODEL: &str = "llama3";
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// Translator using a local `Ollama` instance.
 pub struct OllamaTranslator {
@@ -105,6 +106,7 @@ impl Translator for OllamaTranslator {
             .client
             .post(format!("{}/api/chat", self.base_url))
             .json(&body)
+            .timeout(REQUEST_TIMEOUT)
             .send()
             .await
             .map_err(|e| BabelEbookError::ApiError(format!("Ollama request failed: {e}")))?;

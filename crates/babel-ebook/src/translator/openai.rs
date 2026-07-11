@@ -9,11 +9,13 @@ use async_openai::{
     Client,
 };
 use async_trait::async_trait;
+use std::time::Duration;
 
 use crate::core::BabelEbookError;
 use crate::translator::{TranslateContext, Translator};
 
 const DEFAULT_MODEL: &str = "gpt-4o-mini";
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// Translator using the `OpenAI` API or an OpenAI-compatible endpoint.
 pub struct OpenAiTranslator {
@@ -105,11 +107,9 @@ impl Translator for OpenAiTranslator {
             .build()
             .map_err(|e| BabelEbookError::ApiError(e.to_string()))?;
 
-        let response = self
-            .client
-            .chat()
-            .create(request)
+        let response = tokio::time::timeout(REQUEST_TIMEOUT, self.client.chat().create(request))
             .await
+            .map_err(|_| BabelEbookError::ApiError("OpenAI request timed out".into()))?
             .map_err(|e| BabelEbookError::ApiError(e.to_string()))?;
 
         response
