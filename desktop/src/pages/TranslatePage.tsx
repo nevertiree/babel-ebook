@@ -445,30 +445,6 @@ export default function TranslatePage({
         </div>
       </section>
 
-      {activeProvider && (
-        <section className="summary-card">
-          <h3>{t("summary_title")}</h3>
-          <div className="summary-grid">
-            <div>
-              <span className="summary-label">{t("summary_provider")}</span>
-              <span className="summary-value">{activeProvider.name}</span>
-            </div>
-            <div>
-              <span className="summary-label">{t("summary_model")}</span>
-              <span className="summary-value">{form.model}</span>
-            </div>
-            <div>
-              <span className="summary-label">{t("summary_target_lang")}</span>
-              <span className="summary-value">{t(`target_lang_${form.target_lang}`)}</span>
-            </div>
-            <div>
-              <span className="summary-label">{t("summary_output_mode")}</span>
-              <span className="summary-value">{t(`output_mode_${form.output_mode}`)}</span>
-            </div>
-          </div>
-        </section>
-      )}
-
       <section className="advanced-section">
         <div className="refine-option">
           <label className="checkbox-label">

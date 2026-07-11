@@ -462,42 +462,6 @@ button:disabled {
   white-space: nowrap;
 }
 
-.summary-card {
-  background: var(--elevated);
-  padding: 1rem 1.25rem;
-  border-radius: var(--radius);
-  margin-bottom: 1.25rem;
-}
-
-.summary-card h3 {
-  margin: 0 0 0.75rem;
-  font-size: 0.95rem;
-  color: var(--muted);
-}
-
-.summary-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 0.75rem;
-}
-
-.summary-grid > div {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-}
-
-.summary-label {
-  font-size: 0.75rem;
-  color: var(--muted);
-}
-
-.summary-value {
-  font-size: 0.95rem;
-  color: var(--text);
-  font-weight: 500;
-}
-
 .start-button {
   width: 100%;
   margin-bottom: 1.25rem;
@@ -881,9 +845,6 @@ button .loading-spinner {
     grid-template-columns: 1fr;
   }
 
-  .summary-grid {
-    grid-template-columns: 1fr 1fr;
-  }
 }
 
 .log-header {
