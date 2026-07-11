@@ -1,11 +1,10 @@
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { CheckpointInfo, FormState, LogEntry, Page, ProgressState, ValidationResult } from "../types";
 import {
   outputModes,
-  recommendedModels,
   sourceLanguages,
   targetLanguages,
 } from "../types";
@@ -13,44 +12,106 @@ import LogPanel from "../components/LogPanel";
 
 interface ModelSelectProps {
   provider: string;
+  apiKey: string;
+  baseUrl: string;
+  useCustomBaseUrl: boolean;
   model: string;
   onChange: (value: string) => void;
 }
 
-function ModelSelect({ provider, model, onChange }: ModelSelectProps) {
+function ModelSelect({
+  provider,
+  apiKey,
+  baseUrl,
+  useCustomBaseUrl,
+  model,
+  onChange,
+}: ModelSelectProps) {
   const { t } = useTranslation();
-  const models = recommendedModels[provider] ?? [];
-  const isCustom = !models.some((m) => m.value === model);
+  const [models, setModels] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    if (abortRef.current) {
+      abortRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+
+    void (async () => {
+      try {
+        const list = await invoke<string[]>("list_models", {
+          args: {
+            provider,
+            api_key: apiKey,
+            base_url: useCustomBaseUrl ? baseUrl || null : null,
+          },
+        });
+        if (cancelled) return;
+        setModels(list);
+        if (list.length > 0 && !list.includes(model) && model !== "__custom__") {
+          onChange(list[0]);
+        }
+      } catch (err) {
+        if (cancelled) return;
+        setModels([]);
+        setError(String(err));
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [provider, apiKey, baseUrl, useCustomBaseUrl]);
+
+  const isCustom = model === "__custom__" || (models.length > 0 && !models.includes(model));
 
   if (models.length === 0) {
     return (
-      <label>
+      <label title={error ?? undefined}>
         {t("model")}
         <input
           type="text"
-          value={model}
+          value={model === "__custom__" ? "" : model}
           onChange={(e) => onChange(e.target.value)}
           placeholder={t("model_custom_placeholder")}
+          disabled={loading}
         />
       </label>
     );
   }
 
   return (
-    <label>
+    <label title={error ?? undefined}>
       {t("model")}
       {isCustom ? (
         <input
           type="text"
-          value={model}
+          value={model === "__custom__" ? "" : model}
           onChange={(e) => onChange(e.target.value)}
           placeholder={t("model_custom_placeholder")}
+          disabled={loading}
         />
       ) : (
-        <select value={model} onChange={(e) => onChange(e.target.value)}>
+        <select
+          value={model}
+          onChange={(e) => onChange(e.target.value)}
+          disabled={loading}
+        >
           {models.map((m) => (
-            <option key={m.value} value={m.value}>
-              {m.label}
+            <option key={m} value={m}>
+              {m}
             </option>
           ))}
           <option value="__custom__">{t("model_custom")}</option>
@@ -173,6 +234,9 @@ export default function TranslatePage({
 
               <ModelSelect
                 provider={activeProvider.provider}
+                apiKey={activeProvider.api_key}
+                baseUrl={activeProvider.base_url}
+                useCustomBaseUrl={activeProvider.use_custom_base_url}
                 model={form.model}
                 onChange={(value) => setForm("model", value)}
               />
