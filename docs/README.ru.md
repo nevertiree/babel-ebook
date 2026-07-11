@@ -29,11 +29,11 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/nevertiree/babel-ebook/releases/latest/download/BabelEbook_0.1.0_x64-setup.exe">
+  <a href="https://github.com/nevertiree/babel-ebook/releases/latest/download/BabelEbook_0.4.0_x64-setup.exe">
     <img alt="Скачать для Windows"
       src="https://img.shields.io/badge/Windows-Download-blue?logo=windows&logoColor=white">
   </a>
-  <a href="https://github.com/nevertiree/babel-ebook/releases/latest/download/BabelEbook_0.1.0_amd64.AppImage">
+  <a href="https://github.com/nevertiree/babel-ebook/releases/latest/download/BabelEbook_0.4.0_amd64.AppImage">
     <img alt="Скачать для Linux" src="https://img.shields.io/badge/Linux-Download-orange?logo=linux&logoColor=white">
   </a>
 </p>
@@ -54,9 +54,9 @@
 
 ## Скриншоты
 
-| Главное окно | Настройки вычислений | Настройки перевода |
+| Главное окно | Providers | Настройки перевода |
 |--------------|----------------------|--------------------|
-| ![Главное окно][scr1] | ![Настройки вычислений][scr2] | ![Настройки перевода][scr3] |
+| ![Главное окно][scr1] | ![Providers][scr2] | ![Настройки перевода][scr3] |
 
 | Прогресс перевода | Журналы |
 |-------------------|---------|
@@ -126,7 +126,7 @@ OpenAI, Anthropic и локально развёрнутый Ollama.
 В качестве примера используем DeepSeek:
 
 1. Посетите [платформу DeepSeek](https://platform.deepseek.com/), зарегистрируйтесь и создайте API-ключ.
-2. Откройте BabelEbook и перейдите в **Settings** → **Compute**.
+2. Откройте BabelEbook и перейдите в **Settings** → **Providers**.
 3. Выберите провайдера `DeepSeek` и введите свой API-ключ.
 4. Нажмите **Test Connection**, чтобы проверить подключение.
 
@@ -143,7 +143,7 @@ OpenAI, Anthropic и локально развёрнутый Ollama.
 
 | Настройка | Описание |
 |-----------|----------|
-| Provider / API | Выберите поставщика LLM и введите API-ключ. |
+| Providers | Выберите поставщика LLM и введите API-ключ. |
 | Target Language | Целевой язык перевода, например `zh-CN`, `en`, `ja` и т. д. |
 | Output Mode | `bilingual` (оригинал + перевод), `translation_only` (только перевод), `interleaved` (чередование). |
 | Concurrency | Количество глав, переводимых параллельно. Выше — быстрее, но дороже. |

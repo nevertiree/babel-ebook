@@ -38,10 +38,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/nevertiree/babel-ebook/releases/latest/download/BabelEbook_0.1.0_x64-setup.exe">
+  <a href="https://github.com/nevertiree/babel-ebook/releases/download/v0.4.0/BabelEbook_0.4.0_x64-setup.exe">
     <img alt="Windows 다운로드" src="https://img.shields.io/badge/Windows-Download-blue?logo=windows&logoColor=white">
   </a>
-  <a href="https://github.com/nevertiree/babel-ebook/releases/latest/download/BabelEbook_0.1.0_amd64.AppImage">
+  <a href="https://github.com/nevertiree/babel-ebook/releases/download/v0.4.0/BabelEbook_0.4.0_amd64.AppImage">
     <img alt="Linux 다운로드" src="https://img.shields.io/badge/Linux-Download-orange?logo=linux&logoColor=white">
   </a>
 </p>
@@ -62,7 +62,7 @@
 
 ## 스크린샷
 
-| 메인 창 | 컴퓨팅 설정 | 번역 옵션 |
+| 메인 창 | 공급자 | 번역 옵션 |
 |-------------|------------------|---------------------|
 | ![메인 창][screenshot-main] | ![컴퓨팅 설정][screenshot-compute] | ![번역 옵션][screenshot-translation] |
 
@@ -124,7 +124,7 @@ BabelEbook은 서드파티 대규모 언어 모델 API를 호출해야 합니다
 DeepSeek을 예로 들면:
 
 1. [DeepSeek 플랫폼](https://platform.deepseek.com/)에 접속해 가입하고 API 키를 만듭니다.
-2. BabelEbook을 실행하고 **설정** → **컴퓨팅**으로 이동합니다.
+2. BabelEbook을 실행하고 **설정** → **공급자**로 이동합니다.
 3. 제공자로 `DeepSeek`을 선택하고 API 키를 입력합니다.
 4. **연결 테스트**를 클릭해 연결을 확인합니다.
 

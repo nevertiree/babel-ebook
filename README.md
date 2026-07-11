@@ -79,7 +79,7 @@
 ### 桌面用户
 
 1. 从 [Releases](https://github.com/nevertiree/babel-ebook/releases/latest) 下载 Windows `.exe` 或 Linux `.AppImage`。
-2. 安装后打开应用，进入 **Settings → Provider / API**，填入你的 API Key 并测试连接。
+2. 安装后打开应用，进入 **Settings → Providers**，填入你的 API Key 并测试连接。
 3. 选择源 EPUB、目标语言、输出模式，点击 **Start Translation**。
 
 ### CLI 快速开始

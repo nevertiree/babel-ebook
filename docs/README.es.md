@@ -38,11 +38,11 @@ Lee esto en otros idiomas:
 </p>
 
 <p align="center">
-  <a href="https://github.com/nevertiree/babel-ebook/releases/latest/download/BabelEbook_0.1.0_x64-setup.exe">
+  <a href="https://github.com/nevertiree/babel-ebook/releases/latest/download/BabelEbook_0.4.0_x64-setup.exe">
     <img alt="Descargar para Windows"
       src="https://img.shields.io/badge/Windows-Descargar-blue?logo=windows&logoColor=white">
   </a>
-  <a href="https://github.com/nevertiree/babel-ebook/releases/latest/download/BabelEbook_0.1.0_amd64.AppImage">
+  <a href="https://github.com/nevertiree/babel-ebook/releases/latest/download/BabelEbook_0.4.0_amd64.AppImage">
     <img alt="Descargar para Linux"
       src="https://img.shields.io/badge/Linux-Descargar-orange?logo=linux&logoColor=white">
   </a>
@@ -64,9 +64,9 @@ Lee esto en otros idiomas:
 
 ## Capturas de pantalla
 
-| Ventana principal | Configuración de cálculo | Opciones de traducción |
+| Ventana principal | Providers | Opciones de traducción |
 |-------------------|--------------------------|------------------------|
-| ![Ventana principal][scr01] | ![Configuración de cálculo][scr02] | ![Opciones de traducción][scr03] |
+| ![Ventana principal][scr01] | ![Providers][scr02] | ![Opciones de traducción][scr03] |
 
 | Progreso de la traducción | Registros |
 |---------------------------|-----------|
@@ -132,7 +132,7 @@ Actualmente admite DeepSeek, OpenAI, Anthropic y Ollama alojado localmente.
 Usando DeepSeek como ejemplo:
 
 1. Visita la [plataforma DeepSeek](https://platform.deepseek.com/), regístrate y crea una clave de API.
-2. Abre BabelEbook y ve a **Configuración** → **Cálculo**.
+2. Abre BabelEbook y ve a **Configuración** → **Providers**.
 3. Selecciona el proveedor `DeepSeek` e introduce tu clave de API.
 4. Haz clic en **Probar conexión** para verificar la conexión.
 
@@ -150,7 +150,7 @@ Usando DeepSeek como ejemplo:
 
 | Configuración | Descripción |
 |---------------|-------------|
-| Proveedor / API | Selecciona el proveedor de LLM e introduce la clave de API. |
+| Providers | Selecciona el proveedor de LLM e introduce la clave de API. |
 | Idioma de destino | Idioma de traducción de destino, p. ej. `zh-CN`, `en`, `ja`, etc. |
 | Modo de salida | `bilingual` (origen + destino), `translation_only` (solo destino),<br>`interleaved` (alternado). |
 | Concurrencia | Número de capítulos traducidos en paralelo. Mayor valor es más rápido pero cuesta más. |
