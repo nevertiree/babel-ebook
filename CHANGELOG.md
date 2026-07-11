@@ -43,6 +43,8 @@
   and About are pushed to the bottom.
 - Settings page header now places the "Settings" title and the horizontal sub-page
   tabs on the same line, saving vertical space.
+- Settings sub-page tabs are forced into a single horizontal row with horizontal
+  scrolling when needed, instead of wrapping vertically.
 
 ### Fixed
 

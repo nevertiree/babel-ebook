@@ -1550,7 +1550,8 @@ button .loading-spinner {
   justify-content: space-between;
   gap: 1rem;
   margin-bottom: 1rem;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  min-width: 0;
 }
 
 .settings-header h2 {
@@ -1562,13 +1563,23 @@ button .loading-spinner {
   flex: 1 1 auto;
   display: flex;
   gap: 0.25rem;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow-x: auto;
   min-width: 0;
+  scrollbar-width: thin;
+}
+
+.settings-tabs::-webkit-scrollbar {
+  height: 4px;
+}
+
+.settings-tabs::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
 }
 
 .settings-tab {
-  flex: 1 1 auto;
-  min-width: min-content;
+  flex: 0 0 auto;
   padding: 0.45rem 0.75rem;
   background: transparent;
   color: var(--muted);
@@ -1580,6 +1591,7 @@ button .loading-spinner {
   align-items: center;
   justify-content: center;
   gap: 0.4rem;
+  white-space: nowrap;
 }
 
 .settings-tab-icon {
