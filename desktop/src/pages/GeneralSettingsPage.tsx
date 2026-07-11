@@ -9,6 +9,7 @@ interface GeneralSettingsPageProps {
   setGeneral: (value: GeneralSettings) => void;
   detectedLocale: string;
   onImport: (settings: ExportedSettings) => Promise<void>;
+  onToast: (message: string, kind: "success" | "error" | "info") => void;
 }
 
 export default function GeneralSettingsPage({
@@ -16,6 +17,7 @@ export default function GeneralSettingsPage({
   setGeneral,
   detectedLocale,
   onImport,
+  onToast,
 }: GeneralSettingsPageProps) {
   const { t, i18n } = useTranslation();
 
@@ -48,7 +50,7 @@ export default function GeneralSettingsPage({
 
     try {
       await exportSettings(path);
-      await message(t("export_success"), { title: t("export_settings"), kind: "info" });
+      onToast(t("export_success"), "success");
     } catch (err) {
       await message(t("error_export_failed", { message: String(err) }), {
         title: t("export_settings"),
@@ -92,7 +94,7 @@ export default function GeneralSettingsPage({
 
     try {
       await onImport(settings);
-      await message(t("import_success"), { title: t("import_settings"), kind: "info" });
+      onToast(t("import_success"), "success");
     } catch (err) {
       await message(t("error_import_failed", { message: String(err) }), {
         title: t("import_settings"),

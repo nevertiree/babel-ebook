@@ -122,6 +122,9 @@ test("translates a multi-chapter EPUB with Ollama and shows smooth progress", as
 
   // Capture the first width of the task progress bar after starting.
   await startButton.click();
+
+  // Navigate to the queue page to watch task progress.
+  await page.getByTestId("nav-tasks").click();
   await expect(page.getByTestId("task-list")).toBeVisible({ timeout: 10000 });
 
   const firstTask = page.getByTestId("task-item").first();

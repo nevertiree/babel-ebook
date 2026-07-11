@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import type { FormState } from "../types";
+import Tooltip from "../components/Tooltip";
 import {
   excludeSelectorExamples,
   outputModes,
@@ -128,9 +129,9 @@ export default function TranslationSettingsPage({
       <label>
         <span className="field-row">
           {t("exclude_selectors")}
-          <span className="field-info" data-tooltip={t("exclude_selectors_help")}>
-            ⓘ
-          </span>
+          <Tooltip content={t("exclude_selectors_help")}>
+            <span className="field-info" aria-hidden="true">ⓘ</span>
+          </Tooltip>
         </span>
         <input
           type="text"
@@ -150,9 +151,9 @@ export default function TranslationSettingsPage({
       <label>
         <span className="field-row">
           {t("translate_attributes")}
-          <span className="field-info" data-tooltip={t("translate_attributes_help")}>
-            ⓘ
-          </span>
+          <Tooltip content={t("translate_attributes_help")}>
+            <span className="field-info" aria-hidden="true">ⓘ</span>
+          </Tooltip>
         </span>
         <input
           type="text"

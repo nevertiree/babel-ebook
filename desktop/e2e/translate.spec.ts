@@ -76,18 +76,17 @@ test("translates a small EPUB and exercises queue controls and logs", async () =
 
   await startButton.click();
 
-  // Starting the translation now enqueues the task and navigates to the queue.
-  await expect(page.getByTestId("task-list")).toBeVisible({ timeout: 10000 });
-
-  // Wait for the dry-run task to complete.
-  const firstTask = page.getByTestId("task-item").first();
-  await expect(firstTask).toContainText(/completed|finished|token|estimated/i, {
-    timeout: 120000,
+  // Starting the translation now enqueues the task and stays on the translate page.
+  await expect(page.getByTestId("running-panel")).toBeVisible({ timeout: 10000 });
+  await expect(page.getByTestId("running-panel-message")).not.toHaveText(/Waiting for action.../i, {
+    timeout: 10000,
   });
 
-  // The task progress bar should be at 100% once the Completed event is received.
-  const progressFill = firstTask.locator(".progress-fill").first();
-  await expect(progressFill).toHaveAttribute("style", /width:\s*100%/);
+  // Wait for the dry-run task to complete.
+  const progressFill = page.getByTestId("running-panel-progress-fill");
+  await expect(progressFill).toHaveAttribute("style", /width:\s*100%/, {
+    timeout: 120000,
+  });
 
   await page.screenshot({ path: "output/e2e_translate_dryrun.png" });
 
@@ -99,8 +98,9 @@ test("translates a small EPUB and exercises queue controls and logs", async () =
 
   await page.screenshot({ path: "output/e2e_logs_after_translation.png" });
 
-  // Go back to the queue and exercise pause/start controls.
+  // Go to the queue and exercise pause/start controls.
   await page.getByTestId("nav-tasks").click();
+  await expect(page.getByTestId("task-list")).toBeVisible({ timeout: 10000 });
 
   const pauseButton = page.getByTestId("pause-queue");
   const startQueueButton = page.getByTestId("start-queue");

@@ -57,10 +57,11 @@ test("provider config name input keeps focus while typing", async () => {
     console.log(`[browser console] ${msg.type()}: ${msg.text()}`);
   });
 
-  // Navigate to compute settings.
-  const navButton = page.locator('nav button:has-text("Compute")');
-  await expect(navButton).toBeVisible({ timeout: 10000 });
-  await navButton.click();
+  // Navigate to settings and then the Providers tab.
+  await page.getByTestId("nav-settings").click();
+  const providersTab = page.locator('.settings-tab:has-text("Providers")');
+  await expect(providersTab).toBeVisible({ timeout: 10000 });
+  await providersTab.click();
 
   // Find the config name input.
   const nameInput = page.locator('.provider-name-label input').first();
