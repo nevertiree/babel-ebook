@@ -31,10 +31,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/nevertiree/babel-ebook/releases/latest/download/BabelEbook_0.1.0_x64-setup.exe">
+  <a href="https://github.com/nevertiree/babel-ebook/releases/download/v0.4.0/BabelEbook_0.4.0_x64-setup.exe">
     <img alt="Windows版をダウンロード" src="https://img.shields.io/badge/Windows-Download-blue?logo=windows&logoColor=white">
   </a>
-  <a href="https://github.com/nevertiree/babel-ebook/releases/latest/download/BabelEbook_0.1.0_amd64.AppImage">
+  <a href="https://github.com/nevertiree/babel-ebook/releases/download/v0.4.0/BabelEbook_0.4.0_amd64.AppImage">
     <img alt="Linux版をダウンロード" src="https://img.shields.io/badge/Linux-Download-orange?logo=linux&logoColor=white">
   </a>
 </p>
@@ -55,7 +55,7 @@
 
 ## スクリーンショット
 
-| メイン画面 | 計算設定 | 翻訳オプション |
+| メイン画面 | プロバイダー | 翻訳オプション |
 |-------------|------------------|---------------------|
 | ![メイン画面](assets/screenshots/01-translate.png) | ![計算設定](assets/screenshots/02-settings-compute.png) | ![翻訳オプション](assets/screenshots/03-settings-translation.png) |
 
@@ -117,7 +117,7 @@ Anthropic、およびローカルホストのOllamaに対応しています。
 
 1. [DeepSeekプラットフォーム](https://platform.deepseek.com/)にアクセスし、アカウントを作成してAPIキーを
    発行してください。
-2. BabelEbookを開き、**設定** → **計算**を選択してください。
+2. BabelEbookを開き、**設定** → **プロバイダー**を選択してください。
 3. プロバイダーに`DeepSeek`を選択し、APIキーを入力してください。
 4. **接続テスト**をクリックして接続を確認してください。
 
@@ -135,7 +135,7 @@ Anthropic、およびローカルホストのOllamaに対応しています。
 
 | 設定項目 | 説明 |
 |---------|-------------|
-| プロバイダー / API | 使用するLLMベンダーとAPIキーを選択・入力します。 |
+| プロバイダー | 使用するLLMベンダーとAPIキーを選択・入力します。 |
 | ターゲット言語 | 翻訳先の言語です。例：`zh-CN`、`en`、`ja`など。 |
 | 出力モード | `bilingual`（原文＋訳文）、`translation_only`（訳文のみ）、`interleaved`（段落を交互に配置）。 |
 | 並列数 | 同時に翻訳する章の数です。値が大きいほど速くなりますが、コストも増えます。 |
