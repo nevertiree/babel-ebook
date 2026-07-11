@@ -18,10 +18,20 @@ mod queue;
 mod task;
 
 #[cfg(not(test))]
+use std::sync::Arc;
+
+#[cfg(not(test))]
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
 #[cfg(not(test))]
-use crate::queue::QueueManager;
+use tauri_plugin_store::StoreExt;
+
+#[cfg(not(test))]
+#[cfg(not(test))]
+use crate::queue::{QueueManager, QueueStore, TauriTaskStore};
+
+#[cfg(not(test))]
+use babel_ebook::TranslationWorker;
 
 #[cfg(not(test))]
 // `tauri::generate_context!()` expands to a large static struct that triggers
@@ -45,9 +55,19 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_fs::init())
         .setup(|app| {
-            let queue = QueueManager::new();
-            queue.clone().spawn_worker(app.handle().clone());
+            let store = app
+                .store_builder("queue.json")
+                .disable_auto_save()
+                .build()?;
+            let queue_store: Arc<dyn QueueStore> = Arc::new(TauriTaskStore::new(store));
+            let worker =
+                Arc::new(TranslationWorker::new().map_err(|e| format!("spawn worker: {e}"))?);
+            let queue = QueueManager::with_store(queue_store);
+            queue
+                .clone()
+                .spawn_worker(app.handle().clone(), worker.clone());
             app.manage(queue);
+            app.manage(worker);
 
             let mut builder =
                 WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
@@ -93,11 +113,12 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use std::path::{Path, PathBuf};
+    use std::sync::Arc;
 
-    use babel_ebook::{write_epub, Chapter, EpubBook, EpubMetadata};
+    use babel_ebook::{write_epub, Chapter, EpubBook, EpubMetadata, TranslationWorker};
 
     use crate::args::TranslateArgs;
-    use crate::commands::{get_app_version, translate_epub_internal};
+    use crate::commands::{get_app_version, run_translation};
 
     fn create_sample_fixture(dir: &std::path::Path) -> PathBuf {
         let path = dir.join("sample.epub");
@@ -178,7 +199,8 @@ mod tests {
         let source = create_sample_fixture(temp_dir.path());
         let output = temp_dir.path().join("desktop_test.epub");
         let args = sample_translate_args(&source, &output);
-        let result = translate_epub_internal(args, None).await;
+        let worker = Arc::new(TranslationWorker::new().expect("spawn worker"));
+        let result = run_translation(args, None, None, &worker).await;
         assert!(result.is_ok(), "{result:?}");
         let text = result.unwrap().to_lowercase();
         assert!(text.contains("estimated source tokens"));
@@ -207,14 +229,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn translate_epub_internal_rejects_zero_concurrency() {
+    async fn translate_command_rejects_zero_concurrency() {
         let temp_dir = tempfile::tempdir().expect("create temp dir");
         let source = create_sample_fixture(temp_dir.path());
         let output = temp_dir.path().join("out.epub");
         let mut args = sample_translate_args(&source, &output);
         args.concurrency = 0;
         args.api_key = "test-key".to_string();
-        let err = translate_epub_internal(args, None).await.unwrap_err();
+        let worker = Arc::new(TranslationWorker::new().expect("spawn worker"));
+        let err = run_translation(args, None, None, &worker)
+            .await
+            .unwrap_err();
         assert!(err.contains("concurrency must be greater than 0"));
     }
 }

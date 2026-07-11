@@ -74,7 +74,6 @@
   "model_custom_placeholder": "Enter model name",
   "model_list_error": "Could not load model list",
   "api_key_format_hint": "This key doesn't match the expected format for the selected provider.",
-  "remember_api_key": "Remember API key securely",
   "exclude_selectors_help": "CSS selectors for elements that should not be translated (e.g. code blocks).",
   "translate_attributes_help": "HTML attributes whose values should also be translated.",
   "concurrency_help": "LLM に同時に送信する章翻訳リクエストの数。値を大きくすると全体的に速くなりますが、トークン消費が増え、レート制限にかかる可能性があります。",

@@ -1,8 +1,11 @@
 use async_trait::async_trait;
 use babel_ebook::config::OutputMode;
 use babel_ebook::html::{process_document, translate_text};
-use babel_ebook::{Config, TranslateContext, TranslationCache, Translator};
+use babel_ebook::{
+    BabelEbookError, CancellationToken, Config, TranslateContext, TranslationCache, Translator,
+};
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use tempfile::TempDir;
 
 /// A fake translator that wraps text with a marker.
@@ -76,9 +79,18 @@ async fn translate_text_translates_and_caches() {
     let (_dir, cache) = test_cache();
     let config = test_config();
 
-    let result = translate_text("hello world", &FakeTranslator, &config, &cache, 0, "", None)
-        .await
-        .expect("translation should succeed");
+    let result = translate_text(
+        "hello world",
+        &FakeTranslator,
+        &config,
+        &cache,
+        0,
+        "",
+        None,
+        None,
+    )
+    .await
+    .expect("translation should succeed");
     assert_eq!(result, "[ZH] hello world");
 
     let cached = cache.get("fake", "hello world");
@@ -98,6 +110,7 @@ async fn process_document_translates_headings_and_paragraphs() {
         &cache,
         0,
         "",
+        None,
         None,
     )
     .await
@@ -140,6 +153,7 @@ async fn process_document_skips_code_blocks() {
         0,
         "",
         None,
+        None,
     )
     .await
     .expect("processing should succeed");
@@ -170,6 +184,7 @@ async fn process_document_adds_lang_attributes() {
         0,
         "",
         None,
+        None,
     )
     .await
     .expect("processing should succeed");
@@ -193,6 +208,7 @@ async fn process_document_skips_short_text_and_single_cjk_char() {
         &cache,
         0,
         "",
+        None,
         None,
     )
     .await
@@ -230,6 +246,7 @@ async fn process_document_skips_nested_translatable_children() {
         0,
         "",
         None,
+        None,
     )
     .await
     .expect("processing should succeed");
@@ -266,6 +283,7 @@ async fn process_document_ignores_skipped_descendants_when_checking_children() {
         0,
         "",
         None,
+        None,
     )
     .await
     .expect("processing should succeed");
@@ -296,6 +314,7 @@ async fn process_document_handles_list_items() {
         &cache,
         0,
         "",
+        None,
         None,
     )
     .await
@@ -329,6 +348,7 @@ async fn translation_only_replaces_original() {
         0,
         "",
         None,
+        None,
     )
     .await
     .unwrap();
@@ -352,6 +372,7 @@ async fn exclude_selector_skips_matching_element() {
         &cache,
         0,
         "",
+        None,
         None,
     )
     .await
@@ -386,6 +407,7 @@ async fn translate_attributes_translates_configured_attributes() {
         &cache,
         0,
         "",
+        None,
         None,
     )
     .await
@@ -426,6 +448,7 @@ async fn exclude_selector_skips_attributes() {
         0,
         "",
         None,
+        None,
     )
     .await
     .unwrap();
@@ -459,6 +482,7 @@ async fn short_attribute_values_are_not_translated() {
         0,
         "",
         None,
+        None,
     )
     .await
     .unwrap();
@@ -490,6 +514,7 @@ async fn process_document_interleaved_paragraph() {
         &cache,
         0,
         "",
+        None,
         None,
     )
     .await
@@ -524,6 +549,7 @@ async fn translation_scope_body_false_skips_paragraphs() {
         0,
         "",
         None,
+        None,
     )
     .await
     .expect("processing should succeed");
@@ -552,6 +578,7 @@ async fn translation_scope_alt_text_false_skips_alt_attributes() {
         &cache,
         0,
         "",
+        None,
         None,
     )
     .await
@@ -585,6 +612,7 @@ async fn exclude_selector_protects_descendants() {
         0,
         "",
         None,
+        None,
     )
     .await
     .unwrap();
@@ -617,6 +645,7 @@ async fn preserve_classes_copies_original_class() {
         0,
         "",
         None,
+        None,
     )
     .await
     .unwrap();
@@ -640,9 +669,18 @@ async fn refine_false_returns_first_pass_only() {
     let config = test_config();
     assert!(!config.refine);
 
-    let result = translate_text("hello world", &FakeTranslator, &config, &cache, 0, "", None)
-        .await
-        .expect("translation should succeed");
+    let result = translate_text(
+        "hello world",
+        &FakeTranslator,
+        &config,
+        &cache,
+        0,
+        "",
+        None,
+        None,
+    )
+    .await
+    .expect("translation should succeed");
     assert_eq!(result, "[ZH] hello world");
 }
 
@@ -652,9 +690,18 @@ async fn refine_true_applies_second_pass() {
     let mut config = test_config();
     config.refine = true;
 
-    let result = translate_text("hello world", &FakeTranslator, &config, &cache, 0, "", None)
-        .await
-        .expect("translation should succeed");
+    let result = translate_text(
+        "hello world",
+        &FakeTranslator,
+        &config,
+        &cache,
+        0,
+        "",
+        None,
+        None,
+    )
+    .await
+    .expect("translation should succeed");
     assert_eq!(result, "[ZH] [ZH] hello world");
 }
 
@@ -664,9 +711,18 @@ async fn refine_pass_is_cached() {
     let mut config = test_config();
     config.refine = true;
 
-    let result = translate_text("hello world", &FakeTranslator, &config, &cache, 0, "", None)
-        .await
-        .expect("translation should succeed");
+    let result = translate_text(
+        "hello world",
+        &FakeTranslator,
+        &config,
+        &cache,
+        0,
+        "",
+        None,
+        None,
+    )
+    .await
+    .expect("translation should succeed");
     assert_eq!(result, "[ZH] [ZH] hello world");
 
     let cached = cache.get("fake-refine", "[ZH] hello world");
@@ -693,6 +749,7 @@ async fn process_document_injects_output_font_css() {
         0,
         "",
         None,
+        None,
     )
     .await
     .unwrap();
@@ -702,5 +759,222 @@ async fn process_document_injects_output_font_css() {
         s.contains("body { font-family: 'Noto Serif', serif; }"),
         "font CSS should be injected: {}",
         s
+    );
+}
+
+#[tokio::test]
+async fn process_document_uses_configured_source_lang_bilingual() {
+    let (_dir, cache) = test_cache();
+    let mut config = test_config();
+    config.source_lang = "fr".into();
+    let html = r#"<html><body><p>Bonjour.</p></body></html>"#;
+
+    let out = process_document(
+        html.as_bytes(),
+        &FakeTranslator,
+        &config,
+        &cache,
+        0,
+        "",
+        None,
+        None,
+    )
+    .await
+    .expect("processing should succeed");
+    let s = String::from_utf8(out).unwrap();
+
+    assert!(
+        s.contains(r#"<p lang="fr">Bonjour.</p>"#),
+        "original paragraph should use configured source lang: {}",
+        s
+    );
+    assert!(
+        s.contains(r#"<p lang="zh-CN">[ZH] Bonjour.</p>"#),
+        "translated paragraph should use target lang: {}",
+        s
+    );
+}
+
+#[tokio::test]
+async fn process_document_uses_configured_source_lang_interleaved() {
+    let (_dir, cache) = test_cache();
+    let mut config = test_config();
+    config.source_lang = "fr".into();
+    config.output_mode = OutputMode::Interleaved;
+    let html = r#"<html><body><p>Bonjour.</p></body></html>"#;
+
+    let out = process_document(
+        html.as_bytes(),
+        &FakeTranslator,
+        &config,
+        &cache,
+        0,
+        "",
+        None,
+        None,
+    )
+    .await
+    .expect("processing should succeed");
+    let s = String::from_utf8(out).unwrap();
+
+    assert!(
+        s.contains(r#"<p lang="fr">Bonjour.</p>"#),
+        "original clone should use configured source lang: {}",
+        s
+    );
+    assert!(
+        s.contains(r#"<p lang="zh-CN">[ZH] Bonjour.</p>"#),
+        "translated paragraph should use target lang: {}",
+        s
+    );
+}
+
+#[tokio::test]
+async fn process_document_uses_configured_source_lang_li() {
+    let (_dir, cache) = test_cache();
+    let mut config = test_config();
+    config.source_lang = "fr".into();
+    let html = r#"<html><body><ul><li>Bonjour</li></ul></body></html>"#;
+
+    let out = process_document(
+        html.as_bytes(),
+        &FakeTranslator,
+        &config,
+        &cache,
+        0,
+        "",
+        None,
+        None,
+    )
+    .await
+    .expect("processing should succeed");
+    let s = String::from_utf8(out).unwrap();
+
+    assert!(
+        s.contains(r#"<li class="bilingual-li" lang="fr">"#),
+        "original li should use configured source lang: {}",
+        s
+    );
+    assert!(
+        s.contains(r#"<p lang="zh-CN">[ZH] Bonjour</p>"#),
+        "translated li paragraph should use target lang: {}",
+        s
+    );
+}
+
+/// Translator that records every chunk it sees and cancels the token after the
+/// first chunk starts translating.
+struct CancellingTranslator {
+    cancellation: CancellationToken,
+    translated: Arc<Mutex<Vec<String>>>,
+}
+
+#[async_trait]
+impl Translator for CancellingTranslator {
+    fn name(&self) -> String {
+        "cancelling".into()
+    }
+
+    fn max_output_tokens(&self) -> usize {
+        2000
+    }
+
+    async fn translate(
+        &self,
+        text: &str,
+        _context: &TranslateContext<'_>,
+    ) -> Result<String, babel_ebook::BabelEbookError> {
+        let mut lock = self.translated.lock().unwrap();
+        lock.push(text.to_string());
+        let is_first = lock.len() == 1;
+        drop(lock);
+        if is_first {
+            self.cancellation.cancel();
+        }
+        Ok(format!("[ZH] {}", text))
+    }
+}
+
+#[tokio::test]
+async fn translate_text_stops_between_chunks_when_cancelled() {
+    let (_dir, cache) = test_cache();
+    let mut config = test_config();
+    // Force the text into multiple chunks.
+    config.max_input_tokens = 15;
+    config.max_output_tokens = 15;
+
+    let cancellation = CancellationToken::default();
+    let translated = Arc::new(Mutex::new(Vec::new()));
+    let translator = CancellingTranslator {
+        cancellation: cancellation.clone(),
+        translated: Arc::clone(&translated),
+    };
+
+    let text = "This is sentence one. This is sentence two. This is sentence three.";
+    let result = translate_text(
+        text,
+        &translator,
+        &config,
+        &cache,
+        0,
+        "",
+        None,
+        Some(&cancellation),
+    )
+    .await;
+
+    assert!(
+        matches!(result, Err(BabelEbookError::Cancelled)),
+        "expected cancellation error, got {:?}",
+        result
+    );
+    let seen = translated.lock().unwrap();
+    assert_eq!(
+        seen.len(),
+        1,
+        "only the first chunk should be translated, got {:?}",
+        seen
+    );
+}
+
+#[tokio::test]
+async fn process_document_stops_between_chunks_when_cancelled() {
+    let (_dir, cache) = test_cache();
+    let mut config = test_config();
+    // Force the paragraph text into multiple chunks.
+    config.max_input_tokens = 15;
+    config.max_output_tokens = 15;
+
+    let cancellation = CancellationToken::default();
+    let translated = Arc::new(Mutex::new(Vec::new()));
+    let translator = CancellingTranslator {
+        cancellation: cancellation.clone(),
+        translated: Arc::clone(&translated),
+    };
+
+    let html = r#"<html><body><p>This is sentence one. This is sentence two. This is sentence three.</p></body></html>"#;
+    let result = process_document(
+        html.as_bytes(),
+        &translator,
+        &config,
+        &cache,
+        0,
+        "",
+        None,
+        Some(&cancellation),
+    )
+    .await;
+
+    assert!(
+        matches!(result, Err(BabelEbookError::Cancelled)),
+        "expected cancellation error, got {:?}",
+        result
+    );
+    let seen = translated.lock().unwrap();
+    assert_eq!(
+        seen.len(),
+        1,
+        "only the first chunk should be translated, got {:?}",
+        seen
     );
 }

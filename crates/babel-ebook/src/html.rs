@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use crate::cache::TranslationCache;
 use crate::chunking::{count_tokens, split_text_chunks};
 use crate::config::{Config, OutputMode, TranslationScope};
-use crate::core::BabelEbookError;
+use crate::core::{BabelEbookError, CancellationToken};
 use crate::translator::{TranslateContext, Translator};
 use kuchiki::traits::TendrilSink;
 use kuchiki::{Attribute, ExpandedName, NodeRef};
@@ -27,6 +27,7 @@ fn is_translatable_text(text: &str) -> bool {
 /// Mirrors the Python implementation: checks the cache, splits oversized text
 /// into chunks, translates each chunk, caches results, and joins them with a
 /// single space after normalising internal newlines.
+#[allow(clippy::too_many_arguments)]
 #[allow(clippy::too_many_lines)]
 pub async fn translate_text(
     text: &str,
@@ -36,11 +37,12 @@ pub async fn translate_text(
     chapter_index: usize,
     chapter_href: &str,
     progress: Option<&dyn crate::core::ProgressCallback>,
+    cancellation: Option<&CancellationToken>,
 ) -> Result<String, BabelEbookError> {
     // First pass. When refinement is disabled we can return a cached full-text
     // result immediately; otherwise the cached translation still needs to be
     // polished.
-    let first_pass = if let Some(cached) = cache.get(&translator.name(), text) {
+    let first_pass = if let Some(cached) = cache.get_async(&translator.name(), text).await {
         if !config.refine {
             return Ok(cached);
         }
@@ -54,6 +56,9 @@ pub async fn translate_text(
         let chunk_total = chunks.len();
         let mut translated_parts = Vec::with_capacity(chunk_total);
         for (chunk_index, chunk) in chunks.iter().enumerate() {
+            if cancellation.is_some_and(CancellationToken::is_cancelled) {
+                return Err(BabelEbookError::Cancelled);
+            }
             emit_chunk_progress(
                 progress,
                 chapter_index,
@@ -62,7 +67,7 @@ pub async fn translate_text(
                 chunk_total,
                 false,
             );
-            if let Some(cached) = cache.get(&translator.name(), chunk) {
+            if let Some(cached) = cache.get_async(&translator.name(), chunk).await {
                 translated_parts.push(cached);
                 emit_chunk_progress(
                     progress,
@@ -81,7 +86,9 @@ pub async fn translate_text(
             };
             let result = translator.translate(chunk, &context).await?;
             let tokens = count_tokens(chunk) + count_tokens(&result);
-            cache.put(&translator.name(), chunk, &result, Some(tokens));
+            cache
+                .put_async(&translator.name(), chunk, &result, Some(tokens))
+                .await;
             translated_parts.push(result);
             emit_chunk_progress(
                 progress,
@@ -104,10 +111,6 @@ pub async fn translate_text(
         return Ok(first_pass);
     }
 
-    if !config.refine {
-        return Ok(first_pass);
-    }
-
     // Optional second-pass refinement using a separate cache namespace. Refine
     // progress is not reported as chunks because the number of refine chunks is
     // not known until the first pass completes; keeping chapter progress tied to
@@ -120,7 +123,10 @@ pub async fn translate_text(
     let chunks = split_text_chunks(&first_pass, max_refine_source);
     let mut refined_parts = Vec::with_capacity(chunks.len());
     for chunk in &chunks {
-        if let Some(cached) = cache.get(&refine_name, chunk) {
+        if cancellation.is_some_and(CancellationToken::is_cancelled) {
+            return Err(BabelEbookError::Cancelled);
+        }
+        if let Some(cached) = cache.get_async(&refine_name, chunk).await {
             refined_parts.push(cached);
             continue;
         }
@@ -131,7 +137,9 @@ pub async fn translate_text(
         };
         let result = translator.translate(chunk, &context).await?;
         let tokens = count_tokens(chunk) + count_tokens(&result);
-        cache.put(&refine_name, chunk, &result, Some(tokens));
+        cache
+            .put_async(&refine_name, chunk, &result, Some(tokens))
+            .await;
         refined_parts.push(result);
     }
 
@@ -158,6 +166,7 @@ struct ChapterChunkAdapter<'a> {
     href: String,
     total_chunks: usize,
     next_chunk: AtomicUsize,
+    cancellation: Option<&'a CancellationToken>,
 }
 
 impl crate::core::ProgressCallback for ChapterChunkAdapter<'_> {
@@ -246,6 +255,7 @@ fn count_translatable_chunks(
 /// The returned future is not `Send` because `kuchiki` uses `Rc` internally.
 /// Callers that need a `Send` future should run the work on a local runtime.
 #[allow(clippy::future_not_send)]
+#[allow(clippy::too_many_arguments)]
 pub async fn process_document(
     html: &[u8],
     translator: &dyn Translator,
@@ -254,6 +264,7 @@ pub async fn process_document(
     chapter_index: usize,
     chapter_href: &str,
     progress: Option<&dyn crate::core::ProgressCallback>,
+    cancellation: Option<&CancellationToken>,
 ) -> Result<Vec<u8>, BabelEbookError> {
     let html_str = std::str::from_utf8(html)
         .map_err(|e| BabelEbookError::Configuration(format!("invalid UTF-8 HTML: {e}")))?;
@@ -291,10 +302,18 @@ pub async fn process_document(
         href: chapter_href.to_string(),
         total_chunks,
         next_chunk: AtomicUsize::new(0),
+        cancellation,
     });
     let chapter_progress = adapter
         .as_ref()
         .map(|a| a as &dyn crate::core::ProgressCallback);
+    // The adapter holds the token so that process_document can forward it
+    // through the progress-callback path; fall back to the direct parameter
+    // for callers that do not supply a progress callback.
+    let chapter_cancellation = adapter
+        .as_ref()
+        .and_then(|a| a.cancellation)
+        .or(cancellation);
 
     for element in elements {
         let node = element.as_node();
@@ -315,6 +334,7 @@ pub async fn process_document(
             chapter_index,
             chapter_href,
             chapter_progress,
+            chapter_cancellation,
         )
         .await?;
     }
@@ -362,6 +382,7 @@ fn node_ptr(node: &NodeRef) -> *const kuchiki::Node {
 
 /// Translate the text and configured attributes of a single element.
 #[allow(clippy::future_not_send)]
+#[allow(clippy::too_many_arguments)]
 async fn translate_element_text_and_attributes(
     element: &kuchiki::NodeDataRef<kuchiki::ElementData>,
     translator: &dyn Translator,
@@ -370,6 +391,7 @@ async fn translate_element_text_and_attributes(
     chapter_index: usize,
     chapter_href: &str,
     progress: Option<&dyn crate::core::ProgressCallback>,
+    cancellation: Option<&CancellationToken>,
 ) -> Result<(), BabelEbookError> {
     let node = element.as_node();
     let tag_name = element.name.local.as_ref();
@@ -385,6 +407,7 @@ async fn translate_element_text_and_attributes(
                 chapter_index,
                 chapter_href,
                 progress,
+                cancellation,
             )
             .await
             .map_err(|err| {
@@ -394,11 +417,17 @@ async fn translate_element_text_and_attributes(
 
             if !translated.is_empty() {
                 let target_lang = &config.target_lang;
+                let source_lang = if config.source_lang == "auto" {
+                    "en"
+                } else {
+                    config.source_lang.as_str()
+                };
                 if tag_name == "li" {
                     insert_li_translation(
                         node,
                         &translated,
                         target_lang,
+                        source_lang,
                         config.output_mode,
                         config.preserve_classes,
                     );
@@ -408,6 +437,7 @@ async fn translate_element_text_and_attributes(
                         &element.name,
                         &translated,
                         target_lang,
+                        source_lang,
                         config.output_mode,
                         config.preserve_classes,
                     );
@@ -432,6 +462,7 @@ async fn translate_element_text_and_attributes(
                     chapter_index,
                     chapter_href,
                     progress,
+                    cancellation,
                 )
                 .await
                 .map_err(|err| {
@@ -549,6 +580,7 @@ fn insert_generic_translation(
     name: &QualName,
     translated: &str,
     target_lang: &str,
+    source_lang: &str,
     mode: OutputMode,
     preserve_classes: bool,
 ) {
@@ -564,7 +596,7 @@ fn insert_generic_translation(
         OutputMode::Bilingual => {
             // Translated element first, original element second.
             node.insert_before(translated_element);
-            set_lang(node, "en");
+            set_lang(node, source_lang);
         }
         OutputMode::TranslationOnly => {
             // Replace the original element with the translated element.
@@ -577,7 +609,7 @@ fn insert_generic_translation(
             if preserve_classes {
                 copy_element_attributes(node, &original_clone);
             }
-            set_lang(&original_clone, "en");
+            set_lang(&original_clone, source_lang);
             // Insert original_clone first, then translated, then remove the original.
             node.insert_before(original_clone);
             node.insert_before(translated_element);
@@ -593,6 +625,7 @@ fn insert_li_translation(
     node: &NodeRef,
     translated: &str,
     target_lang: &str,
+    source_lang: &str,
     mode: OutputMode,
     preserve_classes: bool,
 ) {
@@ -614,7 +647,7 @@ fn insert_li_translation(
                 };
                 attrs.insert("class", new_class);
             }
-            set_lang(node, "en");
+            set_lang(node, source_lang);
         }
         OutputMode::TranslationOnly => {
             // Replace the original content with the translated text.
@@ -631,7 +664,7 @@ fn insert_li_translation(
             translated_p.append(NodeRef::new_text(translated));
             set_lang(&translated_p, target_lang);
             node.append(translated_p);
-            set_lang(node, "en");
+            set_lang(node, source_lang);
         }
     }
 }
