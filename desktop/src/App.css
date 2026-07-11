@@ -180,6 +180,16 @@ body {
 }
 
 nav {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 0.75rem;
+  overflow-y: auto;
+}
+
+.nav-group-top,
+.nav-group-bottom {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
@@ -1534,20 +1544,31 @@ button .loading-spinner {
   margin-top: 0.5rem;
 }
 
-.settings-layout h2 {
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
   margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.settings-header h2 {
+  margin: 0;
+  flex-shrink: 0;
 }
 
 .settings-tabs {
+  flex: 1 1 auto;
   display: flex;
   gap: 0.25rem;
   flex-wrap: wrap;
-  margin-bottom: 1rem;
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 0.5rem;
+  min-width: 0;
 }
 
 .settings-tab {
+  flex: 1 1 auto;
+  min-width: min-content;
   padding: 0.45rem 0.75rem;
   background: transparent;
   color: var(--muted);
@@ -1557,6 +1578,7 @@ button .loading-spinner {
   font-weight: 500;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 0.4rem;
 }
 

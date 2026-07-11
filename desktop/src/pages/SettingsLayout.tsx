@@ -22,22 +22,24 @@ export default function SettingsLayout({ activePage, onNavigate, children }: Set
 
   return (
     <div className="page settings-layout">
-      <h2>{t("nav_settings")}</h2>
-      <nav className="settings-tabs" role="tablist" aria-label={t("nav_settings")}>
-        {settingsTabs.map(({ page, labelKey, icon }) => (
-          <button
-            key={page}
-            type="button"
-            role="tab"
-            aria-selected={activePage === page}
-            className={`settings-tab ${activePage === page ? "active" : ""}`}
-            onClick={() => onNavigate(page)}
-          >
-            <SettingsTabIcon icon={icon} className="settings-tab-icon" />
-            {t(labelKey)}
-          </button>
-        ))}
-      </nav>
+      <div className="settings-header">
+        <h2>{t("nav_settings")}</h2>
+        <nav className="settings-tabs" role="tablist" aria-label={t("nav_settings")}>
+          {settingsTabs.map(({ page, labelKey, icon }) => (
+            <button
+              key={page}
+              type="button"
+              role="tab"
+              aria-selected={activePage === page}
+              className={`settings-tab ${activePage === page ? "active" : ""}`}
+              onClick={() => onNavigate(page)}
+            >
+              <SettingsTabIcon icon={icon} className="settings-tab-icon" />
+              {t(labelKey)}
+            </button>
+          ))}
+        </nav>
+      </div>
       <div className="settings-tab-panel" role="tabpanel">
         {children}
       </div>

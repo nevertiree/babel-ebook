@@ -854,54 +854,58 @@ function App() {
         </div>
 
         <nav>
-          <button
-            type="button"
-            className={`nav-item ${page === "translate" ? "active" : ""}`}
-            onClick={() => setPage("translate")}
-            data-testid="nav-translate"
-          >
-            {t("nav_translate")}
-          </button>
+          <div className="nav-group-top">
+            <button
+              type="button"
+              className={`nav-item ${page === "translate" ? "active" : ""}`}
+              onClick={() => setPage("translate")}
+              data-testid="nav-translate"
+            >
+              {t("nav_translate")}
+            </button>
 
-          <button
-            type="button"
-            className={`nav-item ${page === "logs" ? "active" : ""}`}
-            onClick={() => setPage("logs")}
-            data-testid="nav-logs"
-          >
-            {t("nav_logs")}
-          </button>
+            <button
+              type="button"
+              className={`nav-item ${page === "logs" ? "active" : ""}`}
+              onClick={() => setPage("logs")}
+              data-testid="nav-logs"
+            >
+              {t("nav_logs")}
+            </button>
 
-          <button
-            type="button"
-            className={`nav-item ${page === "tasks" ? "active" : ""}`}
-            onClick={() => setPage("tasks")}
-            data-testid="nav-tasks"
-          >
-            <span className="nav-item-label">{t("nav_tasks")}</span>
-            {runningTaskCount > 0 && (
-              <span className="nav-badge" aria-label={t("task_status_running")}>
-                {runningTaskCount}
-              </span>
-            )}
-          </button>
+            <button
+              type="button"
+              className={`nav-item ${page === "tasks" ? "active" : ""}`}
+              onClick={() => setPage("tasks")}
+              data-testid="nav-tasks"
+            >
+              <span className="nav-item-label">{t("nav_tasks")}</span>
+              {runningTaskCount > 0 && (
+                <span className="nav-badge" aria-label={t("task_status_running")}>
+                  {runningTaskCount}
+                </span>
+              )}
+            </button>
+          </div>
 
-          <button
-            type="button"
-            className={`nav-item ${page.startsWith("settings-") ? "active" : ""}`}
-            onClick={() => setPage("settings-compute")}
-            data-testid="nav-settings"
-          >
-            {t("nav_settings")}
-          </button>
+          <div className="nav-group-bottom">
+            <button
+              type="button"
+              className={`nav-item ${page.startsWith("settings-") ? "active" : ""}`}
+              onClick={() => setPage("settings-compute")}
+              data-testid="nav-settings"
+            >
+              {t("nav_settings")}
+            </button>
 
-          <button
-            type="button"
-            className={`nav-item ${page === "about" ? "active" : ""}`}
-            onClick={() => setPage("about")}
-          >
-            {t("nav_about")}
-          </button>
+            <button
+              type="button"
+              className={`nav-item ${page === "about" ? "active" : ""}`}
+              onClick={() => setPage("about")}
+            >
+              {t("nav_about")}
+            </button>
+          </div>
         </nav>
       </aside>
 
