@@ -178,6 +178,25 @@ export default function TranslatePage({
     // Reload when a translation run finishes so newly created checkpoints appear.
   }, [form.checkpoint_dir, form.source, form.resume]);
 
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Enter" || !event.ctrlKey) return;
+      const active = document.activeElement;
+      if (
+        active instanceof HTMLInputElement ||
+        active instanceof HTMLTextAreaElement ||
+        active instanceof HTMLSelectElement
+      ) {
+        return;
+      }
+      if (!validation.valid) return;
+      event.preventDefault();
+      onStart();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [validation.valid, onStart]);
+
   const selectSource = async () => {
     const path = await open({
       filters: [
