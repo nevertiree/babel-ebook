@@ -191,7 +191,10 @@ code is merged directly into `master`.
    If the tag was created on `develop` (e.g. during a hotfix or small patch), this
    step is still required.
 6. Run `pnpm release:build` on the tag commit.
-7. Merge `master` back into `develop` so both branches carry the version bump.
+7. Create the GitHub Release with the title format **`BabelEbook v<x.y.z>`**.
+   Do not use bare version strings like `v0.3.0`; the title must match the
+   existing release list style. Upload the artifacts from `release/v<x.y.z>/`.
+8. Merge `master` back into `develop` so both branches carry the version bump.
 
 ## Security & Secrets
 
