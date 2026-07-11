@@ -14,7 +14,9 @@ BabelEbook 桌面应用的功能骨架已经相当完整：多供应商配置、
 1. **关键反馈缺失**：主流程中的必填校验错误（尤其是 API Key）未在前端可视化呈现，用户会在“开始翻译”按钮被禁用的情况下找不到原因。
 2. **流程断裂**：点击“开始翻译”后界面立即跳转到任务队列页，导致翻译页上的进度条与日志面板被架空，用户需要在两个页面之间来回切换才能掌握状态。
 3. **配置入口过载**：供应商管理、模型参数、翻译选项、输出选项被平铺在侧边栏的 6 个设置页中，新用户难以建立“我要先做什么”的心智模型。
-4. **半成品痕迹明显**：CSS 中残留 `summary-card`、`dry-run-toggle`、`connection-status`、`next-step` 等未使用样式；`add_to_queue`、`use_recommended_model` 等多语言键也未在 UI 中落地。
+4. **半成品痕迹明显**：CSS 中残留 `summary-card`、`dry-run-toggle`、
+   `connection-status`、`next-step` 等未使用样式；`add_to_queue`、
+   `use_recommended_model` 等多语言键也未在 UI 中落地。
 5. **无障碍与专业感不足**：显示/隐藏 API Key 使用 emoji（🙈/👁），工具提示依赖 CSS 伪元素，数字输入框仅靠 `min/max` 原生属性约束，缺少即时校验反馈。
 
 ## 3. 详细发现
@@ -25,7 +27,9 @@ BabelEbook 桌面应用的功能骨架已经相当完整：多供应商配置、
 
 - **严重度**：高
 - **位置**：`desktop/src/App.tsx:469-491`（校验逻辑）、`desktop/src/pages/TranslatePage.tsx:306-323`（错误渲染）
-- **问题**：`validation` 对象同时计算了 `errors.source`、`errors.output`、`errors.api_key` 和 `reason`，但 `TranslatePage` 只渲染了 `source` 与 `output` 两个内联错误。`api_key` 缺失时“开始翻译”按钮会被禁用，但用户看不到任何提示说明为何按钮不可用；`reason` 字段完全未被消费。
+- **问题**：`validation` 对象同时计算了 `errors.source`、`errors.output`、`errors.api_key` 和 `reason`，
+  但 `TranslatePage` 只渲染了 `source` 与 `output` 两个内联错误。`api_key` 缺失时“开始翻译”按钮会被禁用，
+  但用户看不到任何提示说明为何按钮不可用；`reason` 字段完全未被消费。
 - **影响**：首次使用必须手动去“Compute”设置里填写 API Key，但回到翻译页后没有任何引导；用户容易误以为应用崩溃。
 - **优化建议**：
   1. 在翻译页顶部或 CTA 区域统一展示“当前无法开始的阻塞原因”。
@@ -57,7 +61,10 @@ BabelEbook 桌面应用的功能骨架已经相当完整：多供应商配置、
 
 - **严重度**：高
 - **位置**：`desktop/src/pages/ComputeSettingsPage.tsx:145-263`
-- **问题**：每个供应商卡片在一行内堆叠了：供应商类型、配置名称、API Key、自定义 Base URL 开关、测试连接按钮、设为当前按钮、删除按钮。所有元素挤在 `provider-row compact` 中，宽度被硬编码为 `120px`、`180px`、`260px` 等，窗口缩小时会溢出或截断。用户需要理解“配置名称”与“供应商类型”的区别，还要手动点击“设为当前”才能生效。
+- **问题**：每个供应商卡片在一行内堆叠了：供应商类型、配置名称、API Key、自定义 Base URL 开关、
+  测试连接按钮、设为当前按钮、删除按钮。所有元素挤在 `provider-row compact` 中，宽度被硬编码为
+  `120px`、`180px`、`260px` 等，窗口缩小时会溢出或截断。用户需要理解“配置名称”与“供应商类型”的区别，
+  还要手动点击“设为当前”才能生效。
 - **影响**：配置成本高；用户可能填了 Key 但没点“设为当前”，导致翻译时使用的是旧供应商。
 - **优化建议**：
   1. 将“当前使用”改为单选逻辑，默认最后一个被编辑/新增的供应商为当前，或在翻译页直接展示当前供应商卡片并提供快捷切换。
@@ -73,13 +80,16 @@ BabelEbook 桌面应用的功能骨架已经相当完整：多供应商配置、
 
 - **严重度**：高
 - **位置**：`desktop/src/App.tsx:275-282`、`desktop/src/pages/TranslatePage.tsx:290-297`
-- **问题**：全新安装时应用会自动 seed 一个 `deepseek` 供应商，但 API Key 为空。`TranslatePage` 只在 `providers.length === 0` 时显示空状态；seed 后 providers 非空，空状态不显示，用户面对一个禁用按钮和没有提示的页面。
+- **问题**：全新安装时应用会自动 seed 一个 `deepseek` 供应商，但 API Key 为空。
+  `TranslatePage` 只在 `providers.length === 0` 时显示空状态；seed 后 providers 非空，空状态不显示，
+  用户面对一个禁用按钮和没有提示的页面。
 - **影响**：首次使用留存率受损；用户不知道下一步该做什么。
 - **优化建议**：
   1. 若检测到当前供应商缺少 API Key，在翻译页中央显示“配置 API Key”引导卡片，点击后直接打开 Compute 设置并聚焦到对应输入框。
   2. 首次启动可考虑一次性引导（Wizard）流程：选择源文件 → 选择/配置供应商 → 确认目标语言 → 开始。
 - **重构步骤**：
-  1. 新增 `FirstRunHint` 组件，判断条件：`providers.length === 0 || activeProvider?.api_key === "" && activeProvider.provider !== "ollama"`。
+  1. 新增 `FirstRunHint` 组件，判断条件：
+     `providers.length === 0 || activeProvider?.api_key === "" && activeProvider.provider !== "ollama"`。
   2. 在 `TranslatePage` 的 `!hasProviders` 分支之后增加该提示。
   3. 在 E2E 中新增 `first-run.spec.ts`：删除设置文件后启动应用，验证引导可见。
 
@@ -87,7 +97,9 @@ BabelEbook 桌面应用的功能骨架已经相当完整：多供应商配置、
 
 - **严重度**：高
 - **位置**：`desktop/src/App.tsx:242-245`、`desktop/src/pages/TranslatePage.tsx:453-467`、`desktop/src/pages/TasksPage.tsx:32-102`
-- **问题**：应用同时维护 `progress` 状态（单任务进度百分比与消息）和 `queue.tasks` 数组（多任务状态）。两者数据来源不同但语义重叠；`progress` 状态在 `TranslatePage` 展示，`queue` 在 `TasksPage` 展示。失败任务的错误信息只出现在 `TasksPage` 的 `inline-error`，而日志页又有一份日志。
+- **问题**：应用同时维护 `progress` 状态（单任务进度百分比与消息）和 `queue.tasks` 数组（多任务状态）。
+  两者数据来源不同但语义重叠；`progress` 状态在 `TranslatePage` 展示，`queue` 在 `TasksPage` 展示。
+  失败任务的错误信息只出现在 `TasksPage` 的 `inline-error`，而日志页又有一份日志。
 - **影响**：用户需要同时关注三个地方才能确认“这次翻译到底怎么样了”。
 - **优化建议**：
   1. 统一状态模型：当前运行任务由 `queue.current_task_id` 驱动，`progress` 派生自该任务的 `chapter_progress`。
@@ -105,8 +117,12 @@ BabelEbook 桌面应用的功能骨架已经相当完整：多供应商配置、
 #### M1. 存在未落地的半成品 UI（死代码与未使用的多语言键）
 
 - **严重度**：中
-- **位置**：`desktop/src/App.css:357-405`（`.summary-card`、`.dry-run-toggle`）、`desktop/src/locales/*.json`（`add_to_queue`、`use_recommended_model`、`ready_to_start` 等）、`desktop/src/App.tsx:727-763`（`enqueueTask` 被 `void enqueueTask` 屏蔽）
-- **问题**：CSS 中保留了 `.summary-card`、`.dry-run-toggle`、`.connection-status`、`.next-step` 等完整样式，但源码中没有任何组件使用。多语言文件里存在 `add_to_queue`、`use_recommended_model` 等键却未在 UI 落地。`App.tsx` 中声明了 `enqueueTask` 却刻意用 `void enqueueTask` 禁用。
+- **位置**：`desktop/src/App.css:357-405`（`.summary-card`、`.dry-run-toggle`）、
+  `desktop/src/locales/*.json`（`add_to_queue`、`use_recommended_model`、`ready_to_start` 等）、
+  `desktop/src/App.tsx:727-763`（`enqueueTask` 被 `void enqueueTask` 屏蔽）
+- **问题**：CSS 中保留了 `.summary-card`、`.dry-run-toggle`、`.connection-status`、`.next-step` 等完整样式，
+  但源码中没有任何组件使用。多语言文件里存在 `add_to_queue`、`use_recommended_model` 等键却未在 UI 落地。
+  `App.tsx` 中声明了 `enqueueTask` 却刻意用 `void enqueueTask` 禁用。
 - **影响**：代码库可信度下降，维护者难以判断哪些功能是“已完成但未启用”还是“已废弃”。
 - **优化建议**：
   1. 决定“添加到队列”是否正式支持；若支持，在翻译页增加该按钮并移除 `void enqueueTask`。
@@ -148,7 +164,9 @@ BabelEbook 桌面应用的功能骨架已经相当完整：多供应商配置、
 
 - **严重度**：中
 - **位置**：`desktop/src/pages/ModelParamsPage.tsx:24-79`
-- **问题**：`concurrency` 虽然设置了 `min={1} max={10}`，但用户仍可通过键盘输入 `0`、`100` 等值；HTML `min/max` 仅在提交表单时校验，React 立即将其写入 state。`max_input_tokens`、`max_output_tokens`、`temperature` 同样没有范围校验。
+- **问题**：`concurrency` 虽然设置了 `min={1} max={10}`，但用户仍可通过键盘输入 `0`、`100` 等值；
+  HTML `min/max` 仅在提交表单时校验，React 立即将其写入 state。`max_input_tokens`、
+  `max_output_tokens`、`temperature` 同样没有范围校验。
 - **影响**：可能导致翻译时触发后端校验失败，用户体验为“配置了很久但开始时报错”。
 - **优化建议**：
   1. 在 `setForm` 前进行数值截断或即时显示越界提示。
@@ -314,19 +332,19 @@ BabelEbook 桌面应用的功能骨架已经相当完整：多供应商配置、
 
 ### P1 — 近期优化（显著提升体验）
 
-5. **H5**：统一进度与任务状态模型，减少信息分散。
-6. **M6**：重新划分翻译页与 TranslationSettings 页的职责。
-7. **M5**：修正“Compute”与“Clear custom prompts”文案。
-8. **M7**：改进日志自动滚动与级别过滤。
-9. **M4**：为数字输入增加范围校验与反馈。
-10. **M2/M3**：替换 emoji 与不可访问的工具提示实现。
+1. **H5**：统一进度与任务状态模型，减少信息分散。
+2. **M6**：重新划分翻译页与 TranslationSettings 页的职责。
+3. **M5**：修正“Compute”与“Clear custom prompts”文案。
+4. **M7**：改进日志自动滚动与级别过滤。
+5. **M4**：为数字输入增加范围校验与反馈。
+6. **M2/M3**：替换 emoji 与不可访问的工具提示实现。
 
 ### P2 — 体验打磨
 
-11. **M1**：清理死代码与未使用的多语言键。
-12. **M8**：任务队列排序与批量操作。
-13. **M9**：许可证页面可读性优化。
-14. **L1/L2/L3/L4/L5**：loading 状态、设置页导航、dry run 入口、按钮样式统一、输入格式提示。
+1. **M1**：清理死代码与未使用的多语言键。
+2. **M8**：任务队列排序与批量操作。
+3. **M9**：许可证页面可读性优化。
+4. **L1/L2/L3/L4/L5**：loading 状态、设置页导航、dry run 入口、按钮样式统一、输入格式提示。
 
 ## 5. 推荐的最小可行重构顺序
 
@@ -353,4 +371,7 @@ BabelEbook 桌面应用的功能骨架已经相当完整：多供应商配置、
 
 ## 7. 结论
 
-BabelEbook 的功能实现已经具备产品雏形，但当前 UI/UX 仍处于“开发者友好、普通用户困惑”的状态。最紧迫的问题是**核心流程中的反馈缺失与页面断裂**：用户不知道按钮为何被禁用、开始翻译后被跳转到别处、配置分散在多个设置页中。优先解决 H1-H5 后，应用的首次使用留存与日常操作效率将会有质的飞跃。后续再逐步完成可访问性、文案、死代码清理等打磨工作，即可达到可公开推荐的产品水准。
+BabelEbook 的功能实现已经具备产品雏形，但当前 UI/UX 仍处于“开发者友好、普通用户困惑”的状态。
+最紧迫的问题是**核心流程中的反馈缺失与页面断裂**：用户不知道按钮为何被禁用、开始翻译后被跳转到别处、
+配置分散在多个设置页中。优先解决 H1-H5 后，应用的首次使用留存与日常操作效率将会有质的飞跃。
+后续再逐步完成可访问性、文案、死代码清理等打磨工作，即可达到可公开推荐的产品水准。

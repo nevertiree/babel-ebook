@@ -206,20 +206,17 @@ impl QueueManager {
                 chunk_index,
                 chunk_total,
                 ..
-            } => {
+            } if *chunk_total > 0 => {
                 // Approximate within-chapter progress using the most recent chunk
                 // event. This is refined by the frontend which tracks per-chapter
                 // chunk state; the backend value is mainly a fallback for queue
                 // state refreshes.
-                if *chunk_total > 0 {
-                    let completed = task.chapters_completed.unwrap_or(0);
-                    let chunk_index = u32::try_from(*chunk_index).unwrap_or(u32::MAX);
-                    let chunk_total = u32::try_from(*chunk_total).unwrap_or(u32::MAX);
-                    let in_flight =
-                        f64::from(chunk_index.saturating_add(1)) / f64::from(chunk_total);
-                    task.progress_percent =
-                        compute_progress_percent_raw(task.chapter_total, completed, in_flight);
-                }
+                let completed = task.chapters_completed.unwrap_or(0);
+                let chunk_index = u32::try_from(*chunk_index).unwrap_or(u32::MAX);
+                let chunk_total = u32::try_from(*chunk_total).unwrap_or(u32::MAX);
+                let in_flight = f64::from(chunk_index.saturating_add(1)) / f64::from(chunk_total);
+                task.progress_percent =
+                    compute_progress_percent_raw(task.chapter_total, completed, in_flight);
             }
             _ => {}
         }
