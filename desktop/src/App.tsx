@@ -109,7 +109,7 @@ function computeChunkProgressPercent(
     if (p.chunk_total <= 0) return sum;
     return sum + p.chunks_done / p.chunk_total;
   }, 0);
-  return Math.min(99, Math.round(((chaptersCompleted + inFlight) / chapterTotal) * 100));
+  return Math.round(((chaptersCompleted + inFlight) / chapterTotal) * 100);
 }
 
 function applyProgressToTask(task: Task, payload: ProgressPayload): Task {

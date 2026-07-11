@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use crate::config::OutputMode;
 use crate::core::BabelEbookError;
 
 /// Lifecycle status of a single chapter within a checkpoint.
@@ -111,14 +112,60 @@ impl CheckpointStore {
         })
     }
 
-    /// Generate a short unique job id from source path + timestamp.
+    /// Persist a checkpoint atomically using async I/O.
+    ///
+    /// The sync `save` API is preserved for callers that do not need async
+    /// scheduling; this method performs the same operation with
+    /// `tokio::fs::write` + `tokio::fs::rename` so it does not block the
+    /// runtime thread.
+    pub async fn save_async(&self, checkpoint: &Checkpoint) -> Result<(), BabelEbookError> {
+        let path = self.path(&checkpoint.job_id);
+        let tmp = path.with_extension("tmp");
+        let content = serde_json::to_string_pretty(checkpoint)
+            .map_err(|e| BabelEbookError::Anyhow(anyhow::anyhow!("serialize checkpoint: {e}")))?;
+        tokio::fs::write(&tmp, content).await.map_err(|e| {
+            BabelEbookError::Anyhow(anyhow::anyhow!(
+                "write checkpoint tmp {}: {e}",
+                tmp.display()
+            ))
+        })?;
+        tokio::fs::rename(&tmp, &path).await.map_err(|e| {
+            BabelEbookError::Anyhow(anyhow::anyhow!("rename checkpoint {}: {e}", path.display()))
+        })
+    }
+
+    /// Generate a short stable job id from the source path and a hash of the
+    /// translation parameters.
+    ///
+    /// The id is deterministic for the same source path, target language,
+    /// output mode, provider, and model so that repeated runs of the same book
+    /// with the same settings resume the same checkpoint.
     #[must_use]
-    pub fn generate_job_id(source: &Path) -> String {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        let input = format!("{}-{now}", source.display());
+    pub fn generate_job_id(
+        source: &Path,
+        target_lang: &str,
+        output_mode: OutputMode,
+        provider: &str,
+        model: &str,
+    ) -> String {
+        let params_hash = Self::hash_params(target_lang, output_mode, provider, model);
+        let input = format!("{}|{params_hash}", source.display());
+        let mut hasher = Sha256::new();
+        hasher.update(input.as_bytes());
+        let hash = hasher.finalize();
+        hex::encode(&hash[..8])
+    }
+
+    /// Compute a short SHA-256 hex hash of the translation parameters that
+    /// should affect checkpoint identity.
+    fn hash_params(
+        target_lang: &str,
+        output_mode: OutputMode,
+        provider: &str,
+        model: &str,
+    ) -> String {
+        let mode_str = format!("{output_mode:?}").to_lowercase();
+        let input = format!("{target_lang}|{mode_str}|{provider}|{model}");
         let mut hasher = Sha256::new();
         hasher.update(input.as_bytes());
         let hash = hasher.finalize();
@@ -185,13 +232,97 @@ mod tests {
     #[test]
     fn generate_job_id_properties() {
         let source_a = Path::new("input/book-a.epub");
-        let id_a = CheckpointStore::generate_job_id(source_a);
+        let id_a = CheckpointStore::generate_job_id(
+            source_a,
+            "zh-CN",
+            OutputMode::Bilingual,
+            "deepseek",
+            "deepseek-chat",
+        );
         assert!(!id_a.is_empty());
         assert!(id_a.chars().all(|c| c.is_ascii_hexdigit()));
 
+        // Same source + same params must produce the same id.
+        let id_a2 = CheckpointStore::generate_job_id(
+            source_a,
+            "zh-CN",
+            OutputMode::Bilingual,
+            "deepseek",
+            "deepseek-chat",
+        );
+        assert_eq!(id_a, id_a2);
+
+        // Different source produces a different id.
         let source_b = Path::new("input/book-b.epub");
-        let id_b = CheckpointStore::generate_job_id(source_b);
+        let id_b = CheckpointStore::generate_job_id(
+            source_b,
+            "zh-CN",
+            OutputMode::Bilingual,
+            "deepseek",
+            "deepseek-chat",
+        );
         assert_ne!(id_a, id_b);
         assert!(id_b.chars().all(|c| c.is_ascii_hexdigit()));
+
+        // Different target language produces a different id.
+        let id_diff_lang = CheckpointStore::generate_job_id(
+            source_a,
+            "en",
+            OutputMode::Bilingual,
+            "deepseek",
+            "deepseek-chat",
+        );
+        assert_ne!(id_a, id_diff_lang);
+
+        // Different output mode produces a different id.
+        let id_diff_mode = CheckpointStore::generate_job_id(
+            source_a,
+            "zh-CN",
+            OutputMode::TranslationOnly,
+            "deepseek",
+            "deepseek-chat",
+        );
+        assert_ne!(id_a, id_diff_mode);
+
+        // Different provider produces a different id.
+        let id_diff_provider = CheckpointStore::generate_job_id(
+            source_a,
+            "zh-CN",
+            OutputMode::Bilingual,
+            "openai",
+            "deepseek-chat",
+        );
+        assert_ne!(id_a, id_diff_provider);
+
+        // Different model produces a different id.
+        let id_diff_model = CheckpointStore::generate_job_id(
+            source_a,
+            "zh-CN",
+            OutputMode::Bilingual,
+            "deepseek",
+            "deepseek-coder",
+        );
+        assert_ne!(id_a, id_diff_model);
+    }
+
+    #[test]
+    fn generate_job_id_is_stable_across_time() {
+        let source = Path::new("input/book-a.epub");
+        let id1 = CheckpointStore::generate_job_id(
+            source,
+            "zh-CN",
+            OutputMode::Bilingual,
+            "deepseek",
+            "deepseek-chat",
+        );
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        let id2 = CheckpointStore::generate_job_id(
+            source,
+            "zh-CN",
+            OutputMode::Bilingual,
+            "deepseek",
+            "deepseek-chat",
+        );
+        assert_eq!(id1, id2);
     }
 }

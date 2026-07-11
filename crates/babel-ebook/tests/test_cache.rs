@@ -1,5 +1,6 @@
 use std::io::Write;
 use std::path::Path;
+use std::sync::Arc;
 
 use babel_ebook::TranslationCache;
 
@@ -82,4 +83,47 @@ fn missing_translation_field_returns_none() {
     file.write_all(br#"{"tokens": 1}"#).expect("write file");
 
     assert!(cache.get("deepseek", "missing").is_none());
+}
+
+#[tokio::test]
+async fn async_roundtrip_stores_and_retrieves_translation() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let cache = TranslationCache::new(dir.path().to_path_buf());
+
+    assert!(cache.get_async("deepseek", "hello").await.is_none());
+
+    cache.put_async("deepseek", "hello", "你好", Some(42)).await;
+
+    assert_eq!(
+        cache.get_async("deepseek", "hello").await.as_deref(),
+        Some("你好")
+    );
+    // Async writes must be visible to synchronous readers as well.
+    assert_eq!(cache.get("deepseek", "hello").as_deref(), Some("你好"));
+}
+
+#[tokio::test]
+async fn concurrent_async_cache_reads_and_writes() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let cache = Arc::new(TranslationCache::new(dir.path().to_path_buf()));
+    let task_count = 50;
+
+    let mut handles = Vec::with_capacity(task_count);
+    for i in 0..task_count {
+        let cache = Arc::clone(&cache);
+        let text = format!("text-{i}");
+        let translation = format!("translation-{i}");
+        handles.push(tokio::spawn(async move {
+            cache.put_async("deepseek", &text, &translation, None).await;
+            let read_back = cache
+                .get_async("deepseek", &text)
+                .await
+                .expect("concurrent read should find written entry");
+            assert_eq!(read_back, translation);
+        }));
+    }
+
+    for handle in handles {
+        handle.await.expect("concurrent cache task should succeed");
+    }
 }

@@ -167,6 +167,7 @@ pub async fn translate_epub(
 
 /// Translate an EPUB with an optional cooperative cancellation signal.
 #[allow(clippy::future_not_send)]
+#[allow(clippy::too_many_lines)]
 pub async fn translate_epub_with_cancellation(
     config: &Config,
     translator: &dyn Translator,
@@ -215,10 +216,15 @@ pub async fn translate_epub_with_cancellation(
         (None, None)
     } else {
         let store = CheckpointStore::new(config.checkpoint_dir.clone())?;
-        let id = config
-            .resume_job_id
-            .clone()
-            .unwrap_or_else(|| CheckpointStore::generate_job_id(&config.source));
+        let id = config.resume_job_id.clone().unwrap_or_else(|| {
+            CheckpointStore::generate_job_id(
+                &config.source,
+                &config.target_lang,
+                config.output_mode,
+                &config.provider,
+                &config.model,
+            )
+        });
         (Some(store), Some(id))
     };
 
@@ -248,8 +254,17 @@ pub async fn translate_epub_with_cancellation(
                 if failed_hrefs.contains(href.as_str()) {
                     continue;
                 }
-                match translate_title(*index, &title, translator, config, cache, &href, progress)
-                    .await
+                match translate_title(
+                    *index,
+                    &title,
+                    translator,
+                    config,
+                    cache,
+                    &href,
+                    progress,
+                    cancellation,
+                )
+                .await
                 {
                     Ok(translated) => {
                         ensure_not_cancelled(cancellation)?;
@@ -340,6 +355,7 @@ pub fn run_dry_run(
     (total, count)
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn translate_title(
     index: usize,
     title: &str,
@@ -348,12 +364,23 @@ async fn translate_title(
     cache: &TranslationCache,
     href: &str,
     _progress: Option<&dyn ProgressCallback>,
+    cancellation: Option<&CancellationToken>,
 ) -> Result<String, BabelEbookError> {
     let prompt_key = format!("toc:{href}");
     // Do not emit chunk progress for title translation; the chapter is already
     // marked finished and extra chunk events would make the progress bar jump
     // backwards.
-    translate_text(title, translator, config, cache, index, &prompt_key, None).await
+    translate_text(
+        title,
+        translator,
+        config,
+        cache,
+        index,
+        &prompt_key,
+        None,
+        cancellation,
+    )
+    .await
 }
 
 fn emit_progress(progress: Option<&dyn ProgressCallback>, event: ProgressEvent) {

@@ -1,16 +1,17 @@
 //! `Anthropic` translator provider using the Messages API directly.
 
-use async_trait::async_trait;
-use serde_json::json;
-use std::time::Duration;
-
 use crate::core::BabelEbookError;
+use crate::translator::http_common::{
+    build_reqwest_client, format_http_error, parse_model_list, with_retry, META_TIMEOUT,
+    TRANSLATE_TIMEOUT,
+};
 use crate::translator::{TranslateContext, Translator};
+use async_trait::async_trait;
+use serde_json::{json, Value};
 
 const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
 const DEFAULT_MODEL: &str = "claude-3-5-sonnet-20241022";
 const DEFAULT_ANTHROPIC_VERSION: &str = "2023-06-01";
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// Translator using the Anthropic Messages API.
 pub struct AnthropicTranslator {
@@ -32,13 +33,35 @@ impl AnthropicTranslator {
         temperature: f32,
     ) -> Self {
         Self {
-            client: reqwest::Client::new(),
+            client: build_reqwest_client(),
             api_key,
             base_url: base_url.unwrap_or_else(|| DEFAULT_BASE_URL.to_string()),
             model: model.unwrap_or_else(|| DEFAULT_MODEL.to_string()),
             max_tokens,
             temperature,
         }
+    }
+
+    fn models_url(&self) -> String {
+        format!("{}/v1/models", self.base_url)
+    }
+
+    fn messages_url(&self) -> String {
+        format!("{}/v1/messages", self.base_url)
+    }
+
+    fn auth_headers(&self) -> reqwest::header::HeaderMap {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            "x-api-key",
+            reqwest::header::HeaderValue::from_str(&self.api_key)
+                .expect("api_key is a valid header value"),
+        );
+        headers.insert(
+            "anthropic-version",
+            reqwest::header::HeaderValue::from_static(DEFAULT_ANTHROPIC_VERSION),
+        );
+        headers
     }
 }
 
@@ -55,53 +78,43 @@ impl Translator for AnthropicTranslator {
     async fn health_check(&self) -> Result<(), BabelEbookError> {
         let response = self
             .client
-            .get(format!("{}/v1/models", self.base_url))
-            .header("x-api-key", &self.api_key)
-            .header("anthropic-version", DEFAULT_ANTHROPIC_VERSION)
+            .get(self.models_url())
+            .headers(self.auth_headers())
+            .timeout(META_TIMEOUT)
             .send()
             .await
             .map_err(|e| BabelEbookError::ApiError(e.to_string()))?;
 
-        if !response.status().is_success() {
-            let status = response.status();
+        let status = response.status();
+        if status.is_success() {
+            Ok(())
+        } else {
             let body = response.text().await.unwrap_or_default();
-            return Err(format_http_error(status, &body));
+            Err(format_http_error("Anthropic", status, &body))
         }
-        Ok(())
     }
 
     async fn list_models(&self) -> Result<Vec<String>, BabelEbookError> {
         let response = self
             .client
-            .get(format!("{}/v1/models", self.base_url))
-            .header("x-api-key", &self.api_key)
-            .header("anthropic-version", DEFAULT_ANTHROPIC_VERSION)
-            .timeout(Duration::from_secs(10))
+            .get(self.models_url())
+            .headers(self.auth_headers())
+            .timeout(META_TIMEOUT)
             .send()
             .await
             .map_err(|e| BabelEbookError::ApiError(e.to_string()))?;
 
-        if !response.status().is_success() {
-            let status = response.status();
+        let status = response.status();
+        if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
-            return Err(BabelEbookError::ApiError(format!(
-                "Anthropic list models failed: HTTP {status}: {body}"
-            )));
+            return Err(format_http_error("Anthropic", status, &body));
         }
 
-        let json: serde_json::Value = response.json().await.map_err(|e| {
+        let json: Value = response.json().await.map_err(|e| {
             BabelEbookError::ApiError(format!("failed to parse Anthropic models: {e}"))
         })?;
 
-        let models = json["data"]
-            .as_array()
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|m| m["id"].as_str().map(String::from))
-                    .collect()
-            })
-            .unwrap_or_default();
-        Ok(models)
+        Ok(parse_model_list(&json, "data", "id"))
     }
 
     async fn translate(
@@ -116,49 +129,45 @@ impl Translator for AnthropicTranslator {
             ))
         })?;
 
-        let body = json!({
-            "model": self.model,
-            "max_tokens": max_tokens,
-            "temperature": self.temperature,
-            "system": context.system_prompt,
-            "messages": [{"role": "user", "content": text}],
-        });
+        with_retry("Anthropic", "API", || {
+            let body = json!({
+                "model": self.model,
+                "max_tokens": max_tokens,
+                "temperature": self.temperature,
+                "system": context.system_prompt,
+                "messages": [{"role": "user", "content": text}],
+            });
+            let request = self
+                .client
+                .post(self.messages_url())
+                .headers(self.auth_headers())
+                .json(&body)
+                .timeout(TRANSLATE_TIMEOUT);
 
-        let response = self
-            .client
-            .post(format!("{}/v1/messages", self.base_url))
-            .header("x-api-key", &self.api_key)
-            .header("anthropic-version", DEFAULT_ANTHROPIC_VERSION)
-            .json(&body)
-            .timeout(REQUEST_TIMEOUT)
-            .send()
-            .await
-            .map_err(|e| BabelEbookError::ApiError(e.to_string()))?;
+            async move {
+                let response = request
+                    .send()
+                    .await
+                    .map_err(|e| BabelEbookError::ApiError(e.to_string()))?;
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            return Err(format_http_error(status, &body));
-        }
+                let status = response.status();
+                if !status.is_success() {
+                    let body = response.text().await.unwrap_or_default();
+                    return Err(format_http_error("Anthropic", status, &body));
+                }
 
-        let json: serde_json::Value = response
-            .json()
-            .await
-            .map_err(|e| BabelEbookError::ApiError(e.to_string()))?;
-        parse_response(&json)
+                let json: Value = response
+                    .json()
+                    .await
+                    .map_err(|e| BabelEbookError::ApiError(e.to_string()))?;
+                parse_anthropic_response(&json)
+            }
+        })
+        .await
     }
 }
 
-fn format_http_error(status: reqwest::StatusCode, body: &str) -> BabelEbookError {
-    let body = body.trim();
-    if body.is_empty() {
-        BabelEbookError::ApiError(format!("Anthropic HTTP error: {status}"))
-    } else {
-        BabelEbookError::ApiError(format!("Anthropic HTTP error {status}: {body}"))
-    }
-}
-
-fn parse_response(json: &serde_json::Value) -> Result<String, BabelEbookError> {
+fn parse_anthropic_response(json: &Value) -> Result<String, BabelEbookError> {
     json["content"]
         .as_array()
         .and_then(|content| content.first())
@@ -224,7 +233,7 @@ mod tests {
         let json = json!({
             "content": [{"type": "text", "text": "Bonjour"}],
         });
-        assert_eq!(parse_response(&json).unwrap(), "Bonjour");
+        assert_eq!(parse_anthropic_response(&json).unwrap(), "Bonjour");
     }
 
     #[test]
@@ -236,27 +245,12 @@ mod tests {
             json!({"content": "unexpected string"}),
         ];
         for case in cases {
-            let err = parse_response(&case).expect_err("missing text should fail");
+            let err = parse_anthropic_response(&case).expect_err("missing text should fail");
             assert!(
                 matches!(err, BabelEbookError::ApiError(_)),
                 "expected API error, got {err}"
             );
             assert!(err.to_string().contains("empty response"));
         }
-    }
-
-    #[test]
-    fn format_http_error_includes_status_and_body() {
-        let err = format_http_error(reqwest::StatusCode::BAD_REQUEST, "invalid request");
-        let msg = err.to_string();
-        assert!(msg.contains("Anthropic HTTP error 400 Bad Request: invalid request"));
-    }
-
-    #[test]
-    fn format_http_error_omits_body_when_empty() {
-        let err = format_http_error(reqwest::StatusCode::INTERNAL_SERVER_ERROR, "   ");
-        let msg = err.to_string();
-        assert!(msg.contains("Anthropic HTTP error: 500 Internal Server Error"));
-        assert!(!msg.contains("Internal Server Error:"));
     }
 }

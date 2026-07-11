@@ -53,7 +53,7 @@ pub async fn run_ordered_pipeline(
         });
     }
 
-    let job_id = resolve_job_id(checkpoint_store, job_id, &config.source);
+    let job_id = resolve_job_id(checkpoint_store, job_id, config);
     let mut checkpoint = build_checkpoint(book, &indices, checkpoint_store, &job_id, source_hash);
     checkpoint.source_path = config.source.to_string_lossy().into_owned();
     let completed = restore_completed_chapters(book, &indices, &checkpoint, progress);
@@ -62,7 +62,7 @@ pub async fn run_ordered_pipeline(
         .filter(|i| !completed.contains(i))
         .collect();
 
-    let checkpoint = Arc::new(std::sync::Mutex::new(checkpoint));
+    let checkpoint = Arc::new(tokio::sync::Mutex::new(checkpoint));
     let semaphore = Arc::new(Semaphore::new(config.concurrency.max(1)));
     let mut futures = FuturesUnordered::new();
 
@@ -89,7 +89,14 @@ pub async fn run_ordered_pipeline(
                         Err(BabelEbookError::Cancelled)
                     } else {
                         process_document(
-                            &content, translator, config, cache, index, &href, progress,
+                            &content,
+                            translator,
+                            config,
+                            cache,
+                            index,
+                            &href,
+                            progress,
+                            cancellation,
                         )
                         .await
                     };
@@ -99,7 +106,7 @@ pub async fn run_ordered_pipeline(
                 Err(err) => Err(err),
             };
 
-            update_checkpoint_entry(&checkpoint, index, &result, store.as_ref(), &job_id)?;
+            update_checkpoint_entry(&checkpoint, index, &result, store.as_ref(), &job_id).await;
 
             Ok::<(usize, Result<Vec<u8>, BabelEbookError>), BabelEbookError>((index, result))
         });
@@ -145,10 +152,13 @@ pub async fn run_ordered_pipeline(
     }
 
     if let Some(store) = checkpoint_store {
-        let cp = checkpoint
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        store.save(&cp)?;
+        let cp_to_save = {
+            let cp = checkpoint.lock().await;
+            cp.clone()
+        };
+        if let Err(err) = store.save_async(&cp_to_save).await {
+            tracing::warn!(job_id, error = %err, "failed to save final checkpoint");
+        }
     }
 
     Ok(PipelineResult {
@@ -167,11 +177,19 @@ fn ensure_not_cancelled(cancellation: Option<&CancellationToken>) -> Result<(), 
 fn resolve_job_id(
     checkpoint_store: Option<&CheckpointStore>,
     job_id: Option<&str>,
-    source: &std::path::Path,
+    config: &Config,
 ) -> String {
     if checkpoint_store.is_some() {
         job_id.map_or_else(
-            || CheckpointStore::generate_job_id(source),
+            || {
+                CheckpointStore::generate_job_id(
+                    &config.source,
+                    &config.target_lang,
+                    config.output_mode,
+                    &config.provider,
+                    &config.model,
+                )
+            },
             ToString::to_string,
         )
     } else {
@@ -270,17 +288,15 @@ fn restore_completed_chapters(
     completed
 }
 
-fn update_checkpoint_entry(
-    checkpoint: &Arc<std::sync::Mutex<Checkpoint>>,
+async fn update_checkpoint_entry(
+    checkpoint: &Arc<tokio::sync::Mutex<Checkpoint>>,
     index: usize,
     result: &Result<Vec<u8>, BabelEbookError>,
     store: Option<&CheckpointStore>,
     job_id: &str,
-) -> Result<(), BabelEbookError> {
+) {
     let cp_to_save = {
-        let mut cp = checkpoint
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut cp = checkpoint.lock().await;
         if let Some(entry) = cp.chapters.iter_mut().find(|c| c.index == index) {
             match result {
                 Ok(content) => {
@@ -298,12 +314,10 @@ fn update_checkpoint_entry(
     };
 
     if let Some(store) = store {
-        if let Err(err) = store.save(&cp_to_save) {
+        if let Err(err) = store.save_async(&cp_to_save).await {
             tracing::warn!(job_id, error = %err, "failed to save checkpoint");
-            return Err(err);
         }
     }
-    Ok(())
 }
 
 async fn acquire_permit(
@@ -422,7 +436,13 @@ mod tests {
         let mut book = make_book(vec!["alpha", "beta", "gamma"]);
         let mut config = make_config();
         config.checkpoint_dir = dir.path().join("checkpoints");
-        let job_id = CheckpointStore::generate_job_id(&config.source);
+        let job_id = CheckpointStore::generate_job_id(
+            &config.source,
+            &config.target_lang,
+            config.output_mode,
+            &config.provider,
+            &config.model,
+        );
         // Pre-populate checkpoint: chapter 0 completed.
         store
             .save(&Checkpoint {
@@ -622,5 +642,97 @@ mod tests {
             });
         });
         handle.join().expect("test thread panicked");
+    }
+
+    #[tokio::test]
+    async fn concurrent_chapters_complete_without_deadlock() {
+        struct SlowTranslator;
+
+        #[async_trait]
+        impl Translator for SlowTranslator {
+            fn name(&self) -> String {
+                "slow".into()
+            }
+
+            fn max_output_tokens(&self) -> usize {
+                1000
+            }
+
+            async fn translate(
+                &self,
+                text: &str,
+                _ctx: &TranslateContext<'_>,
+            ) -> Result<String, BabelEbookError> {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                Ok(format!("[{}]", text.trim()))
+            }
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let store = CheckpointStore::new(dir.path().to_path_buf()).unwrap();
+        let mut book = make_book(vec!["alpha", "bravo", "charlie", "delta", "echo"]);
+        let mut config = make_config();
+        config.concurrency = 3;
+        config.checkpoint_dir = dir.path().join("checkpoints");
+        let cache = TranslationCache::new(config.cache_dir.clone());
+
+        let result = run_ordered_pipeline(
+            &mut book,
+            vec![0, 1, 2, 3, 4],
+            &SlowTranslator,
+            &config,
+            &cache,
+            Some(&store),
+            None,
+            "hash",
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert!(result.failures.is_empty());
+        let expected = ["alpha", "bravo", "charlie", "delta", "echo"];
+        for (i, chapter) in book.chapters.iter().enumerate() {
+            let text = String::from_utf8_lossy(&chapter.content);
+            assert!(text.contains(&format!("[{}]", expected[i])));
+        }
+    }
+
+    #[tokio::test]
+    async fn checkpoint_file_updated_after_chapters_complete() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = CheckpointStore::new(dir.path().to_path_buf()).unwrap();
+        let mut book = make_book(vec!["alpha", "beta", "gamma"]);
+        let mut config = make_config();
+        config.checkpoint_dir = dir.path().join("checkpoints");
+        let cache = TranslationCache::new(config.cache_dir.clone());
+
+        let result = run_ordered_pipeline(
+            &mut book,
+            vec![0, 1, 2],
+            &DummyTranslator,
+            &config,
+            &cache,
+            Some(&store),
+            None,
+            "hash",
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert!(result.failures.is_empty());
+
+        let job_id = resolve_job_id(Some(&store), None, &config);
+        let checkpoint = store
+            .load(&job_id)
+            .expect("checkpoint should exist on disk");
+        assert_eq!(checkpoint.chapters.len(), 3);
+        for entry in &checkpoint.chapters {
+            assert_eq!(entry.status, ChapterStatus::Completed);
+            assert!(entry.content.is_some());
+        }
     }
 }

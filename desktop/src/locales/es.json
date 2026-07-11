@@ -79,7 +79,6 @@
   "model_list_error": "Could not load model list",
   "use_recommended_model": "Use recommended model",
   "api_key_format_hint": "This key doesn't match the expected format for the selected provider.",
-  "remember_api_key": "Remember API key securely",
   "exclude_selectors_help": "CSS selectors for elements that should not be translated (e.g. code blocks).",
   "translate_attributes_help": "HTML attributes whose values should also be translated.",
   "concurrency_help": "Número de solicitudes de traducción de capítulos enviadas al LLM simultáneamente. Valores más altos aceleran la traducción general, pero consumen más tokens y pueden alcanzar límites de velocidad.",

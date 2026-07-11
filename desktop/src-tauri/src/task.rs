@@ -1,11 +1,11 @@
 //! Task data model for the translation queue.
 
 use crate::args::TranslateArgs;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Lifecycle status of a queued translation task.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskStatus {
     Pending,

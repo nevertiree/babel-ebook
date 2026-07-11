@@ -1,4 +1,4 @@
-//! In-memory translation task queue and background worker.
+//! Persistent translation task queue and background worker.
 
 #![allow(dead_code)]
 #![allow(clippy::significant_drop_tightening)]
@@ -6,13 +6,14 @@
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use babel_ebook::CancellationToken;
-use serde::Serialize;
-use tauri::{Emitter, Manager};
+use babel_ebook::{CancellationToken, TranslationWorker};
+use serde::{Deserialize, Serialize};
+use tauri::{Emitter, Manager, Runtime};
+use tauri_plugin_store::Store;
 use tokio::sync::Notify;
 
 use crate::args::TranslateArgs;
-use crate::commands::translate_epub_internal_with_cancellation;
+use crate::commands::run_translation;
 use crate::task::{Task, TaskStatus};
 
 /// Snapshot of the queue exposed to the frontend.
@@ -32,6 +33,113 @@ struct TaskProgressPayload {
     event: babel_ebook::ProgressEvent,
 }
 
+/// Serializable representation of a queued task that is written to disk.
+///
+/// Runtime-only fields such as [`CancellationToken`] are intentionally not
+/// included so the store file can be safely reloaded on the next app launch.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoredTask {
+    /// Unique task identifier.
+    pub id: String,
+    /// Path to the source EPUB.
+    pub source_path: String,
+    /// Path where the translated EPUB will be written.
+    pub output_path: String,
+    /// Current lifecycle status.
+    pub status: TaskStatus,
+    /// Overall completion percentage (0-100).
+    pub progress_percent: u32,
+    /// Total number of translatable chapters, populated when the task starts.
+    pub chapter_total: Option<u32>,
+    /// Number of chapters that have already finished.
+    pub chapters_completed: Option<u32>,
+    /// Short human-readable status message.
+    pub message: String,
+    /// Error message when the task failed.
+    pub error: Option<String>,
+    /// Translation arguments captured at enqueue time.
+    pub args: TranslateArgs,
+    /// Unix timestamp when the task was created.
+    pub created_at: u64,
+    /// Unix timestamp when the task finished, failed or was cancelled.
+    pub completed_at: Option<u64>,
+}
+
+impl From<&Task> for StoredTask {
+    fn from(task: &Task) -> Self {
+        Self {
+            id: task.id.clone(),
+            source_path: task.source_path.clone(),
+            output_path: task.output_path.clone(),
+            status: task.status,
+            progress_percent: task.progress_percent,
+            chapter_total: task.chapter_total,
+            chapters_completed: task.chapters_completed,
+            message: task.message.clone(),
+            error: task.error.clone(),
+            args: task.args.clone(),
+            created_at: task.created_at,
+            completed_at: task.completed_at,
+        }
+    }
+}
+
+impl From<StoredTask> for Task {
+    fn from(stored: StoredTask) -> Self {
+        Self {
+            id: stored.id,
+            source_path: stored.source_path,
+            output_path: stored.output_path,
+            status: stored.status,
+            progress_percent: stored.progress_percent,
+            chapter_total: stored.chapter_total,
+            chapters_completed: stored.chapters_completed,
+            message: stored.message,
+            error: stored.error,
+            args: stored.args,
+            created_at: stored.created_at,
+            completed_at: stored.completed_at,
+        }
+    }
+}
+
+/// Abstraction over where the queue persists its task list.
+pub trait QueueStore: Send + Sync {
+    /// Load the previously saved task list.
+    ///
+    /// Returns an empty vector when no persisted state exists yet.
+    fn load(&self) -> Result<Vec<StoredTask>, String>;
+    /// Save the given task list.
+    fn save(&self, tasks: &[StoredTask]) -> Result<(), String>;
+}
+
+/// [`QueueStore`] implementation backed by `tauri_plugin_store`.
+pub struct TauriTaskStore<R: Runtime>(Arc<Store<R>>);
+
+impl<R: Runtime> TauriTaskStore<R> {
+    /// Wrap an existing Tauri store.
+    pub const fn new(store: Arc<Store<R>>) -> Self {
+        Self(store)
+    }
+}
+
+impl<R: Runtime> QueueStore for TauriTaskStore<R> {
+    fn load(&self) -> Result<Vec<StoredTask>, String> {
+        self.0.get("tasks").map_or_else(
+            || Ok(Vec::new()),
+            |value| serde_json::from_value(value).map_err(|e| e.to_string()),
+        )
+    }
+
+    fn save(&self, tasks: &[StoredTask]) -> Result<(), String> {
+        self.0.set(
+            "tasks",
+            serde_json::to_value(tasks).map_err(|e| e.to_string())?,
+        );
+        self.0.save().map_err(|e| e.to_string())
+    }
+}
+
 struct QueueInner {
     tasks: Vec<Task>,
     running: bool,
@@ -44,10 +152,13 @@ struct QueueInner {
 pub struct QueueManager {
     inner: Arc<std::sync::Mutex<QueueInner>>,
     notifier: Arc<Notify>,
+    store: Option<Arc<dyn QueueStore>>,
 }
 
 impl QueueManager {
-    /// Create a new empty queue manager.
+    /// Create a new empty queue manager without persistence.
+    ///
+    /// This is primarily useful for tests that do not need to survive restarts.
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
@@ -58,11 +169,62 @@ impl QueueManager {
                 current_cancellation: None,
             })),
             notifier: Arc::new(Notify::new()),
+            store: None,
         }
     }
 
+    /// Create a queue manager that loads its state from the given store.
+    ///
+    /// Any task that was running when the app last exited is restored as
+    /// [`TaskStatus::Paused`] because the in-flight translation was killed.
+    /// The queue itself always starts in the stopped state.
+    pub fn with_store(store: Arc<dyn QueueStore>) -> Self {
+        let stored = store.load().unwrap_or_else(|e| {
+            tracing::error!("failed to load persisted queue state: {e}");
+            Vec::new()
+        });
+
+        let mut tasks = Vec::with_capacity(stored.len());
+        for mut stored_task in stored {
+            if stored_task.status == TaskStatus::Running {
+                stored_task.status = TaskStatus::Paused;
+                stored_task.message = "Paused".to_string();
+                stored_task.completed_at = None;
+            }
+            tasks.push(Task::from(stored_task));
+        }
+
+        Self {
+            inner: Arc::new(std::sync::Mutex::new(QueueInner {
+                tasks,
+                running: false,
+                current_task_id: None,
+                current_cancellation: None,
+            })),
+            notifier: Arc::new(Notify::new()),
+            store: Some(store),
+        }
+    }
+
+    /// Write the current task list to the configured store, if any.
+    fn persist(&self) -> Result<(), String> {
+        let Some(store) = self.store.as_ref() else {
+            return Ok(());
+        };
+
+        let guard = self
+            .inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let stored: Vec<StoredTask> = guard.tasks.iter().map(StoredTask::from).collect();
+        drop(guard);
+
+        store.save(&stored)
+    }
+
     /// Start the background worker loop. Call once during Tauri setup.
-    pub fn spawn_worker(self, app_handle: tauri::AppHandle) {
+    #[allow(clippy::too_many_lines)]
+    pub fn spawn_worker(self, app_handle: tauri::AppHandle, worker: Arc<TranslationWorker>) {
         tauri::async_runtime::spawn(async move {
             loop {
                 enum Action {
@@ -92,6 +254,14 @@ impl QueueManager {
                     }
                 };
 
+                // Persist the transition to Running so a crash while processing
+                // this task is restored as Paused on the next launch.
+                if matches!(action, Action::Run(_)) {
+                    if let Err(e) = self.persist() {
+                        tracing::error!("failed to persist running task: {e}");
+                    }
+                }
+
                 let task = match action {
                     Action::Wait => {
                         self.notifier.notified().await;
@@ -116,12 +286,8 @@ impl QueueManager {
                     }) as Box<dyn babel_ebook::ProgressCallback + Send + Sync>
                 });
 
-                let result = translate_epub_internal_with_cancellation(
-                    task.args,
-                    progress,
-                    Some(cancellation),
-                )
-                .await;
+                let result =
+                    run_translation(task.args, progress, Some(cancellation), &worker).await;
 
                 let now = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
@@ -140,6 +306,9 @@ impl QueueManager {
                     if t.status == TaskStatus::Cancelled || t.status == TaskStatus::Paused {
                         t.completed_at = Some(now);
                         drop(guard);
+                        if let Err(e) = self.persist() {
+                            tracing::error!("failed to persist cancelled/paused task: {e}");
+                        }
                         if let Some(w) = window {
                             let _ = w.emit("queue_state_changed", ());
                         }
@@ -162,6 +331,10 @@ impl QueueManager {
                 }
                 drop(guard);
 
+                if let Err(e) = self.persist() {
+                    tracing::error!("failed to persist completed/failed task: {e}");
+                }
+
                 if let Some(w) = window {
                     let _ = w.emit("queue_state_changed", ());
                 }
@@ -181,7 +354,9 @@ impl QueueManager {
     /// Update a task's progress fields from a core progress event.
     ///
     /// This is called synchronously from the progress callback so that
-    /// `get_queue_state` always returns an up-to-date snapshot.
+    /// `get_queue_state` always returns an up-to-date snapshot. Progress
+    /// updates are intentionally not persisted to avoid writing to disk on
+    /// every chunk.
     fn update_task_progress(&self, task_id: &str, event: &babel_ebook::ProgressEvent) {
         let mut guard = self
             .inner
@@ -233,6 +408,11 @@ impl QueueManager {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         guard.tasks.push(task.clone());
+        drop(guard);
+
+        if let Err(e) = self.persist() {
+            tracing::error!("failed to persist enqueued task: {e}");
+        }
         self.notifier.notify_one();
         task
     }
@@ -253,7 +433,8 @@ impl QueueManager {
             return Err("cannot remove a running task".to_string());
         }
         guard.tasks.remove(pos);
-        Ok(())
+        drop(guard);
+        self.persist()
     }
 
     /// Reorder tasks to match the provided list of IDs.
@@ -281,7 +462,8 @@ impl QueueManager {
             }
         }
         guard.tasks = new_order;
-        Ok(())
+        drop(guard);
+        self.persist()
     }
 
     /// Mark a pending or running task as cancelled.
@@ -310,7 +492,8 @@ impl QueueManager {
             }
             _ => return Err("only pending or running tasks can be cancelled".to_string()),
         }
-        Ok(())
+        drop(guard);
+        self.persist()
     }
 
     /// Pause the currently running task so it can be resumed later.
@@ -349,10 +532,11 @@ impl QueueManager {
         task.message = "Paused".to_string();
         drop(guard);
 
+        let result = self.persist();
         if let Some(token) = current_cancellation {
             token.cancel();
         }
-        Ok(())
+        result
     }
 
     /// Reset a failed, cancelled or paused task to pending.
@@ -376,6 +560,11 @@ impl QueueManager {
         task.message = String::new();
         task.error = None;
         task.completed_at = None;
+        task.progress_percent = 0;
+        task.chapters_completed = None;
+        task.chapter_total = None;
+        drop(guard);
+        self.persist()?;
         self.notifier.notify_one();
         Ok(())
     }
@@ -409,6 +598,10 @@ impl QueueManager {
             }
             guard.current_cancellation.clone()
         };
+
+        if let Err(e) = self.persist() {
+            tracing::error!("failed to persist queue pause: {e}");
+        }
         if let Some(token) = current_cancellation {
             token.cancel();
         }
@@ -445,7 +638,7 @@ fn compute_progress_percent_raw(chapter_total: Option<u32>, completed: u32, in_f
         return 0;
     }
     let percent = ((f64::from(completed) + in_flight) / f64::from(total)) * 100.0;
-    percent.clamp(0.0, 99.0) as u32
+    percent.clamp(0.0, 100.0) as u32
 }
 
 struct TaskProgressCallback {
@@ -473,6 +666,9 @@ impl babel_ebook::ProgressCallback for TaskProgressCallback {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+    use std::path::{Path, PathBuf};
+
     use super::*;
     use crate::args::{PromptTemplates, TranslateArgs};
 
@@ -511,6 +707,41 @@ mod tests {
             checkpoint_dir: ".babel_ebook_checkpoints".to_string(),
             resume: None,
         }
+    }
+
+    /// In-memory store backed by a JSON file, used to exercise persistence
+    /// without starting a full Tauri app.
+    struct JsonFileTaskStore {
+        path: PathBuf,
+    }
+
+    impl JsonFileTaskStore {
+        fn new(path: impl AsRef<Path>) -> Self {
+            Self {
+                path: path.as_ref().to_path_buf(),
+            }
+        }
+    }
+
+    impl QueueStore for JsonFileTaskStore {
+        fn load(&self) -> Result<Vec<StoredTask>, String> {
+            if !self.path.exists() {
+                return Ok(Vec::new());
+            }
+            let text = fs::read_to_string(&self.path).map_err(|e| e.to_string())?;
+            serde_json::from_str(&text).map_err(|e| e.to_string())
+        }
+
+        fn save(&self, tasks: &[StoredTask]) -> Result<(), String> {
+            let text = serde_json::to_string_pretty(tasks).map_err(|e| e.to_string())?;
+            fs::write(&self.path, text).map_err(|e| e.to_string())
+        }
+    }
+
+    fn temp_store() -> (tempfile::TempDir, Arc<JsonFileTaskStore>) {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let store = Arc::new(JsonFileTaskStore::new(dir.path().join("queue.json")));
+        (dir, store)
     }
 
     #[tokio::test]
@@ -563,6 +794,9 @@ mod tests {
         let state = queue.state();
         assert_eq!(state.tasks[0].status, TaskStatus::Pending);
         assert!(state.tasks[0].error.is_none());
+        assert_eq!(state.tasks[0].progress_percent, 0);
+        assert_eq!(state.tasks[0].chapters_completed, None);
+        assert_eq!(state.tasks[0].chapter_total, None);
     }
 
     #[tokio::test]
@@ -680,6 +914,26 @@ mod tests {
         assert_eq!(task.progress_percent, 20);
     }
 
+    #[tokio::test]
+    async fn progress_reaches_one_hundred_after_all_chapters() {
+        let queue = QueueManager::new();
+        let task = queue.enqueue(sample_args("a.epub", "a.out.epub"));
+        queue.update_task_progress(&task.id, &babel_ebook::ProgressEvent::Started { total: 3 });
+        for index in 0..3 {
+            queue.update_task_progress(
+                &task.id,
+                &babel_ebook::ProgressEvent::ChapterFinished {
+                    index,
+                    href: format!("ch{index:02}.xhtml"),
+                },
+            );
+        }
+        let state = queue.state();
+        let task = &state.tasks[0];
+        assert_eq!(task.chapters_completed, Some(3));
+        assert_eq!(task.progress_percent, 100);
+    }
+
     #[test]
     fn task_progress_payload_serializes_with_nested_event() {
         let payload = TaskProgressPayload {
@@ -696,5 +950,183 @@ mod tests {
         };
         let json_completed = serde_json::to_string(&completed).unwrap();
         assert!(json_completed.contains("\"event\":\"Completed\""));
+    }
+
+    #[tokio::test]
+    async fn enqueue_persists_tasks() {
+        let (_dir, store) = temp_store();
+        let queue = QueueManager::with_store(store.clone());
+        let args = sample_args("a.epub", "a.out.epub");
+        let task = queue.enqueue(args.clone());
+
+        // Simulate an app restart by loading the same store into a new manager.
+        let restored = QueueManager::with_store(store);
+        let state = restored.state();
+        assert_eq!(state.tasks.len(), 1);
+        assert_eq!(state.tasks[0].id, task.id);
+        assert_eq!(state.tasks[0].status, TaskStatus::Pending);
+        assert_eq!(state.tasks[0].source_path, "a.epub");
+        assert_eq!(state.tasks[0].output_path, "a.out.epub");
+        assert_eq!(state.tasks[0].args.source, args.source);
+        assert_eq!(state.tasks[0].args.output, args.output);
+    }
+
+    #[tokio::test]
+    async fn running_task_is_restored_as_paused() {
+        let (_dir, store) = temp_store();
+        let stored = StoredTask {
+            id: "task-1".to_string(),
+            source_path: "a.epub".to_string(),
+            output_path: "a.out.epub".to_string(),
+            status: TaskStatus::Running,
+            progress_percent: 42,
+            chapter_total: Some(10),
+            chapters_completed: Some(4),
+            message: "Running".to_string(),
+            error: None,
+            args: sample_args("a.epub", "a.out.epub"),
+            created_at: 1,
+            completed_at: Some(2),
+        };
+        store.save(&[stored]).unwrap();
+
+        let queue = QueueManager::with_store(store);
+        let state = queue.state();
+        assert!(!state.running);
+        assert_eq!(state.tasks.len(), 1);
+        assert_eq!(state.tasks[0].status, TaskStatus::Paused);
+        assert_eq!(state.tasks[0].message, "Paused");
+        assert!(state.tasks[0].completed_at.is_none());
+    }
+
+    #[tokio::test]
+    async fn completed_task_survives_restart() {
+        let (_dir, store) = temp_store();
+        let stored = StoredTask {
+            id: "task-1".to_string(),
+            source_path: "a.epub".to_string(),
+            output_path: "a.out.epub".to_string(),
+            status: TaskStatus::Completed,
+            progress_percent: 100,
+            chapter_total: Some(5),
+            chapters_completed: Some(5),
+            message: "Done".to_string(),
+            error: None,
+            args: sample_args("a.epub", "a.out.epub"),
+            created_at: 1,
+            completed_at: Some(2),
+        };
+        store.save(&[stored]).unwrap();
+
+        let queue = QueueManager::with_store(store);
+        let state = queue.state();
+        assert_eq!(state.tasks[0].status, TaskStatus::Completed);
+        assert_eq!(state.tasks[0].progress_percent, 100);
+        assert_eq!(state.tasks[0].completed_at, Some(2));
+    }
+
+    #[tokio::test]
+    async fn pause_persists_task_status() {
+        let (_dir, store) = temp_store();
+        let queue = QueueManager::with_store(store.clone());
+        let task = queue.enqueue(sample_args("a.epub", "a.out.epub"));
+        let token = CancellationToken::default();
+        {
+            let mut guard = queue
+                .inner
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            guard.tasks[0].status = TaskStatus::Running;
+            guard.current_task_id = Some(task.id);
+            guard.current_cancellation = Some(token);
+            guard.running = true;
+        }
+
+        queue.pause();
+
+        let restored = QueueManager::with_store(store);
+        let state = restored.state();
+        assert!(!state.running);
+        assert_eq!(state.tasks[0].status, TaskStatus::Paused);
+    }
+
+    #[tokio::test]
+    async fn cancel_remove_and_retry_are_persisted() {
+        let (_dir, store) = temp_store();
+        let queue = QueueManager::with_store(store.clone());
+        let first = queue.enqueue(sample_args("a.epub", "a.out.epub"));
+        let second = queue.enqueue(sample_args("b.epub", "b.out.epub"));
+
+        queue.cancel(&first.id).unwrap();
+        queue.remove(&second.id).unwrap();
+
+        let restored = QueueManager::with_store(store.clone());
+        assert_eq!(restored.state().tasks.len(), 1);
+        assert_eq!(restored.state().tasks[0].status, TaskStatus::Cancelled);
+
+        queue.retry(&first.id).unwrap();
+        let restored_after_retry = QueueManager::with_store(store);
+        assert_eq!(
+            restored_after_retry.state().tasks[0].status,
+            TaskStatus::Pending
+        );
+    }
+
+    #[tokio::test]
+    async fn reorder_is_persisted() {
+        let (_dir, store) = temp_store();
+        let queue = QueueManager::with_store(store.clone());
+        let first = queue.enqueue(sample_args("a.epub", "a.out.epub"));
+        let second = queue.enqueue(sample_args("b.epub", "b.out.epub"));
+
+        queue
+            .reorder(&[second.id.clone(), first.id.clone()])
+            .unwrap();
+
+        let restored = QueueManager::with_store(store);
+        let state = restored.state();
+        assert_eq!(state.tasks[0].id, second.id);
+        assert_eq!(state.tasks[1].id, first.id);
+    }
+
+    #[tokio::test]
+    async fn progress_updates_are_not_persisted() {
+        let (_dir, store) = temp_store();
+        let queue = QueueManager::with_store(store.clone());
+        let task = queue.enqueue(sample_args("a.epub", "a.out.epub"));
+        {
+            let mut guard = queue
+                .inner
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            guard.tasks[0].status = TaskStatus::Running;
+        }
+
+        queue.update_task_progress(&task.id, &babel_ebook::ProgressEvent::Started { total: 10 });
+        queue.update_task_progress(
+            &task.id,
+            &babel_ebook::ProgressEvent::ChapterFinished {
+                index: 0,
+                href: "ch01.xhtml".to_string(),
+            },
+        );
+
+        let restored = QueueManager::with_store(store);
+        let state = restored.state();
+        assert_eq!(state.tasks[0].progress_percent, 0);
+        assert_eq!(state.tasks[0].chapters_completed, None);
+        assert_eq!(state.tasks[0].chapter_total, None);
+    }
+
+    #[test]
+    fn stored_task_does_not_include_runtime_fields() {
+        let task = Task::new(sample_args("a.epub", "a.out.epub"));
+        let stored = StoredTask::from(&task);
+        // CancellationToken is a runtime-only field on Task and must never be
+        // serialised into the persisted representation.
+        let value = serde_json::to_value(&stored).unwrap();
+        let object = value.as_object().expect("stored task is a JSON object");
+        assert!(!object.contains_key("cancellation_token"));
+        assert!(!object.contains_key("token"));
     }
 }
