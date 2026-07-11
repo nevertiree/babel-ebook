@@ -39,8 +39,12 @@
 - Provider cards and the translate-page provider selector show a type-specific SVG
   icon for each configured LLM provider.
 - Task error detail modal can be closed with the Esc key.
-- Sidebar navigation is split: Translate/Logs/Tasks stay at the top, while Settings
+- Sidebar navigation is split: Translate/Tasks/Logs stay at the top, while Settings
   and About are pushed to the bottom.
+- Sidebar nav items now have SVG icons and "Task Queue" is renamed to "Tasks" in
+  all locales.
+- Sidebar width is now resizable via drag (140px–320px) and starts at a narrower
+  180px default.
 - Settings page header now places the "Settings" title and the horizontal sub-page
   tabs on the same line, saving vertical space.
 - Settings sub-page tabs are forced into a single horizontal row with horizontal

@@ -20,6 +20,7 @@ import TasksPage from "./pages/TasksPage";
 import SettingsLayout from "./pages/SettingsLayout";
 import ToastContainer from "./components/ToastContainer";
 import type { Toast } from "./components/ToastContainer";
+import NavIcon from "./components/NavIcon";
 import {
   loadGeneralSettings,
   loadSettings,
@@ -242,6 +243,40 @@ function App() {
   });
 
   const [lastTaskId, setLastTaskId] = useState<string | undefined>();
+
+  const [sidebarWidth, setSidebarWidth] = useState(180);
+  const isResizing = useRef(false);
+  const startX = useRef(0);
+  const startWidth = useRef(0);
+
+  const beginResize = (e: React.MouseEvent) => {
+    isResizing.current = true;
+    startX.current = e.clientX;
+    startWidth.current = sidebarWidth;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing.current) return;
+      const delta = e.clientX - startX.current;
+      const next = Math.max(140, Math.min(320, startWidth.current + delta));
+      setSidebarWidth(next);
+    };
+    const handleMouseUp = () => {
+      if (!isResizing.current) return;
+      isResizing.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [sidebarWidth]);
 
   useEffect(() => {
     if (queue.current_task_id) {
@@ -848,7 +883,10 @@ function App() {
 
   return (
     <div className="app-shell" data-theme={general.theme}>
-      <aside className="sidebar">
+      <aside
+        className="sidebar"
+        style={{ width: sidebarWidth, minWidth: sidebarWidth }}
+      >
         <div className="brand">
           <h1>{t("app_title")}</h1>
         </div>
@@ -861,16 +899,8 @@ function App() {
               onClick={() => setPage("translate")}
               data-testid="nav-translate"
             >
-              {t("nav_translate")}
-            </button>
-
-            <button
-              type="button"
-              className={`nav-item ${page === "logs" ? "active" : ""}`}
-              onClick={() => setPage("logs")}
-              data-testid="nav-logs"
-            >
-              {t("nav_logs")}
+              <NavIcon icon="translate" className="nav-item-icon" />
+              <span className="nav-item-label">{t("nav_translate")}</span>
             </button>
 
             <button
@@ -879,12 +909,23 @@ function App() {
               onClick={() => setPage("tasks")}
               data-testid="nav-tasks"
             >
+              <NavIcon icon="tasks" className="nav-item-icon" />
               <span className="nav-item-label">{t("nav_tasks")}</span>
               {runningTaskCount > 0 && (
                 <span className="nav-badge" aria-label={t("task_status_running")}>
                   {runningTaskCount}
                 </span>
               )}
+            </button>
+
+            <button
+              type="button"
+              className={`nav-item ${page === "logs" ? "active" : ""}`}
+              onClick={() => setPage("logs")}
+              data-testid="nav-logs"
+            >
+              <NavIcon icon="logs" className="nav-item-icon" />
+              <span className="nav-item-label">{t("nav_logs")}</span>
             </button>
           </div>
 
@@ -895,7 +936,8 @@ function App() {
               onClick={() => setPage("settings-compute")}
               data-testid="nav-settings"
             >
-              {t("nav_settings")}
+              <NavIcon icon="settings" className="nav-item-icon" />
+              <span className="nav-item-label">{t("nav_settings")}</span>
             </button>
 
             <button
@@ -903,10 +945,17 @@ function App() {
               className={`nav-item ${page === "about" ? "active" : ""}`}
               onClick={() => setPage("about")}
             >
-              {t("nav_about")}
+              <NavIcon icon="about" className="nav-item-icon" />
+              <span className="nav-item-label">{t("nav_about")}</span>
             </button>
           </div>
         </nav>
+
+        <div
+          className="sidebar-resizer"
+          onMouseDown={beginResize}
+          title="Drag to resize sidebar"
+        />
       </aside>
 
       <main className="main-content">{renderPage()}</main>
