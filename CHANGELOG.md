@@ -2,7 +2,40 @@
 
 ## [0.3.3] - 2026-07-11
 
-- Release version 0.3.3.
+### Added
+
+- Desktop translate page now shows a configuration summary card and an **Estimate**
+  (dry run) button next to Start Translation.
+- Task queue supports multi-select, batch retry/cancel/remove, and up/down reordering
+  for pending tasks.
+- Logs page adds log-level filtering and pauses auto-scroll when the user scrolls up,
+  with a "new logs" indicator and a jump-to-bottom control.
+- Confirmation dialogs for destructive actions: removing tasks/providers and resetting
+  custom prompts.
+- `Ctrl+Enter` keyboard shortcut to start translation from the translate page.
+
+### Changed
+
+- Settings navigation is now grouped under a single **Settings** sidebar entry with
+  tabbed sub-pages (Providers, Model, Translation, Output, Prompts, General).
+- Provider cards were redesigned with clearer information hierarchy, accessible
+  tooltips, and SVG show/hide icons for API keys.
+- Numeric model parameters now validate ranges immediately and show min/max errors.
+- "Compute" settings were relabeled to **Providers** and the prompt reset button now
+  reads **Reset to defaults** in all locales.
+- The translate page keeps the running/completed task visible in the progress panel
+  instead of switching pages after start.
+- License page renders the MIT text as readable paragraphs instead of a `<pre>` block.
+- Source file picker shows a warning when a non-EPUB file is selected.
+
+### Fixed
+
+- Validation errors (missing source/output/API key) are now shown prominently on the
+  translate page with direct links to the relevant settings.
+- Running panel displays correct status labels (Running/Completed/Failed) and uses
+  appropriate success/error colors.
+- Unused CSS classes, the orphaned `LogPanel` component, and stale i18n keys were
+  removed.
 
 ## [0.3.2] - 2026-07-11
 

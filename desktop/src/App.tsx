@@ -18,6 +18,8 @@ import LegalPage from "./pages/LegalPage";
 import LogsPage from "./pages/LogsPage";
 import TasksPage from "./pages/TasksPage";
 import SettingsLayout from "./pages/SettingsLayout";
+import ToastContainer from "./components/ToastContainer";
+import type { Toast } from "./components/ToastContainer";
 import {
   loadGeneralSettings,
   loadSettings,
@@ -230,6 +232,7 @@ function App() {
   }));
   const [page, setPage] = useState<Page>("translate");
   const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [toasts, setToasts] = useState<Toast[]>([]);
 
   const [general, setGeneral] = useState<GeneralSettings>(DEFAULT_GENERAL);
   const [detectedLocale, setDetectedLocale] = useState<string>("en");
@@ -671,6 +674,15 @@ function App() {
 
   const clearLogs = () => setLogs([]);
 
+  const showToast = (message: string, kind: Toast["kind"] = "info") => {
+    const id = generateId();
+    setToasts((prev) => [...prev, { id, message, kind }]);
+  };
+
+  const dismissToast = (id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  };
+
   const refreshQueue = async () => {
     const state = await invoke<QueueState>("get_queue_state").catch(() => ({
       tasks: [],
@@ -771,6 +783,7 @@ function App() {
                 general={general}
                 setGeneral={setGeneral}
                 detectedLocale={detectedLocale}
+                onToast={showToast}
                 onImport={async (settings) => {
                   const merged = { ...form, ...settings.translation } as FormState;
                   if (
@@ -861,6 +874,7 @@ function App() {
       </aside>
 
       <main className="main-content">{renderPage()}</main>
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 }

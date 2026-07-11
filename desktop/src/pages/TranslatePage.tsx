@@ -305,6 +305,7 @@ export default function TranslatePage({
 
       {!hasProviders && (
         <div className="empty-state">
+          <div className="empty-state-icon" aria-hidden="true">⚙️</div>
           <p>{t("no_provider_configured")}</p>
           <button type="button" onClick={() => onPageChange("settings-compute")}>
             {t("configure_provider")}
@@ -313,7 +314,7 @@ export default function TranslatePage({
       )}
 
       <section className="file-section">
-        <div className="file-row">
+        <div className="file-row file-row-source" role="button" tabIndex={0} onClick={selectSource}>
           <div className="file-info">
             <span className="file-label">{t("source")}</span>
             <span className="file-path" title={form.source || undefined} data-testid="source-path">
@@ -326,7 +327,7 @@ export default function TranslatePage({
               <span className="inline-warning">{t("source_format_warning")}</span>
             )}
           </div>
-          <button type="button" onClick={selectSource}>
+          <button type="button" onClick={(e) => { e.stopPropagation(); selectSource(); }}>
             {t("select_file")}
           </button>
         </div>

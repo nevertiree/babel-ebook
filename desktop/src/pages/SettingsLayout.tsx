@@ -7,13 +7,13 @@ interface SettingsLayoutProps {
   children: React.ReactNode;
 }
 
-const settingsTabs: { page: Page; labelKey: string }[] = [
-  { page: "settings-compute", labelKey: "settings_compute" },
-  { page: "settings-model", labelKey: "settings_model" },
-  { page: "settings-translation", labelKey: "settings_translation" },
-  { page: "settings-prompts", labelKey: "settings_prompts" },
-  { page: "settings-output", labelKey: "settings_output" },
-  { page: "settings-general", labelKey: "settings_general" },
+const settingsTabs: { page: Page; labelKey: string; icon: string }[] = [
+  { page: "settings-compute", labelKey: "settings_compute", icon: "⚙️" },
+  { page: "settings-model", labelKey: "settings_model", icon: "🧠" },
+  { page: "settings-translation", labelKey: "settings_translation", icon: "🌐" },
+  { page: "settings-prompts", labelKey: "settings_prompts", icon: "📝" },
+  { page: "settings-output", labelKey: "settings_output", icon: "📁" },
+  { page: "settings-general", labelKey: "settings_general", icon: "🎛️" },
 ];
 
 export default function SettingsLayout({ activePage, onNavigate, children }: SettingsLayoutProps) {
@@ -23,7 +23,7 @@ export default function SettingsLayout({ activePage, onNavigate, children }: Set
     <div className="page settings-layout">
       <h2>{t("nav_settings")}</h2>
       <nav className="settings-tabs" role="tablist" aria-label={t("nav_settings")}>
-        {settingsTabs.map(({ page, labelKey }) => (
+        {settingsTabs.map(({ page, labelKey, icon }) => (
           <button
             key={page}
             type="button"
@@ -32,6 +32,7 @@ export default function SettingsLayout({ activePage, onNavigate, children }: Set
             className={`settings-tab ${activePage === page ? "active" : ""}`}
             onClick={() => onNavigate(page)}
           >
+            <span className="settings-tab-icon" aria-hidden="true">{icon}</span>
             {t(labelKey)}
           </button>
         ))}

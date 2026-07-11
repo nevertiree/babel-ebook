@@ -117,7 +117,11 @@ export default function ComputeSettingsPage({
 
       {providers.length === 0 && (
         <div className="empty-state">
+          <div className="empty-state-icon" aria-hidden="true">⚙️</div>
           <p>{t("no_provider_configured")}</p>
+          <button type="button" onClick={addProvider}>
+            {t("add_provider")}
+          </button>
         </div>
       )}
 

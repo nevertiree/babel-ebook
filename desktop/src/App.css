@@ -359,6 +359,22 @@ button:disabled {
   flex-shrink: 0;
 }
 
+.file-row-source {
+  cursor: pointer;
+  border: 1px dashed var(--border);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.file-row-source:hover {
+  background: var(--hover-bg);
+  border-color: var(--accent);
+}
+
+.file-row-source:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
 .file-info {
   flex: 1;
   min-width: 0;
@@ -996,6 +1012,12 @@ button .loading-spinner {
   margin: 0.75rem 0 1.25rem;
 }
 
+.empty-state-icon {
+  font-size: 2rem;
+  line-height: 1;
+  margin-bottom: 0.5rem;
+}
+
 .text-button {
   background: transparent;
   color: var(--accent);
@@ -1479,6 +1501,13 @@ button .loading-spinner {
   border-radius: var(--radius);
   font-size: 0.85rem;
   font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.settings-tab-icon {
+  font-size: 0.9rem;
 }
 
 .settings-tab:hover:not(:disabled) {
@@ -1526,4 +1555,150 @@ button .loading-spinner {
   color: var(--muted);
   cursor: help;
   font-size: 0.9rem;
+}
+
+/* Toast notifications */
+.toast-container {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-width: 320px;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.65rem 0.9rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--elevated);
+  color: var(--text);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  animation: toast-in 0.2s ease;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.toast-success {
+  border-color: var(--success);
+}
+
+.toast-error {
+  border-color: var(--error);
+}
+
+.toast-info {
+  border-color: var(--accent);
+}
+
+.toast-message {
+  flex: 1 1 auto;
+  font-size: 0.875rem;
+}
+
+.toast-close {
+  flex: 0 0 auto;
+  padding: 0;
+  width: 1.25rem;
+  height: 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.toast-close:hover {
+  color: var(--text);
+}
+
+/* Modal / drawer overlay */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1500;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.modal-dialog {
+  background: var(--elevated);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  width: 100%;
+  max-width: 560px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.modal-close {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 1.25rem;
+  cursor: pointer;
+}
+
+.modal-close:hover {
+  color: var(--text);
+}
+
+.modal-body {
+  padding: 1rem;
+  overflow-y: auto;
+}
+
+.modal-body .error-detail {
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--surface);
+  padding: 0.75rem;
+  border-radius: var(--radius);
+  margin: 0.75rem 0 0;
+  font-size: 0.85rem;
+  color: var(--danger);
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--border);
 }

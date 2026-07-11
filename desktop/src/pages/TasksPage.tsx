@@ -33,6 +33,7 @@ export default function TasksPage({
 }: TasksPageProps) {
   const { t } = useTranslation();
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [detailTask, setDetailTask] = useState<Task | null>(null);
 
   const statusClass = (status: Task["status"]) => `task-status task-status-${status}`;
 
@@ -114,6 +115,7 @@ export default function TasksPage({
 
       {queue.tasks.length === 0 ? (
         <div className="empty-state">
+          <div className="empty-state-icon" aria-hidden="true">📋</div>
           <p data-testid="queue-empty">{t("queue_empty")}</p>
           <button type="button" onClick={() => onNavigate("translate")}>
             {t("nav_translate")}
@@ -211,6 +213,15 @@ export default function TasksPage({
                       {t("retry")}
                     </button>
                   )}
+                  {task.status === "failed" && task.error && (
+                    <button
+                      type="button"
+                      onClick={() => setDetailTask(task)}
+                      data-testid="view-error-details"
+                    >
+                      {t("details")}
+                    </button>
+                  )}
                   {task.status !== "running" && (
                     <button
                       type="button"
@@ -232,6 +243,43 @@ export default function TasksPage({
             ))}
           </ul>
         </>
+      )}
+
+      {detailTask && (
+        <div
+          className="modal-overlay"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setDetailTask(null);
+          }}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="error-detail-title"
+        >
+          <div className="modal-dialog">
+            <div className="modal-header">
+              <h3 id="error-detail-title">{t("error_details")}</h3>
+              <button
+                type="button"
+                className="modal-close"
+                onClick={() => setDetailTask(null)}
+                aria-label={t("close")}
+              >
+                ×
+              </button>
+            </div>
+            <div className="modal-body">
+              <p className="task-file" title={detailTask.source_path}>
+                {formatPath(detailTask.source_path)}
+              </p>
+              <pre className="error-detail">{detailTask.error}</pre>
+            </div>
+            <div className="modal-footer">
+              <button type="button" onClick={() => setDetailTask(null)}>
+                {t("close")}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
