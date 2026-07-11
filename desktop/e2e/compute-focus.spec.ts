@@ -58,7 +58,7 @@ test("provider config name input keeps focus while typing", async () => {
   });
 
   // Navigate to compute settings.
-  const navButton = page.locator('nav button:has-text("Compute")');
+  const navButton = page.locator('nav button:has-text("Providers")');
   await expect(navButton).toBeVisible({ timeout: 10000 });
   await navButton.click();
 

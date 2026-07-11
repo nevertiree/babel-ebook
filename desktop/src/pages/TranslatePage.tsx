@@ -2,13 +2,14 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { CheckpointInfo, FormState, LogEntry, Page, ProgressState, ValidationResult } from "../types";
+import type { CheckpointInfo, FormState, LogEntry, Page, Task, ValidationResult } from "../types";
 import {
   outputModes,
   sourceLanguages,
   targetLanguages,
 } from "../types";
-import LogPanel from "../components/LogPanel";
+import ValidationBanner from "../components/ValidationBanner";
+import RunningPanel from "../components/RunningPanel";
 
 interface ModelSelectProps {
   provider: string;
@@ -125,7 +126,7 @@ interface TranslatePageProps {
   form: FormState;
   setForm: <K extends keyof FormState>(key: K, value: FormState[K]) => void;
   onStart: () => void;
-  progress: ProgressState;
+  currentTask?: Task;
   validation: ValidationResult;
   onPageChange: (page: Page) => void;
   logs: LogEntry[];
@@ -136,7 +137,7 @@ export default function TranslatePage({
   form,
   setForm,
   onStart,
-  progress,
+  currentTask,
   validation,
   onPageChange,
   logs,
@@ -213,6 +214,13 @@ export default function TranslatePage({
   return (
     <div className="page translate-page">
       <h2>{t("nav_translate")}</h2>
+
+      <ValidationBanner
+        validation={validation}
+        providers={form.providers}
+        activeProvider={activeProvider}
+        onNavigate={onPageChange}
+      />
 
       <section className="quick-settings">
         <div className="row">
@@ -450,23 +458,11 @@ export default function TranslatePage({
         </div>
       )}
 
-      <section className="progress-section" data-testid="progress-section">
-        <div className="progress-header">
-          <span>{t("progress")}</span>
-          <span>{progress.percent}%</span>
-        </div>
-        <div className="progress-bar">
-          <div
-            className="progress-fill"
-            style={{ width: `${progress.percent}%` }}
-          />
-        </div>
-        <p className="progress-message" data-testid="progress-message">
-          {progress.message || t("waiting")}
-        </p>
-      </section>
-
-      <LogPanel entries={logs} onClear={onClearLogs} />
+      <RunningPanel
+        currentTask={currentTask}
+        logs={logs}
+        onClearLogs={onClearLogs}
+      />
     </div>
   );
 }

@@ -2,7 +2,8 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import type { ProviderConfig } from "../types";
-import { providerApiKeyHints, providers as knownProviders } from "../types";
+import { providers as knownProviders } from "../types";
+import ProviderCard from "../components/ProviderCard";
 
 interface ComputeSettingsPageProps {
   providers: ProviderConfig[];
@@ -20,7 +21,9 @@ export default function ComputeSettingsPage({
   const { t } = useTranslation();
   const [showKeyFor, setShowKeyFor] = useState<string | null>(null);
   const [testingFor, setTestingFor] = useState<string | null>(null);
-  const [testResults, setTestResults] = useState<Record<string, { ok: boolean; message: string }>>({});
+  const [testResults, setTestResults] = useState<
+    Record<string, { ok: boolean; message: string }>
+  >({});
 
   const usedNames = new Set(providers.map((p) => p.name));
 
@@ -68,24 +71,6 @@ export default function ComputeSettingsPage({
     });
   };
 
-  const handleProviderTypeChange = (name: string, newProviderType: string) => {
-    const p = providers.find((x) => x.name === name);
-    if (!p || p.provider === newProviderType) return;
-
-    onChangeProviders(
-      providers.map((x) =>
-        x.name === name
-          ? {
-              ...x,
-              provider: newProviderType,
-              base_url: "",
-              use_custom_base_url: false,
-            }
-          : x
-      )
-    );
-  };
-
   const runTest = async (name: string) => {
     const p = providers.find((x) => x.name === name);
     if (!p) return;
@@ -130,137 +115,23 @@ export default function ComputeSettingsPage({
         </div>
       )}
 
-      {providers.map((p, index) => {
-        const isActive = activeProvider === p.name;
-        const expectedPrefix = providerApiKeyHints[p.provider];
-        const keyLooksWrong =
-          expectedPrefix && p.api_key && !p.api_key.startsWith(expectedPrefix);
-        const result = testResults[p.name];
-
-        return (
-          <div
-            key={index}
-            className={`provider-config ${isActive ? "active" : ""}`}
-          >
-            <div className="provider-row compact">
-              <label className="provider-type-label">
-                <span>{t("provider_type")}</span>
-                <select
-                  value={p.provider}
-                  onChange={(e) => handleProviderTypeChange(p.name, e.target.value)}
-                >
-                  {knownProviders.map((kp) => (
-                    <option key={kp} value={kp}>
-                      {t(`provider_${kp}`)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="provider-name-label" title={p.name}>
-                <span>{t("provider_name")}</span>
-                <input
-                  type="text"
-                  value={p.name}
-                  onChange={(e) => updateProvider(p.name, { name: e.target.value })}
-                />
-              </label>
-
-              <label className="provider-api-key" title={p.api_key}>
-                <span>{t("api_key")}</span>
-                <div className="input-with-toggle">
-                  <input
-                    type={showKeyFor === p.name ? "text" : "password"}
-                    value={p.api_key}
-                    onChange={(e) => updateProvider(p.name, { api_key: e.target.value })}
-                    placeholder="sk-..."
-                  />
-                  <button
-                    type="button"
-                    className="input-toggle"
-                    onClick={() =>
-                      setShowKeyFor((prev) => (prev === p.name ? null : p.name))
-                    }
-                    title={showKeyFor === p.name ? t("hide") : t("show")}
-                  >
-                    {showKeyFor === p.name ? "🙈" : "👁"}
-                  </button>
-                </div>
-              </label>
-
-              <label className="provider-base-url-checkbox checkbox">
-                <input
-                  type="checkbox"
-                  checked={p.use_custom_base_url}
-                  onChange={(e) =>
-                    updateProvider(p.name, {
-                      use_custom_base_url: e.target.checked,
-                      base_url: e.target.checked ? p.base_url : "",
-                    })
-                  }
-                />
-                {t("use_custom_base_url")}
-              </label>
-
-              <button
-                type="button"
-                className="test-button"
-                onClick={() => runTest(p.name)}
-                disabled={testingFor === p.name}
-              >
-                {testingFor === p.name ? t("testing_connection") : t("test_connection")}
-              </button>
-
-              <button
-                type="button"
-                className={`text-button ${isActive ? "active-provider-label" : ""}`}
-                onClick={() => onChangeActiveProvider(p.name)}
-                disabled={isActive}
-              >
-                {isActive ? t("active_provider") : t("set_active_provider")}
-              </button>
-
-              <button
-                type="button"
-                className="text-button danger"
-                onClick={() => removeProvider(p.name)}
-              >
-                {t("remove_provider")}
-              </button>
-            </div>
-
-            {p.use_custom_base_url && (
-              <div className="provider-row base-url-row">
-                <label className="provider-base-url">
-                  <span>{t("base_url")}</span>
-                  <input
-                    type="text"
-                    value={p.base_url}
-                    onChange={(e) => updateProvider(p.name, { base_url: e.target.value })}
-                    placeholder={t("base_url_placeholder")}
-                  />
-                </label>
-              </div>
-            )}
-
-            {!p.use_custom_base_url && (
-              <span className="hint default-base-url-hint">{t("default_base_url")}</span>
-            )}
-
-            {keyLooksWrong && (
-              <span className="format-hint">{t("api_key_format_hint")}</span>
-            )}
-
-            {result && (
-              <span
-                className={`test-result ${result.ok ? "test-result-ok" : "test-result-error"}`}
-              >
-                {result.message}
-              </span>
-            )}
-          </div>
-        );
-      })}
+      {providers.map((p, index) => (
+        <ProviderCard
+          key={index}
+          provider={p}
+          isActive={activeProvider === p.name}
+          showKey={showKeyFor === p.name}
+          testing={testingFor === p.name}
+          testResult={testResults[p.name]}
+          onChange={(patch) => updateProvider(p.name, patch)}
+          onRemove={() => removeProvider(p.name)}
+          onSetActive={() => onChangeActiveProvider(p.name)}
+          onTest={() => runTest(p.name)}
+          onToggleShowKey={() =>
+            setShowKeyFor((prev) => (prev === p.name ? null : p.name))
+          }
+        />
+      ))}
 
       {canAddProvider && (
         <button type="button" onClick={addProvider}>

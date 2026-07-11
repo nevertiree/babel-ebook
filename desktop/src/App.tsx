@@ -4,7 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import "./App.css";
-import type { FormState, LogEntry, Page, ProgressState, ProviderConfig, QueueState, Task, ValidationResult } from "./types";
+import type { FormState, LogEntry, Page, ProviderConfig, QueueState, Task, ValidationResult } from "./types";
 import { defaults } from "./types";
 import TranslatePage from "./pages/TranslatePage";
 import ComputeSettingsPage from "./pages/ComputeSettingsPage";
@@ -239,16 +239,22 @@ function App() {
   const [page, setPage] = useState<Page>("translate");
   const [logs, setLogs] = useState<LogEntry[]>([]);
 
-  const [progress, setProgress] = useState<ProgressState>({
-    percent: 0,
-    message: "",
-  });
   const [general, setGeneral] = useState<GeneralSettings>(DEFAULT_GENERAL);
   const [detectedLocale, setDetectedLocale] = useState<string>("en");
   const [queue, setQueue] = useState<QueueState>({
     tasks: [],
     running: false,
   });
+
+  const currentTask = useMemo(() => {
+    if (!queue.current_task_id) return undefined;
+    return queue.tasks.find((t) => t.id === queue.current_task_id);
+  }, [queue]);
+
+  const runningTaskCount = useMemo(
+    () => queue.tasks.filter((t) => t.status === "running").length,
+    [queue]
+  );
 
   const completedRef = useRef(0);
   const totalRef = useRef(0);
@@ -511,16 +517,19 @@ function App() {
           ];
         }
         if (typeof payload === "object" && "ChapterFinished" in payload) {
+          const message = t("log_chapter_finished", {
+            href: payload.ChapterFinished.href,
+            current: completedRef.current,
+            total: totalRef.current,
+          });
+          completedRef.current += 1;
+          delete chapterProgressRef.current[payload.ChapterFinished.index];
           return [
             ...prev,
             {
               id: generateId(), timestamp: Date.now(),
               kind: "chapter",
-              message: t("log_chapter_finished", {
-                href: payload.ChapterFinished.href,
-                current: completedRef.current,
-                total: totalRef.current,
-              }),
+              message,
             },
           ];
         }
@@ -576,72 +585,6 @@ function App() {
         }
         return prev;
       });
-
-      setProgress((prev) => {
-        if (typeof payload === "string" && payload === "Completed") {
-          return { percent: 100, message: t("completed") };
-        }
-        if (typeof payload === "object" && "Started" in payload) {
-          totalRef.current = payload.Started.total;
-          completedRef.current = 0;
-          chapterProgressRef.current = {};
-          return { percent: 0, message: t("started") };
-        }
-        if (typeof payload === "object" && "ChapterStarted" in payload) {
-          return {
-            ...prev,
-            message: `${t("started")}: ${payload.ChapterStarted.href}`,
-          };
-        }
-        if (typeof payload === "object" && "ChapterFinished" in payload) {
-          completedRef.current += 1;
-          delete chapterProgressRef.current[payload.ChapterFinished.index];
-          const percent = computeChunkProgressPercent(
-            totalRef.current,
-            completedRef.current,
-            chapterProgressRef.current
-          );
-          return {
-            percent,
-            message: `${t("completed")}: ${payload.ChapterFinished.href}`,
-          };
-        }
-        if (typeof payload === "object" && "ChunkStarted" in payload) {
-          chapterProgressRef.current[payload.ChunkStarted.index] = {
-            chunk_total: payload.ChunkStarted.chunk_total,
-            chunks_done: payload.ChunkStarted.chunk_index,
-          };
-          return {
-            ...prev,
-            percent: computeChunkProgressPercent(
-              totalRef.current,
-              completedRef.current,
-              chapterProgressRef.current
-            ),
-          };
-        }
-        if (typeof payload === "object" && "ChunkFinished" in payload) {
-          chapterProgressRef.current[payload.ChunkFinished.index] = {
-            chunk_total: payload.ChunkFinished.chunk_total,
-            chunks_done: payload.ChunkFinished.chunk_index + 1,
-          };
-          return {
-            ...prev,
-            percent: computeChunkProgressPercent(
-              totalRef.current,
-              completedRef.current,
-              chapterProgressRef.current
-            ),
-          };
-        }
-        if (typeof payload === "object" && "Failed" in payload) {
-          return {
-            ...prev,
-            message: `${t("error")}: ${payload.Failed.error}`,
-          };
-        }
-        return prev;
-      });
     });
     return () => {
       void unlisten.then((f) => f());
@@ -669,7 +612,6 @@ function App() {
       const args = buildTranslateArgs(form);
       await invoke("enqueue_task", { args });
       await invoke("start_queue");
-      setPage("tasks");
     } catch (err) {
       const message = `${t("error")}: ${err}`;
       setLogs((prev) => [
@@ -759,7 +701,7 @@ function App() {
             form={form}
             setForm={updateForm}
             onStart={handleStart}
-            progress={progress}
+            currentTask={currentTask}
             validation={validation}
             onPageChange={setPage}
             logs={logs}
@@ -863,7 +805,12 @@ function App() {
             onClick={() => setPage("tasks")}
             data-testid="nav-tasks"
           >
-            {t("nav_tasks")}
+            <span className="nav-item-label">{t("nav_tasks")}</span>
+            {runningTaskCount > 0 && (
+              <span className="nav-badge" aria-label={t("task_status_running")}>
+                {runningTaskCount}
+              </span>
+            )}
           </button>
 
           <div className="nav-group">

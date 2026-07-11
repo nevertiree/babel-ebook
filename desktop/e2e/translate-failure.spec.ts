@@ -74,7 +74,8 @@ test("failed task can be retried and does not crash the app", async () => {
   await expect(startButton).toBeEnabled();
   await startButton.click();
 
-  // The queue page should show the failed task.
+  // Navigate to the queue page to inspect the failed task.
+  await page.getByTestId("nav-tasks").click();
   await expect(page.getByTestId("task-list")).toBeVisible({ timeout: 10000 });
   const firstTask = page.getByTestId("task-item").first();
   await expect(firstTask).toContainText(/failed|error|invalid|corrupt/i, {
