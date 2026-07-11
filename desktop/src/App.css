@@ -650,6 +650,25 @@ button:disabled {
   margin: 0;
 }
 
+.button-primary {
+  padding: 0.45rem 0.75rem;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.button-primary:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.button-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .button-secondary,
 .legal-header button {
   padding: 0.45rem 0.75rem;
@@ -879,6 +898,30 @@ button .loading-spinner {
   color: var(--warning);
   font-size: 0.8rem;
   margin-top: 0.2rem;
+}
+
+.validation-banner {
+  margin-bottom: 1rem;
+}
+
+.validation-banner-prominent {
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--warning);
+  background: rgba(245, 158, 11, 0.12);
+}
+
+.validation-banner-prominent p {
+  margin: 0 0 0.5rem;
+}
+
+.validation-message {
+  margin: 0.25rem 0;
+}
+
+.validation-reason {
+  margin: 0.5rem 0 0;
 }
 
 .field-row {

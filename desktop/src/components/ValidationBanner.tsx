@@ -29,17 +29,8 @@ export default function ValidationBanner({
   return (
     <div className="validation-banner" role="alert" aria-live="polite">
       {missingProvider && (
-        <div
-          className="validation-banner-prominent"
-          style={{
-            padding: "0.75rem 1rem",
-            marginBottom: "1rem",
-            borderRadius: "0.5rem",
-            border: "1px solid var(--warning, #f59e0b)",
-            background: "rgba(245, 158, 11, 0.12)",
-          }}
-        >
-          <p style={{ margin: "0 0 0.5rem" }}>{t("validation_no_provider")}</p>
+        <div className="validation-banner-prominent">
+          <p>{t("validation_no_provider")}</p>
           <button
             type="button"
             className="button-primary"
@@ -51,19 +42,8 @@ export default function ValidationBanner({
       )}
 
       {missingApiKey && (
-        <div
-          className="validation-banner-prominent"
-          style={{
-            padding: "0.75rem 1rem",
-            marginBottom: "1rem",
-            borderRadius: "0.5rem",
-            border: "1px solid var(--warning, #f59e0b)",
-            background: "rgba(245, 158, 11, 0.12)",
-          }}
-        >
-          <p style={{ margin: "0 0 0.5rem" }}>
-            {t("validation_missing_api_key")}
-          </p>
+        <div className="validation-banner-prominent">
+          <p>{t("validation_missing_api_key")}</p>
           <button
             type="button"
             className="button-primary"
