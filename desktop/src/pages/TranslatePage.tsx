@@ -406,9 +406,22 @@ export default function TranslatePage({
               <span className="inline-warning">{t("source_format_warning")}</span>
             )}
           </div>
-          <button type="button" onClick={(e) => { e.stopPropagation(); selectSource(); }}>
-            {t("select_file")}
-          </button>
+          <div className="file-row-actions">
+            {form.source && (
+              <button
+                type="button"
+                className="icon-button"
+                onClick={(e) => { e.stopPropagation(); setForm("source", ""); }}
+                title={t("clear")}
+                aria-label={t("clear")}
+              >
+                ×
+              </button>
+            )}
+            <button type="button" onClick={(e) => { e.stopPropagation(); selectSource(); }}>
+              {t("select_file")}
+            </button>
+          </div>
         </div>
 
         <div className="file-row">
@@ -421,9 +434,22 @@ export default function TranslatePage({
               <span className="inline-error">{validation.errors.output}</span>
             )}
           </div>
-          <button type="button" onClick={selectOutput}>
-            {t("save_as")}
-          </button>
+          <div className="file-row-actions">
+            {form.output && (
+              <button
+                type="button"
+                className="icon-button"
+                onClick={(e) => { e.stopPropagation(); setForm("output", ""); }}
+                title={t("clear")}
+                aria-label={t("clear")}
+              >
+                ×
+              </button>
+            )}
+            <button type="button" onClick={selectOutput}>
+              {t("save_as")}
+            </button>
+          </div>
         </div>
       </section>
 

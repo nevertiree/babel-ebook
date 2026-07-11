@@ -32,6 +32,8 @@
 - Empty states use consistent SVG icons instead of emoji for better cross-platform
   rendering and accessibility.
 - Task error detail modal includes a **Copy error** button.
+- Source and output paths on the translate page can be cleared with a single click.
+- Alt+1..5 keyboard shortcuts jump to Translate, Logs, Tasks, Settings, and About.
 
 ### Fixed
 

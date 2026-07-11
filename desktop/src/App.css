@@ -359,6 +359,32 @@ button:disabled {
   flex-shrink: 0;
 }
 
+.file-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.icon-button {
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.icon-button:hover:not(:disabled) {
+  background: var(--hover-bg);
+  color: var(--text);
+}
+
 .file-row-source {
   cursor: pointer;
   border: 1px dashed var(--border);

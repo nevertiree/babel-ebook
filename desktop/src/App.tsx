@@ -264,6 +264,38 @@ function App() {
     [queue]
   );
 
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      switch (e.key) {
+        case "1":
+          e.preventDefault();
+          setPage("translate");
+          break;
+        case "2":
+          e.preventDefault();
+          setPage("logs");
+          break;
+        case "3":
+          e.preventDefault();
+          setPage("tasks");
+          break;
+        case "4":
+          e.preventDefault();
+          setPage("settings-compute");
+          break;
+        case "5":
+          e.preventDefault();
+          setPage("about");
+          break;
+        default:
+          break;
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
   const completedRef = useRef(0);
   const totalRef = useRef(0);
   const chapterProgressRef = useRef<Record<number, { chunk_total: number; chunks_done: number }>>({});
