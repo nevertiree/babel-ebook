@@ -29,7 +29,7 @@ pub struct E2EArgs {
 }
 
 /// Arguments passed from the frontend to start a translation.
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(rename_all = "snake_case")]
 #[allow(clippy::struct_excessive_bools)]
 pub struct TranslateArgs {

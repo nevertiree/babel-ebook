@@ -61,7 +61,6 @@ const TRANSLATION_KEYS: Array<keyof FormState> = [
   "max_output_tokens",
   "temperature",
   "dry_run",
-  "remember_api_key",
   "translate_body",
   "translate_metadata",
   "translate_toc",
@@ -97,7 +96,6 @@ const OLD_FLAT_KEYS: string[] = [
   "max_output_tokens",
   "temperature",
   "dry_run",
-  "remember_api_key",
 ];
 
 const DEFAULT_GENERAL: GeneralSettings = {
@@ -105,6 +103,24 @@ const DEFAULT_GENERAL: GeneralSettings = {
   theme: "dark" as ThemeId,
   follow_system_language: true,
 };
+
+async function loadProviderApiKey(name: string): Promise<string> {
+  return (await invoke<string | null>("load_api_key", { name }).catch(() => null)) ?? "";
+}
+
+async function storeProviderApiKey(name: string, apiKey: string): Promise<boolean> {
+  if (apiKey.trim().length === 0) {
+    await invoke("delete_api_key", { name }).catch(() => null);
+    return true;
+  }
+  try {
+    await invoke("store_api_key", { name, apiKey });
+    return true;
+  } catch (err) {
+    console.error(`[keyring] failed to store API key for ${name}:`, err);
+    return false;
+  }
+}
 
 export function normalizeTheme(value: unknown): ThemeId {
   return themes.includes(value as ThemeId) ? (value as ThemeId) : DEFAULT_GENERAL.theme;
@@ -170,11 +186,8 @@ async function migrateFromFlatSettings(versioned: VersionedSettings): Promise<Pa
 
   const oldProvider = typeof raw.provider === "string" ? raw.provider : "deepseek";
   const oldBaseUrl = typeof raw.base_url === "string" ? raw.base_url : "";
-  // Try to migrate an existing API key from the legacy keyring storage into
-  // the plaintext settings file. Going forward keys are stored in settings.json.
-  const oldApiKey =
-    (await invoke<string | null>("load_api_key", { provider: oldProvider }).catch(() => null)) ??
-    "";
+  // Legacy API keys remain in the OS keyring; the normal load path will populate
+  // the in-memory api_key from the keyring using the provider config name.
 
   const used = new Set<string>();
   const makeUniqueName = (p: ProviderConfig) => {
@@ -193,7 +206,7 @@ async function migrateFromFlatSettings(versioned: VersionedSettings): Promise<Pa
     {
       name: makeUniqueName({ provider: oldProvider } as ProviderConfig),
       provider: oldProvider,
-      api_key: oldApiKey ?? "",
+      api_key: "",
       base_url: oldBaseUrl,
       use_custom_base_url: oldBaseUrl.trim().length > 0,
     },
@@ -238,6 +251,34 @@ export async function loadSettings(): Promise<Partial<FormState>> {
       translation.resume = "";
     }
     translation.providers = normalizeProviders(translation.providers);
+
+    // One-time migration: any plaintext API keys left in settings.json are moved
+    // to the OS keyring and then cleared from the persisted file. If the keyring
+    // is unreachable, leave the plaintext key in place so the next load can retry.
+    let needsRewrite = false;
+    translation.providers = await Promise.all(
+      translation.providers.map(async (p) => {
+        const rawKey = p.api_key;
+        if (rawKey.trim().length > 0) {
+          const stored = await storeProviderApiKey(p.name, rawKey);
+          if (stored) {
+            needsRewrite = true;
+          }
+          return { ...p, api_key: rawKey };
+        }
+        const keyringKey = await loadProviderApiKey(p.name);
+        return { ...p, api_key: keyringKey };
+      })
+    );
+
+    if (needsRewrite) {
+      await writeSettingsFile({
+        version: SETTINGS_VERSION,
+        translation,
+        general: versioned.general,
+      });
+    }
+
     return translation;
   }
 
@@ -254,6 +295,12 @@ export async function loadSettings(): Promise<Partial<FormState>> {
     migrated.resume = "";
   }
   migrated.providers = normalizeProviders(migrated.providers);
+  migrated.providers = await Promise.all(
+    migrated.providers.map(async (p) => ({
+      ...p,
+      api_key: await loadProviderApiKey(p.name),
+    }))
+  );
   await writeSettingsFile({
     version: SETTINGS_VERSION,
     translation: migrated,
@@ -275,6 +322,18 @@ export async function saveSettings(form: FormState): Promise<void> {
   const translation: Partial<FormState> = {};
   for (const key of TRANSLATION_KEYS) {
     (translation[key] as FormState[typeof key]) = form[key];
+  }
+
+  // Persist API keys in the OS keyring, never in settings.json.
+  if (translation.providers) {
+    translation.providers = (translation.providers as ProviderConfig[]).map((p) => ({
+      ...p,
+      api_key: "",
+    }));
+
+    for (const p of form.providers) {
+      await storeProviderApiKey(p.name, p.api_key);
+    }
   }
 
   await writeSettingsFile({

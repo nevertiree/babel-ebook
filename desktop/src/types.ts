@@ -30,9 +30,9 @@ export interface QueueState {
 /**
  * A single provider/API configuration.
  *
- * API keys are stored in plaintext in the user's `settings.json` so they
- * survive reinstalls and are easy to back up or migrate. Keep the settings
- * file private.
+ * API keys are stored in the OS credential store (keyring / Credential Manager)
+ * and are never written to `settings.json`. The `api_key` field here lives only
+ * in memory while the app is running.
  */
 export interface ProviderConfig {
   name: string;
@@ -69,7 +69,6 @@ export interface FormState {
   preserve_classes: boolean;
   exclude_selectors: string;
   translate_attributes: string;
-  remember_api_key: boolean;
   translate_body: boolean;
   translate_metadata: boolean;
   translate_toc: boolean;
@@ -187,7 +186,6 @@ export const defaults: FormState = {
   preserve_classes: false,
   exclude_selectors: "",
   translate_attributes: "",
-  remember_api_key: true,
   translate_body: true,
   translate_metadata: true,
   translate_toc: true,

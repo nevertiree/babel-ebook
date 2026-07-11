@@ -219,19 +219,18 @@ async fn main() -> Result<()> {
     )
     .context(t!("err_create_translator").to_string())?;
 
-    tokio::task::spawn_blocking(move || -> Result<(), anyhow::Error> {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .context("failed to build local tokio runtime")?;
-        rt.block_on(async {
-            babel_ebook::translate_epub(&config, translator.as_ref(), None, None)
-                .await
-                .context(t!("err_translation").to_string())
-        })
-    })
-    .await
-    .context(t!("err_translation").to_string())??;
+    let worker =
+        babel_ebook::TranslationWorker::new().context("failed to spawn translation worker")?;
+    let job = babel_ebook::TranslationJob::new(config, translator);
+    let handle = worker
+        .submit(job)
+        .await
+        .context("failed to submit translation job")?;
+    handle
+        .result()
+        .await
+        .context(t!("err_translation").to_string())?;
+    worker.shutdown();
 
     Ok(())
 }

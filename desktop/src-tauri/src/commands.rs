@@ -5,10 +5,13 @@
 #![allow(clippy::needless_pass_by_value)]
 #![allow(clippy::unnecessary_wraps)]
 
+#[cfg(not(test))]
+use std::sync::Arc;
+
 use babel_ebook::{
-    read_input_book, run_dry_run, translatable_chapters,
-    translate_epub_with_cancellation as translate_epub_core, translator::get_translator,
-    CancellationToken, ProgressCallback, ProviderConfig, TranslationCache, KNOWN_PROVIDERS,
+    read_input_book, run_dry_run, translatable_chapters, translator::get_translator,
+    CancellationToken, ProgressCallback, ProviderConfig, TranslationCache, TranslationJob,
+    TranslationJobHandle, TranslationWorker, KNOWN_PROVIDERS,
 };
 
 /// Summary of a translation checkpoint returned to the frontend.
@@ -117,90 +120,91 @@ impl ProgressCallback for WindowProgressCallback {
 /// Tauri command that translates an EPUB according to the provided arguments.
 #[cfg(not(test))]
 #[tauri::command]
-pub async fn translate_epub(args: TranslateArgs, window: tauri::Window) -> Result<String, String> {
+pub async fn translate_epub(
+    args: TranslateArgs,
+    window: tauri::Window,
+    worker: tauri::State<'_, Arc<TranslationWorker>>,
+) -> Result<String, String> {
     let progress: Option<Box<dyn ProgressCallback + Send + Sync>> =
         Some(Box::new(WindowProgressCallback(window)));
-    translate_epub_internal(args, progress).await
+    run_translation(args, progress, None, &worker).await
 }
 
-pub async fn translate_epub_internal(
-    args: TranslateArgs,
-    progress: Option<Box<dyn ProgressCallback + Send + Sync>>,
-) -> Result<String, String> {
-    translate_epub_internal_with_cancellation(args, progress, None).await
-}
-
-pub async fn translate_epub_internal_with_cancellation(
+/// Run a translation job on the dedicated worker and forward progress events.
+///
+/// This is the shared implementation used by both the direct translate command
+/// and the queue worker loop.
+pub async fn run_translation(
     args: TranslateArgs,
     progress: Option<Box<dyn ProgressCallback + Send + Sync>>,
     cancellation: Option<CancellationToken>,
+    worker: &TranslationWorker,
 ) -> Result<String, String> {
-    // The core translator uses `kuchiki`, whose `Rc`-based DOM is `!Send`.
-    // Tauri async commands must return a `Send` future, so run the core work
-    // on a blocking thread with a local current-thread Tokio runtime.
-    tokio::task::spawn_blocking(move || {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .map_err(|e| e.to_string())?;
+    let config = build_config(&args)?;
+    config.validate().map_err(|e| e.to_string())?;
+    tracing::info!(
+        source = %config.source.display(),
+        output = %config.output.display(),
+        provider = %config.provider,
+        dry_run = config.dry_run,
+        "translating ebook"
+    );
 
-        rt.block_on(async {
-            let config = build_config(&args)?;
-            config.validate().map_err(|e| e.to_string())?;
-            tracing::info!(
-                source = %config.source.display(),
-                output = %config.output.display(),
-                provider = %config.provider,
-                dry_run = config.dry_run,
-                "translating ebook"
-            );
+    let progress_ref: Option<&dyn ProgressCallback> = progress
+        .as_ref()
+        .map(|p| p.as_ref() as &dyn ProgressCallback);
 
-            let progress_ref: Option<&dyn ProgressCallback> = progress
-                .as_ref()
-                .map(|p| p.as_ref() as &dyn ProgressCallback);
+    if config.dry_run {
+        let book = read_input_book(&config.source).map_err(|e| e.to_string())?;
+        let indices =
+            translatable_chapters(&book, &config.skip_doc_patterns).map_err(|e| e.to_string())?;
+        let (tokens, docs) = run_dry_run(&book, &indices, progress_ref);
+        return Ok(format!(
+            "Estimated source tokens: {tokens} ({docs} documents)"
+        ));
+    }
 
-            let translator = get_translator(
-                &config.provider,
-                config.provider_config.as_ref(),
-                &config,
-                config.dry_run,
-            )
-            .map_err(|e| e.to_string())?;
+    let translator = get_translator(
+        &config.provider,
+        config.provider_config.as_ref(),
+        &config,
+        config.dry_run,
+    )
+    .map_err(|e| e.to_string())?;
+    let cache = TranslationCache::new(config.cache_dir.clone());
+    let job = TranslationJob::new(config.clone(), translator)
+        .with_cache(cache)
+        .with_cancellation(cancellation.unwrap_or_default());
 
-            if config.dry_run {
-                let book = read_input_book(&config.source).map_err(|e| e.to_string())?;
-                let indices = translatable_chapters(&book, &config.skip_doc_patterns)
-                    .map_err(|e| e.to_string())?;
-                let (tokens, docs) = run_dry_run(&book, &indices, progress_ref);
-                return Ok(format!(
-                    "Estimated source tokens: {tokens} ({docs} documents)"
-                ));
+    let TranslationJobHandle {
+        progress: mut progress_rx,
+        result_rx,
+    } = worker.submit(job).await.map_err(|e| e.to_string())?;
+
+    let forwarder = tokio::spawn(async move {
+        while let Some(event) = progress_rx.recv().await {
+            if let Some(p) = progress.as_ref() {
+                p.on_progress(event);
             }
+        }
+    });
 
-            let cache = TranslationCache::new(config.cache_dir.clone());
+    let result = result_rx
+        .await
+        .map_err(|_| "translation worker dropped".to_string())?;
+    let _ = forwarder.await;
 
-            translate_epub_core(
-                &config,
-                translator.as_ref(),
-                Some(&cache),
-                progress_ref,
-                cancellation.as_ref(),
-            )
-            .await
-            .map_err(|e| e.to_string())?;
-
-            tracing::info!(
-                output = %config.output.display(),
-                "translation command completed successfully"
-            );
-            Ok(format!(
-                "Translation completed: {}",
-                config.output.display()
-            ))
-        })
-    })
-    .await
-    .map_err(|e| format!("translation task panicked: {e}"))?
+    tracing::info!(
+        output = %config.output.display(),
+        "translation command completed successfully"
+    );
+    match result {
+        Ok(()) => Ok(format!(
+            "Translation completed: {}",
+            config.output.display()
+        )),
+        Err(e) => Err(e.to_string()),
+    }
 }
 
 /// Returns whether the given path exists on disk.
