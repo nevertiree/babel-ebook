@@ -1562,6 +1562,7 @@ button .loading-spinner {
 .settings-tabs {
   flex: 1 1 auto;
   display: flex;
+  flex-direction: row;
   gap: 0.25rem;
   flex-wrap: nowrap;
   overflow-x: auto;
