@@ -238,10 +238,23 @@ function App() {
     running: false,
   });
 
+  const [lastTaskId, setLastTaskId] = useState<string | undefined>();
+
+  useEffect(() => {
+    if (queue.current_task_id) {
+      setLastTaskId(queue.current_task_id);
+    }
+  }, [queue.current_task_id]);
+
   const currentTask = useMemo(() => {
-    if (!queue.current_task_id) return undefined;
-    return queue.tasks.find((t) => t.id === queue.current_task_id);
-  }, [queue]);
+    if (queue.current_task_id) {
+      return queue.tasks.find((t) => t.id === queue.current_task_id);
+    }
+    if (lastTaskId) {
+      return queue.tasks.find((t) => t.id === lastTaskId);
+    }
+    return undefined;
+  }, [queue, lastTaskId]);
 
   const runningTaskCount = useMemo(
     () => queue.tasks.filter((t) => t.status === "running").length,
@@ -432,7 +445,9 @@ function App() {
             if (t.id !== task_id) return t;
             return applyProgressToTask(t, progressEvent);
           });
-          return { ...prev, tasks };
+          // Ensure the running task is surfaced even if queue_state_changed is delayed.
+          const current_task_id = prev.current_task_id ?? task_id;
+          return { ...prev, tasks, current_task_id };
         });
       }
     );
@@ -604,6 +619,7 @@ function App() {
       const args = buildTranslateArgs(form);
       await invoke("enqueue_task", { args });
       await invoke("start_queue");
+      await refreshQueue();
     } catch (err) {
       const message = `${t("error")}: ${err}`;
       setLogs((prev) => [
@@ -619,6 +635,7 @@ function App() {
       const args = { ...buildTranslateArgs(form), dry_run: true };
       await invoke("enqueue_task", { args });
       await invoke("start_queue");
+      await refreshQueue();
     } catch (err) {
       const message = `${t("error")}: ${err}`;
       setLogs((prev) => [

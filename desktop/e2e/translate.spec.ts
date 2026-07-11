@@ -77,13 +77,13 @@ test("translates a small EPUB and exercises queue controls and logs", async () =
   await startButton.click();
 
   // Starting the translation now enqueues the task and stays on the translate page.
-  await expect(page.getByTestId("progress-section")).toBeVisible({ timeout: 10000 });
-  await expect(page.getByTestId("progress-message")).not.toHaveText(/Waiting for action.../i, {
+  await expect(page.getByTestId("running-panel")).toBeVisible({ timeout: 10000 });
+  await expect(page.getByTestId("running-panel-message")).not.toHaveText(/Waiting for action.../i, {
     timeout: 10000,
   });
 
   // Wait for the dry-run task to complete.
-  const progressFill = page.getByTestId("progress-section").locator(".progress-fill").first();
+  const progressFill = page.getByTestId("running-panel-progress-fill");
   await expect(progressFill).toHaveAttribute("style", /width:\s*100%/, {
     timeout: 120000,
   });
