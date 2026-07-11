@@ -36,6 +36,8 @@
 - Alt+1..5 keyboard shortcuts jump to Translate, Logs, Tasks, Settings, and About.
 - Settings tab icons are now SVG instead of emoji for consistent cross-platform
   rendering and accessibility.
+- Provider cards and the translate-page provider selector show a type-specific SVG
+  icon for each configured LLM provider.
 
 ### Fixed
 

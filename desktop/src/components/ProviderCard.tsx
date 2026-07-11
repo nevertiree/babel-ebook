@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 import type { ProviderConfig } from "../types";
 import { providerApiKeyHints, providers as knownProviders } from "../types";
 import LoadingSpinner from "./LoadingSpinner";
+import ProviderIcon from "./ProviderIcon";
 
 interface ProviderCardProps {
   provider: ProviderConfig;
@@ -95,16 +96,19 @@ export default function ProviderCard({
       <div className="provider-card-row provider-card-meta">
         <label className="provider-type-label">
           <span>{t("provider_type")}</span>
-          <select
-            value={provider.provider}
-            onChange={(e) => handleProviderTypeChange(e.target.value)}
-          >
-            {knownProviders.map((kp) => (
-              <option key={kp} value={kp}>
-                {t(`provider_${kp}`)}
-              </option>
-            ))}
-          </select>
+          <div className="provider-type-select">
+            <ProviderIcon provider={provider.provider} className="provider-type-icon" />
+            <select
+              value={provider.provider}
+              onChange={(e) => handleProviderTypeChange(e.target.value)}
+            >
+              {knownProviders.map((kp) => (
+                <option key={kp} value={kp}>
+                  {t(`provider_${kp}`)}
+                </option>
+              ))}
+            </select>
+          </div>
         </label>
 
         <label className="provider-name-label" title={provider.name}>

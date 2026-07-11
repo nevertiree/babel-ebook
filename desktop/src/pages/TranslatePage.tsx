@@ -11,6 +11,7 @@ import ValidationBanner from "../components/ValidationBanner";
 import RunningPanel from "../components/RunningPanel";
 import LoadingSpinner from "../components/LoadingSpinner";
 import EmptyStateIcon from "../components/EmptyStateIcon";
+import ProviderIcon from "../components/ProviderIcon";
 
 interface ModelSelectProps {
   provider: string;
@@ -319,16 +320,21 @@ export default function TranslatePage({
             <>
               <label>
                 {t("provider")}
-                <select
-                  value={form.active_provider}
-                  onChange={(e) => setForm("active_provider", e.target.value)}
-                >
-                  {form.providers.map((p) => (
-                    <option key={p.name} value={p.name}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
+                <div className="provider-select">
+                  {activeProvider && (
+                    <ProviderIcon provider={activeProvider.provider} className="provider-select-icon" />
+                  )}
+                  <select
+                    value={form.active_provider}
+                    onChange={(e) => setForm("active_provider", e.target.value)}
+                  >
+                    {form.providers.map((p) => (
+                      <option key={p.name} value={p.name}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </label>
 
               <ModelSelect

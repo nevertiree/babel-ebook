@@ -1184,6 +1184,27 @@ button .loading-spinner {
   margin-bottom: 0.25rem;
 }
 
+.provider-type-select,
+.provider-select {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.provider-type-select select,
+.provider-select select {
+  flex: 1;
+  min-width: 0;
+}
+
+.provider-type-icon,
+.provider-select-icon {
+  width: 1.1rem;
+  height: 1.1rem;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
 .provider-api-key {
   position: relative;
 }
