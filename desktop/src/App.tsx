@@ -197,6 +197,7 @@ function App() {
   const totalRef = useRef(0);
   const e2eOutputRef = useRef<string | null>(null);
   const generalLoadedRef = useRef(false);
+  const initialLanguageAppliedRef = useRef(false);
 
   // Load persisted settings on mount, optionally overridden by E2E env args.
   useEffect(() => {
@@ -269,6 +270,7 @@ function App() {
         } else {
           await i18n.changeLanguage(generalSettings.ui_language);
         }
+        initialLanguageAppliedRef.current = true;
       } catch (err) {
         console.error("[settings] initialization failed:", err);
       }
@@ -334,7 +336,10 @@ function App() {
 
   // Keep the UI language in sync with general settings. When following the
   // system language, re-resolve the locale whenever the toggle is turned on.
+  // Skip the initial mount because the settings-loading effect above already
+  // applied the persisted (or E2E-injected) language.
   useEffect(() => {
+    if (!initialLanguageAppliedRef.current) return;
     if (general.follow_system_language) {
       void invoke<string>("get_system_locale")
         .then((locale) => {
