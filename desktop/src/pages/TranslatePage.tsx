@@ -7,7 +7,6 @@ import {
   outputModes,
   targetLanguages,
 } from "../types";
-import ValidationBanner from "../components/ValidationBanner";
 import RunningPanel from "../components/RunningPanel";
 import LoadingSpinner from "../components/LoadingSpinner";
 import EmptyStateIcon from "../components/EmptyStateIcon";
@@ -307,13 +306,6 @@ export default function TranslatePage({
     <div className="page translate-page">
       <h2>{t("nav_translate")}</h2>
 
-      <ValidationBanner
-        validation={validation}
-        providers={form.providers}
-        activeProvider={activeProvider}
-        onNavigate={onPageChange}
-      />
-
       <section className="quick-settings">
         <div className="row">
           {hasProviders && activeProvider && (
@@ -405,9 +397,6 @@ export default function TranslatePage({
             <span className="file-path" title={form.source || undefined} data-testid="source-path">
               {form.source || t("drop_source_hint")}
             </span>
-            {validation.errors.source && (
-              <span className="inline-error">{validation.errors.source}</span>
-            )}
             {showSourceFormatWarning && (
               <span className="inline-warning">{t("source_format_warning")}</span>
             )}
@@ -436,9 +425,6 @@ export default function TranslatePage({
             <span className="file-path" title={form.output || undefined} data-testid="output-path">
               {form.output || t("no_file_selected")}
             </span>
-            {validation.errors.output && (
-              <span className="inline-error">{validation.errors.output}</span>
-            )}
           </div>
           <div className="file-row-actions">
             {form.output && (

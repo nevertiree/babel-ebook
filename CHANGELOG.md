@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Removed the prominent red validation banner and inline error messages from the
+  translate page; required-field validation is now communicated only by disabling
+  the Start/Dry-run buttons, keeping the form clean until the user is ready to act.
+
 ## [0.3.3] - 2026-07-11
 
 ### Added
