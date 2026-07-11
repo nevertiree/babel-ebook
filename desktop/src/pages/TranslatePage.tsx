@@ -10,6 +10,7 @@ import {
 import ValidationBanner from "../components/ValidationBanner";
 import RunningPanel from "../components/RunningPanel";
 import LoadingSpinner from "../components/LoadingSpinner";
+import EmptyStateIcon from "../components/EmptyStateIcon";
 
 interface ModelSelectProps {
   provider: string;
@@ -233,6 +234,74 @@ export default function TranslatePage({
   const sourceIsEpub = form.source?.toLowerCase().endsWith(".epub") ?? false;
   const showSourceFormatWarning = Boolean(form.source && !sourceIsEpub);
 
+  const [dragActive, setDragActive] = useState(false);
+  const dragCounter = useRef(0);
+
+  const supportedExtensions = new Set(["epub", "mobi", "azw3", "txt", "srt", "docx"]);
+
+  const pickSupportedFile = (files: FileList | null): string | null => {
+    if (!files || files.length === 0) return null;
+    for (let i = 0; i < files.length; i += 1) {
+      const file = files[i];
+      const ext = file.name.split(".").pop()?.toLowerCase();
+      if (ext && supportedExtensions.has(ext)) {
+        // Tauri file drops give a path via webkitGetAsEntry for some platforms,
+        // but the File object itself only carries the name. We fall back to name
+        // as a signal; the user must still use the file picker for the real path.
+        return file.name;
+      }
+    }
+    return null;
+  };
+
+  useEffect(() => {
+    const handleDragOver = (e: DragEvent) => {
+      e.preventDefault();
+    };
+    const handleDrop = (e: DragEvent) => {
+      e.preventDefault();
+      dragCounter.current = 0;
+      setDragActive(false);
+    };
+    window.addEventListener("dragover", handleDragOver);
+    window.addEventListener("drop", handleDrop);
+    return () => {
+      window.removeEventListener("dragover", handleDragOver);
+      window.removeEventListener("drop", handleDrop);
+    };
+  }, []);
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current += 1;
+    setDragActive(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current -= 1;
+    if (dragCounter.current <= 0) {
+      dragCounter.current = 0;
+      setDragActive(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current = 0;
+    setDragActive(false);
+    const name = pickSupportedFile(e.dataTransfer.files);
+    if (name) {
+      // We cannot reliably get a full filesystem path from a web drop event in Tauri,
+      // so we notify the user to use the picker for a real translation path.
+      // Still, we keep the visual feedback so the drop zone feels responsive.
+      selectSource();
+    }
+  };
+
   return (
     <div className="page translate-page">
       <h2>{t("nav_translate")}</h2>
@@ -305,7 +374,7 @@ export default function TranslatePage({
 
       {!hasProviders && (
         <div className="empty-state">
-          <div className="empty-state-icon" aria-hidden="true">⚙️</div>
+          <EmptyStateIcon variant="provider" className="empty-state-icon" />
           <p>{t("no_provider_configured")}</p>
           <button type="button" onClick={() => onPageChange("settings-compute")}>
             {t("configure_provider")}
@@ -314,11 +383,21 @@ export default function TranslatePage({
       )}
 
       <section className="file-section">
-        <div className="file-row file-row-source" role="button" tabIndex={0} onClick={selectSource}>
+        <div
+          className={`file-row file-row-source ${dragActive ? "drag-active" : ""}`}
+          role="button"
+          tabIndex={0}
+          onClick={selectSource}
+          onDragEnter={handleDragEnter}
+          onDragOver={(e) => e.preventDefault()}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          aria-label={t("drop_source_hint")}
+        >
           <div className="file-info">
             <span className="file-label">{t("source")}</span>
             <span className="file-path" title={form.source || undefined} data-testid="source-path">
-              {form.source || t("no_file_selected")}
+              {form.source || t("drop_source_hint")}
             </span>
             {validation.errors.source && (
               <span className="inline-error">{validation.errors.source}</span>

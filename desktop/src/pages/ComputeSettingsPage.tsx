@@ -5,6 +5,7 @@ import { confirm } from "@tauri-apps/plugin-dialog";
 import type { ProviderConfig } from "../types";
 import { providers as knownProviders } from "../types";
 import ProviderCard from "../components/ProviderCard";
+import EmptyStateIcon from "../components/EmptyStateIcon";
 
 interface ComputeSettingsPageProps {
   providers: ProviderConfig[];
@@ -117,7 +118,7 @@ export default function ComputeSettingsPage({
 
       {providers.length === 0 && (
         <div className="empty-state">
-          <div className="empty-state-icon" aria-hidden="true">⚙️</div>
+          <EmptyStateIcon variant="provider" className="empty-state-icon" />
           <p>{t("no_provider_configured")}</p>
           <button type="button" onClick={addProvider}>
             {t("add_provider")}

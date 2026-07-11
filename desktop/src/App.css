@@ -375,6 +375,12 @@ button:disabled {
   outline-offset: -2px;
 }
 
+.file-row-source.drag-active {
+  border-style: solid;
+  border-color: var(--accent);
+  background: var(--selected-bg);
+}
+
 .file-info {
   flex: 1;
   min-width: 0;
@@ -1013,8 +1019,9 @@ button .loading-spinner {
 }
 
 .empty-state-icon {
-  font-size: 2rem;
-  line-height: 1;
+  width: 3rem;
+  height: 3rem;
+  color: var(--muted);
   margin-bottom: 0.5rem;
 }
 

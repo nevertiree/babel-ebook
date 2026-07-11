@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import type { Page, QueueState, Task } from "../types";
+import EmptyStateIcon from "../components/EmptyStateIcon";
 
 interface TasksPageProps {
   queue: QueueState;
@@ -115,7 +116,7 @@ export default function TasksPage({
 
       {queue.tasks.length === 0 ? (
         <div className="empty-state">
-          <div className="empty-state-icon" aria-hidden="true">📋</div>
+          <EmptyStateIcon variant="task" className="empty-state-icon" />
           <p data-testid="queue-empty">{t("queue_empty")}</p>
           <button type="button" onClick={() => onNavigate("translate")}>
             {t("nav_translate")}
@@ -274,6 +275,17 @@ export default function TasksPage({
               <pre className="error-detail">{detailTask.error}</pre>
             </div>
             <div className="modal-footer">
+              <button
+                type="button"
+                onClick={() => {
+                  if (detailTask.error) {
+                    void navigator.clipboard.writeText(detailTask.error);
+                  }
+                }}
+                disabled={!detailTask.error}
+              >
+                {t("copy_error")}
+              </button>
               <button type="button" onClick={() => setDetailTask(null)}>
                 {t("close")}
               </button>

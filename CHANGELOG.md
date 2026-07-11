@@ -27,6 +27,11 @@
   instead of switching pages after start.
 - License page renders the MIT text as readable paragraphs instead of a `<pre>` block.
 - Source file picker shows a warning when a non-EPUB file is selected.
+- Source file card now supports drag-and-drop highlighting and opens the file picker
+  on drop for a smoother import flow.
+- Empty states use consistent SVG icons instead of emoji for better cross-platform
+  rendering and accessibility.
+- Task error detail modal includes a **Copy error** button.
 
 ### Fixed
 
