@@ -3,7 +3,8 @@ export type TaskStatus =
   | "running"
   | "completed"
   | "failed"
-  | "cancelled";
+  | "cancelled"
+  | "paused";
 
 export interface Task {
   id: string;

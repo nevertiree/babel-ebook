@@ -733,6 +733,11 @@ function App() {
     await refreshQueue();
   };
 
+  const pauseTask = async (id: string) => {
+    await invoke("pause_task", { id });
+    await refreshQueue();
+  };
+
   const startQueue = async () => {
     await invoke("start_queue");
     await refreshQueue();
@@ -770,6 +775,7 @@ function App() {
             onRemove={removeTask}
             onRetry={retryTask}
             onCancel={cancelTask}
+            onPauseTask={pauseTask}
             onStart={startQueue}
             onPause={pauseQueue}
           />

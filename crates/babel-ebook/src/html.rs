@@ -1,6 +1,7 @@
 //! HTML document processing and bilingual translation insertion.
 
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::cache::TranslationCache;
 use crate::chunking::{count_tokens, split_text_chunks};
@@ -103,34 +104,24 @@ pub async fn translate_text(
         return Ok(first_pass);
     }
 
-    // Optional second-pass refinement using a separate cache namespace.
+    if !config.refine {
+        return Ok(first_pass);
+    }
+
+    // Optional second-pass refinement using a separate cache namespace. Refine
+    // progress is not reported as chunks because the number of refine chunks is
+    // not known until the first pass completes; keeping chapter progress tied to
+    // the first-pass source chunks gives a stable, monotonically increasing bar.
     let max_refine_source = config.max_refine_source_tokens();
     let refine_prompt = config.refine_prompt();
     let target_lang = &config.target_lang;
     let refine_name = format!("{}-refine", translator.name());
 
     let chunks = split_text_chunks(&first_pass, max_refine_source);
-    let chunk_total = chunks.len();
-    let mut refined_parts = Vec::with_capacity(chunk_total);
-    for (chunk_index, chunk) in chunks.iter().enumerate() {
-        emit_chunk_progress(
-            progress,
-            chapter_index,
-            chapter_href,
-            chunk_index,
-            chunk_total,
-            false,
-        );
+    let mut refined_parts = Vec::with_capacity(chunks.len());
+    for chunk in &chunks {
         if let Some(cached) = cache.get(&refine_name, chunk) {
             refined_parts.push(cached);
-            emit_chunk_progress(
-                progress,
-                chapter_index,
-                chapter_href,
-                chunk_index,
-                chunk_total,
-                true,
-            );
             continue;
         }
 
@@ -142,14 +133,6 @@ pub async fn translate_text(
         let tokens = count_tokens(chunk) + count_tokens(&result);
         cache.put(&refine_name, chunk, &result, Some(tokens));
         refined_parts.push(result);
-        emit_chunk_progress(
-            progress,
-            chapter_index,
-            chapter_href,
-            chunk_index,
-            chunk_total,
-            true,
-        );
     }
 
     let refined = refined_parts
@@ -158,6 +141,103 @@ pub async fn translate_text(
         .trim()
         .to_string();
     Ok(refined)
+}
+
+/// Progress adapter that turns per-text-block chunk events into chapter-global
+/// chunk events.
+///
+/// `process_document` first counts how many first-pass source chunks the whole
+/// chapter will produce. While translating, each element calls `translate_text`,
+/// which still emits chunk events relative to that single text block. This
+/// adapter intercepts those events and rewrites `chunk_index`/`chunk_total` so
+/// the progress bar moves smoothly across elements instead of resetting for
+/// every paragraph or heading.
+struct ChapterChunkAdapter<'a> {
+    inner: Option<&'a dyn crate::core::ProgressCallback>,
+    chapter_index: usize,
+    href: String,
+    total_chunks: usize,
+    next_chunk: AtomicUsize,
+}
+
+impl crate::core::ProgressCallback for ChapterChunkAdapter<'_> {
+    fn on_progress(&self, event: crate::core::ProgressEvent) {
+        match event {
+            crate::core::ProgressEvent::ChunkStarted { .. } => {
+                let chunk_index = self.next_chunk.load(Ordering::SeqCst);
+                if let Some(inner) = self.inner {
+                    inner.on_progress(crate::core::ProgressEvent::ChunkStarted {
+                        index: self.chapter_index,
+                        href: self.href.clone(),
+                        chunk_index,
+                        chunk_total: self.total_chunks,
+                    });
+                }
+            }
+            crate::core::ProgressEvent::ChunkFinished { .. } => {
+                let chunk_index = self.next_chunk.fetch_add(1, Ordering::SeqCst);
+                if let Some(inner) = self.inner {
+                    inner.on_progress(crate::core::ProgressEvent::ChunkFinished {
+                        index: self.chapter_index,
+                        href: self.href.clone(),
+                        chunk_index,
+                        chunk_total: self.total_chunks,
+                    });
+                }
+            }
+            other => {
+                if let Some(inner) = self.inner {
+                    inner.on_progress(other);
+                }
+            }
+        }
+    }
+}
+
+/// Count how many first-pass source chunks a chapter will produce.
+///
+/// This mirrors the translation decisions made by `process_document` so that the
+/// chapter-level chunk total is known before translation starts.
+fn count_translatable_chunks(
+    elements: &[kuchiki::NodeDataRef<kuchiki::ElementData>],
+    skip_set: &HashSet<*const kuchiki::Node>,
+    translate_tags: &HashSet<&str>,
+    config: &Config,
+) -> usize {
+    let max_source = config.max_source_tokens();
+    let mut total = 0usize;
+    for element in elements {
+        let node = element.as_node();
+        if skip_set.contains(&node_ptr(node)) || is_inside_excluded_subtree(node, skip_set) {
+            continue;
+        }
+        if is_inside_skipped_parent(node) {
+            continue;
+        }
+        if has_translatable_child(node, translate_tags) {
+            continue;
+        }
+
+        let tag_name = element.name.local.as_ref();
+        if should_translate_element_text(tag_name, &config.translation_scope) {
+            let text = normalize_text(node);
+            if is_translatable_text(&text) {
+                total += split_text_chunks(&text, max_source).len();
+            }
+        }
+
+        for attr_name in &config.translate_attributes {
+            if !should_translate_attribute(attr_name, &config.translation_scope) {
+                continue;
+            }
+            if let Some(value) = element.attributes.borrow().get(attr_name.as_str()) {
+                if is_translatable_text(value) {
+                    total += split_text_chunks(value, max_source).len();
+                }
+            }
+        }
+    }
+    total
 }
 
 /// Translate all translatable elements in an EPUB HTML document and insert
@@ -201,6 +281,21 @@ pub async fn process_document(
         Err(()) => return Ok(doc.to_string().into_bytes()),
     };
 
+    // Use a chapter-global chunk counter so that progress does not reset between
+    // elements. The total is the number of first-pass source chunks across all
+    // translatable text blocks in this chapter.
+    let total_chunks = count_translatable_chunks(&elements, &skip_set, &translate_tags, config);
+    let adapter = progress.map(|p| ChapterChunkAdapter {
+        inner: Some(p),
+        chapter_index,
+        href: chapter_href.to_string(),
+        total_chunks,
+        next_chunk: AtomicUsize::new(0),
+    });
+    let chapter_progress = adapter
+        .as_ref()
+        .map(|a| a as &dyn crate::core::ProgressCallback);
+
     for element in elements {
         let node = element.as_node();
         if skip_set.contains(&node_ptr(node)) || is_inside_excluded_subtree(node, &skip_set) {
@@ -219,7 +314,7 @@ pub async fn process_document(
             cache,
             chapter_index,
             chapter_href,
-            progress,
+            chapter_progress,
         )
         .await?;
     }

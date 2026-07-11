@@ -82,6 +82,7 @@ pub fn run() {
             commands::retry_task,
             commands::start_queue,
             commands::pause_queue,
+            commands::pause_task,
             commands::get_queue_state,
             commands::list_checkpoints,
         ])

@@ -347,19 +347,13 @@ async fn translate_title(
     config: &Config,
     cache: &TranslationCache,
     href: &str,
-    progress: Option<&dyn ProgressCallback>,
+    _progress: Option<&dyn ProgressCallback>,
 ) -> Result<String, BabelEbookError> {
     let prompt_key = format!("toc:{href}");
-    translate_text(
-        title,
-        translator,
-        config,
-        cache,
-        index,
-        &prompt_key,
-        progress,
-    )
-    .await
+    // Do not emit chunk progress for title translation; the chapter is already
+    // marked finished and extra chunk events would make the progress bar jump
+    // backwards.
+    translate_text(title, translator, config, cache, index, &prompt_key, None).await
 }
 
 fn emit_progress(progress: Option<&dyn ProgressCallback>, event: ProgressEvent) {
