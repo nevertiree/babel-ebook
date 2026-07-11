@@ -5,11 +5,11 @@ import { useTranslation } from "react-i18next";
 import type { CheckpointInfo, FormState, LogEntry, Page, Task, ValidationResult } from "../types";
 import {
   outputModes,
-  sourceLanguages,
   targetLanguages,
 } from "../types";
 import ValidationBanner from "../components/ValidationBanner";
 import RunningPanel from "../components/RunningPanel";
+import LoadingSpinner from "../components/LoadingSpinner";
 
 interface ModelSelectProps {
   provider: string;
@@ -78,10 +78,15 @@ function ModelSelect({
 
   const isCustom = model === "__custom__" || (models.length > 0 && !models.includes(model));
 
-  if (models.length === 0) {
-    return (
-      <label title={error ?? undefined}>
+  const showSpinner = loading && models.length === 0;
+
+  return (
+    <label title={error ?? undefined}>
+      <span className="field-row">
         {t("model")}
+        {showSpinner && <LoadingSpinner size={14} />}
+      </span>
+      {models.length === 0 ? (
         <input
           type="text"
           value={model === "__custom__" ? "" : model}
@@ -89,14 +94,7 @@ function ModelSelect({
           placeholder={t("model_custom_placeholder")}
           disabled={loading}
         />
-      </label>
-    );
-  }
-
-  return (
-    <label title={error ?? undefined}>
-      {t("model")}
-      {isCustom ? (
+      ) : isCustom ? (
         <input
           type="text"
           value={model === "__custom__" ? "" : model}
@@ -126,6 +124,7 @@ interface TranslatePageProps {
   form: FormState;
   setForm: <K extends keyof FormState>(key: K, value: FormState[K]) => void;
   onStart: () => void;
+  onDryRun: () => void;
   currentTask?: Task;
   validation: ValidationResult;
   onPageChange: (page: Page) => void;
@@ -137,6 +136,7 @@ export default function TranslatePage({
   form,
   setForm,
   onStart,
+  onDryRun,
   currentTask,
   validation,
   onPageChange,
@@ -211,6 +211,9 @@ export default function TranslatePage({
     return path.split(sep).pop() || path;
   };
 
+  const sourceIsEpub = form.source?.toLowerCase().endsWith(".epub") ?? false;
+  const showSourceFormatWarning = Boolean(form.source && !sourceIsEpub);
+
   return (
     <div className="page translate-page">
       <h2>{t("nav_translate")}</h2>
@@ -250,20 +253,6 @@ export default function TranslatePage({
               />
             </>
           )}
-
-          <label>
-            {t("source_lang")}
-            <select
-              value={form.source_lang}
-              onChange={(e) => setForm("source_lang", e.target.value)}
-            >
-              {sourceLanguages.map((lang) => (
-                <option key={lang.code} value={lang.code}>
-                  {t(`target_lang_${lang.code}`)}
-                </option>
-              ))}
-            </select>
-          </label>
 
           <label>
             {t("target_lang")}
@@ -314,6 +303,9 @@ export default function TranslatePage({
             {validation.errors.source && (
               <span className="inline-error">{validation.errors.source}</span>
             )}
+            {showSourceFormatWarning && (
+              <span className="inline-warning">{t("source_format_warning")}</span>
+            )}
           </div>
           <button type="button" onClick={selectSource}>
             {t("select_file")}
@@ -335,6 +327,30 @@ export default function TranslatePage({
           </button>
         </div>
       </section>
+
+      {activeProvider && (
+        <section className="summary-card">
+          <h3>{t("summary_title")}</h3>
+          <div className="summary-grid">
+            <div>
+              <span className="summary-label">{t("summary_provider")}</span>
+              <span className="summary-value">{activeProvider.name}</span>
+            </div>
+            <div>
+              <span className="summary-label">{t("summary_model")}</span>
+              <span className="summary-value">{form.model}</span>
+            </div>
+            <div>
+              <span className="summary-label">{t("summary_target_lang")}</span>
+              <span className="summary-value">{t(`target_lang_${form.target_lang}`)}</span>
+            </div>
+            <div>
+              <span className="summary-label">{t("summary_output_mode")}</span>
+              <span className="summary-value">{t(`output_mode_${form.output_mode}`)}</span>
+            </div>
+          </div>
+        </section>
+      )}
 
       <section className="advanced-section">
         <div className="refine-option">
@@ -438,6 +454,16 @@ export default function TranslatePage({
           data-testid="start-button"
         >
           {t("start")}
+        </button>
+        <button
+          type="button"
+          className="secondary-button"
+          onClick={onDryRun}
+          disabled={!validation.valid}
+          data-testid="dry-run-button"
+          title={t("dry_run_hint")}
+        >
+          {t("dry_run")}
         </button>
         {form.resume && (
           <button

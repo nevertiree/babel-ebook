@@ -2,6 +2,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { useTranslation } from "react-i18next";
 import type { FormState } from "../types";
 import { defaultFonts } from "../types";
+import Tooltip from "../components/Tooltip";
 
 const filenameTemplateExamples = ["{stem}_{target_lang}", "{stem}_{output_mode}", "{stem}"];
 
@@ -30,21 +31,12 @@ export default function OutputSettingsPage({
     <div className="page settings-page">
       <h2>{t("settings_output")}</h2>
 
-      <label className="checkbox">
-        <input
-          type="checkbox"
-          checked={form.dry_run}
-          onChange={(e) => setForm("dry_run", e.target.checked)}
-        />
-        {t("dry_run")}
-      </label>
-
       <label>
         <span className="field-row">
           {t("checkpoint_dir")}
-          <span className="field-info" data-tooltip={t("checkpoint_dir_help")}>
-            ⓘ
-          </span>
+          <Tooltip content={t("checkpoint_dir_help")}>
+            <span className="field-info" aria-hidden="true">ⓘ</span>
+          </Tooltip>
         </span>
         <div className="file-row">
           <input
@@ -63,9 +55,9 @@ export default function OutputSettingsPage({
       <label>
         <span className="field-row">
           {t("output_font")}
-          <span className="field-info" data-tooltip={t("output_font_help")}>
-            ⓘ
-          </span>
+          <Tooltip content={t("output_font_help")}>
+            <span className="field-info" aria-hidden="true">ⓘ</span>
+          </Tooltip>
         </span>
         <input
           type="text"
@@ -87,9 +79,9 @@ export default function OutputSettingsPage({
       <label>
         <span className="field-row">
           {t("output_filename_template")}
-          <span className="field-info" data-tooltip={t("output_filename_template_help")}>
-            ⓘ
-          </span>
+          <Tooltip content={t("output_filename_template_help")}>
+            <span className="field-info" aria-hidden="true">ⓘ</span>
+          </Tooltip>
         </span>
         <input
           type="text"

@@ -1,14 +1,17 @@
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { QueueState, Task } from "../types";
+import type { Page, QueueState, Task } from "../types";
 
 interface TasksPageProps {
   queue: QueueState;
-  onRemove: (id: string) => Promise<void>;
-  onRetry: (id: string) => Promise<void>;
-  onCancel: (id: string) => Promise<void>;
+  onRemove: (ids: string[]) => Promise<void>;
+  onRetry: (ids: string[]) => Promise<void>;
+  onCancel: (ids: string[]) => Promise<void>;
   onPauseTask: (id: string) => Promise<void>;
   onStart: () => Promise<void>;
   onPause: () => Promise<void>;
+  onReorder: (ids: string[]) => Promise<void>;
+  onNavigate: (page: Page) => void;
 }
 
 function formatPath(path: string) {
@@ -24,10 +27,68 @@ export default function TasksPage({
   onPauseTask,
   onStart,
   onPause,
+  onReorder,
+  onNavigate,
 }: TasksPageProps) {
   const { t } = useTranslation();
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const statusClass = (status: Task["status"]) => `task-status task-status-${status}`;
+
+  const selectableIds = useMemo(
+    () => queue.tasks.filter((t) => t.status !== "running").map((t) => t.id),
+    [queue.tasks]
+  );
+  const selectedList = useMemo(
+    () => queue.tasks.filter((t) => selected.has(t.id)),
+    [queue.tasks, selected]
+  );
+
+  const toggleSelection = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selected.size === selectableIds.length && selectableIds.length > 0) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(selectableIds));
+    }
+  };
+
+  const moveTask = (index: number, direction: -1 | 1) => {
+    const newIndex = index + direction;
+    if (newIndex < 0 || newIndex >= queue.tasks.length) return;
+    const next = [...queue.tasks];
+    const [moved] = next.splice(index, 1);
+    next.splice(newIndex, 0, moved);
+    void onReorder(next.map((t) => t.id));
+  };
+
+  const handleBatchRemove = async () => {
+    if (selectedList.length === 0) return;
+    await onRemove(selectedList.map((t) => t.id));
+    setSelected(new Set());
+  };
+
+  const handleBatchRetry = async () => {
+    if (selectedList.length === 0) return;
+    await onRetry(selectedList.map((t) => t.id));
+    setSelected(new Set());
+  };
+
+  const handleBatchCancel = async () => {
+    if (selectedList.length === 0) return;
+    await onCancel(selectedList.map((t) => t.id));
+    setSelected(new Set());
+  };
+
+  const allSelected = selectableIds.length > 0 && selected.size === selectableIds.length;
 
   return (
     <div className="page tasks-page">
@@ -46,57 +107,119 @@ export default function TasksPage({
       </div>
 
       {queue.tasks.length === 0 ? (
-        <p className="empty-state" data-testid="queue-empty">{t("queue_empty")}</p>
+        <div className="empty-state">
+          <p data-testid="queue-empty">{t("queue_empty")}</p>
+          <button type="button" onClick={() => onNavigate("translate")}>
+            {t("nav_translate")}
+          </button>
+        </div>
       ) : (
-        <ul className="task-list" data-testid="task-list">
-          {queue.tasks.map((task) => (
-            <li key={task.id} className="task-item" data-testid="task-item">
-              <div className="task-info">
-                <span className={statusClass(task.status)}>{t(`task_status_${task.status}`)}</span>
-                <span className="task-file" title={task.source_path}>
-                  {formatPath(task.source_path)}
-                </span>
-                <span className="task-file" title={task.output_path}>
-                  → {formatPath(task.output_path)}
-                </span>
-              </div>
+        <>
+          <div className="batch-toolbar">
+            <label className="checkbox batch-select-all">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                onChange={toggleSelectAll}
+              />
+              {t("select_all")}
+            </label>
+            <div className="batch-actions">
+              <button type="button" onClick={handleBatchCancel} disabled={selectedList.length === 0}>
+                {t("cancel")}
+              </button>
+              <button type="button" onClick={handleBatchRetry} disabled={selectedList.length === 0}>
+                {t("retry")}
+              </button>
+              <button type="button" className="danger" onClick={handleBatchRemove} disabled={selectedList.length === 0}>
+                {t("remove")}
+              </button>
+            </div>
+          </div>
 
-              <div className="task-progress">
-                <div className="progress-bar">
-                  <div
-                    className="progress-fill"
-                    style={{ width: `${task.progress_percent}%` }}
-                  />
+          <ul className="task-list" data-testid="task-list">
+            {queue.tasks.map((task, index) => (
+              <li key={task.id} className="task-item" data-testid="task-item">
+                <div className="task-info">
+                  {task.status !== "running" && (
+                    <input
+                      type="checkbox"
+                      checked={selected.has(task.id)}
+                      onChange={() => toggleSelection(task.id)}
+                      aria-label={t("select_task", { file: formatPath(task.source_path) })}
+                    />
+                  )}
+                  <span className={statusClass(task.status)}>{t(`task_status_${task.status}`)}</span>
+                  <span className="task-file" title={task.source_path}>
+                    {formatPath(task.source_path)}
+                  </span>
+                  <span className="task-file" title={task.output_path}>
+                    → {formatPath(task.output_path)}
+                  </span>
                 </div>
-                <span className="progress-message">{task.message}</span>
-                {task.error && <span className="inline-error">{task.error}</span>}
-              </div>
 
-              <div className="task-actions">
-                {task.status === "running" && (
-                  <button type="button" onClick={() => void onPauseTask(task.id)} data-testid="pause-task">
-                    {t("pause")}
-                  </button>
-                )}
-                {(task.status === "pending" || task.status === "running") && (
-                  <button type="button" onClick={() => void onCancel(task.id)} data-testid="cancel-task">
-                    {t("cancel")}
-                  </button>
-                )}
-                {(task.status === "failed" || task.status === "cancelled" || task.status === "paused") && (
-                  <button type="button" onClick={() => void onRetry(task.id)} data-testid="retry-task">
-                    {t("retry")}
-                  </button>
-                )}
-                {task.status !== "running" && (
-                  <button type="button" className="danger" onClick={() => void onRemove(task.id)} data-testid="remove-task">
-                    {t("remove")}
-                  </button>
-                )}
-              </div>
-            </li>
-          ))}
-        </ul>
+                <div className="task-progress">
+                  <div className="progress-bar">
+                    <div
+                      className="progress-fill"
+                      style={{ width: `${task.progress_percent}%` }}
+                    />
+                  </div>
+                  <span className="progress-message">{task.message}</span>
+                  {task.error && <span className="inline-error">{task.error}</span>}
+                </div>
+
+                <div className="task-actions">
+                  {task.status === "pending" && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => moveTask(index, -1)}
+                        disabled={index === 0}
+                        title={t("move_up")}
+                      >
+                        ↑
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moveTask(index, 1)}
+                        disabled={index === queue.tasks.length - 1}
+                        title={t("move_down")}
+                      >
+                        ↓
+                      </button>
+                    </>
+                  )}
+                  {task.status === "running" && (
+                    <button type="button" onClick={() => void onPauseTask(task.id)} data-testid="pause-task">
+                      {t("pause")}
+                    </button>
+                  )}
+                  {(task.status === "pending" || task.status === "running") && (
+                    <button type="button" onClick={() => void onCancel([task.id])} data-testid="cancel-task">
+                      {t("cancel")}
+                    </button>
+                  )}
+                  {(task.status === "failed" || task.status === "cancelled" || task.status === "paused") && (
+                    <button type="button" onClick={() => void onRetry([task.id])} data-testid="retry-task">
+                      {t("retry")}
+                    </button>
+                  )}
+                  {task.status !== "running" && (
+                    <button
+                      type="button"
+                      className="danger"
+                      onClick={() => void onRemove([task.id])}
+                      data-testid="remove-task"
+                    >
+                      {t("remove")}
+                    </button>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
     </div>
   );

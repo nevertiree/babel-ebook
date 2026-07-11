@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import type { ProviderConfig } from "../types";
 import { providerApiKeyHints, providers as knownProviders } from "../types";
+import LoadingSpinner from "./LoadingSpinner";
 
 interface ProviderCardProps {
   provider: ProviderConfig;
@@ -172,6 +173,7 @@ export default function ProviderCard({
           disabled={testing}
           aria-busy={testing}
         >
+          {testing && <LoadingSpinner size={14} />}
           {testing ? t("testing_connection") : t("test_connection")}
         </button>
 

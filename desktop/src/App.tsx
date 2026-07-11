@@ -17,6 +17,7 @@ import AboutPage from "./pages/AboutPage";
 import LegalPage from "./pages/LegalPage";
 import LogsPage from "./pages/LogsPage";
 import TasksPage from "./pages/TasksPage";
+import SettingsLayout from "./pages/SettingsLayout";
 import {
   loadGeneralSettings,
   loadSettings,
@@ -43,15 +44,6 @@ type ProgressPayload =
   | { ChunkFinished: { index: number; href: string; chunk_index: number; chunk_total: number } }
   | { Failed: { index: number; href: string; error: string } }
   | "Completed";
-
-const settingsPages: { page: Page; labelKey: string }[] = [
-  { page: "settings-compute", labelKey: "settings_compute" },
-  { page: "settings-model", labelKey: "settings_model" },
-  { page: "settings-translation", labelKey: "settings_translation" },
-  { page: "settings-prompts", labelKey: "settings_prompts" },
-  { page: "settings-output", labelKey: "settings_output" },
-  { page: "settings-general", labelKey: "settings_general" },
-];
 
 function generateId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -621,6 +613,21 @@ function App() {
     }
   }
 
+  async function handleDryRun() {
+    if (!validation.valid) return;
+    try {
+      const args = { ...buildTranslateArgs(form), dry_run: true };
+      await invoke("enqueue_task", { args });
+      await invoke("start_queue");
+    } catch (err) {
+      const message = `${t("error")}: ${err}`;
+      setLogs((prev) => [
+        ...prev,
+        { id: generateId(), timestamp: Date.now(), kind: "error", message },
+      ]);
+    }
+  }
+
   const updateForm = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((prev) => {
       const next = { ...prev, [key]: value } as FormState;
@@ -655,23 +662,23 @@ function App() {
     setQueue(state);
   };
 
-  const enqueueTask = async (args: object) => {
-    await invoke("enqueue_task", { args });
+  const removeTask = async (ids: string[]) => {
+    await Promise.all(ids.map((id) => invoke("remove_task", { id })));
     await refreshQueue();
   };
 
-  const removeTask = async (id: string) => {
-    await invoke("remove_task", { id });
+  const retryTask = async (ids: string[]) => {
+    await Promise.all(ids.map((id) => invoke("retry_task", { id })));
     await refreshQueue();
   };
 
-  const retryTask = async (id: string) => {
-    await invoke("retry_task", { id });
+  const cancelTask = async (ids: string[]) => {
+    await Promise.all(ids.map((id) => invoke("cancel_task", { id })));
     await refreshQueue();
   };
 
-  const cancelTask = async (id: string) => {
-    await invoke("cancel_task", { id });
+  const reorderTasks = async (ids: string[]) => {
+    await invoke("reorder_tasks", { ids });
     await refreshQueue();
   };
 
@@ -690,9 +697,6 @@ function App() {
     await refreshQueue();
   };
 
-  // enqueueTask is reserved for the upcoming task-creation flow.
-  void enqueueTask;
-
   const renderPage = () => {
     switch (page) {
       case "translate":
@@ -701,6 +705,7 @@ function App() {
             form={form}
             setForm={updateForm}
             onStart={handleStart}
+            onDryRun={handleDryRun}
             currentTask={currentTask}
             validation={validation}
             onPageChange={setPage}
@@ -720,49 +725,55 @@ function App() {
             onPauseTask={pauseTask}
             onStart={startQueue}
             onPause={pauseQueue}
+            onReorder={reorderTasks}
+            onNavigate={setPage}
           />
         );
       case "settings-compute":
-        return (
-          <ComputeSettingsPage
-            providers={form.providers}
-            activeProvider={form.active_provider}
-            onChangeProviders={updateProviders}
-            onChangeActiveProvider={(provider) => updateForm("active_provider", provider)}
-          />
-        );
       case "settings-model":
-        return <ModelParamsPage form={form} setForm={updateForm} />;
       case "settings-translation":
-        return <TranslationSettingsPage form={form} setForm={updateForm} />;
       case "settings-prompts":
-        return <PromptsPage form={form} setForm={updateForm} />;
       case "settings-output":
-        return <OutputSettingsPage form={form} setForm={updateForm} />;
       case "settings-general":
         return (
-          <GeneralSettingsPage
-            general={general}
-            setGeneral={setGeneral}
-            detectedLocale={detectedLocale}
-            onImport={async (settings) => {
-              const merged = { ...form, ...settings.translation } as FormState;
-              if (
-                !merged.active_provider ||
-                !merged.providers.some((p) => p.name === merged.active_provider)
-              ) {
-                merged.active_provider = merged.providers[0]?.name ?? "";
-              }
-              const general = {
-                ...settings.general,
-                theme: normalizeTheme(settings.general.theme),
-              };
-              setForm(merged);
-              setGeneral(general);
-              await saveSettings(merged);
-              await saveGeneralSettings(general);
-            }}
-          />
+          <SettingsLayout activePage={page} onNavigate={setPage}>
+            {page === "settings-compute" && (
+              <ComputeSettingsPage
+                providers={form.providers}
+                activeProvider={form.active_provider}
+                onChangeProviders={updateProviders}
+                onChangeActiveProvider={(provider) => updateForm("active_provider", provider)}
+              />
+            )}
+            {page === "settings-model" && <ModelParamsPage form={form} setForm={updateForm} />}
+            {page === "settings-translation" && <TranslationSettingsPage form={form} setForm={updateForm} />}
+            {page === "settings-prompts" && <PromptsPage form={form} setForm={updateForm} />}
+            {page === "settings-output" && <OutputSettingsPage form={form} setForm={updateForm} />}
+            {page === "settings-general" && (
+              <GeneralSettingsPage
+                general={general}
+                setGeneral={setGeneral}
+                detectedLocale={detectedLocale}
+                onImport={async (settings) => {
+                  const merged = { ...form, ...settings.translation } as FormState;
+                  if (
+                    !merged.active_provider ||
+                    !merged.providers.some((p) => p.name === merged.active_provider)
+                  ) {
+                    merged.active_provider = merged.providers[0]?.name ?? "";
+                  }
+                  const general = {
+                    ...settings.general,
+                    theme: normalizeTheme(settings.general.theme),
+                  };
+                  setForm(merged);
+                  setGeneral(general);
+                  await saveSettings(merged);
+                  await saveGeneralSettings(general);
+                }}
+              />
+            )}
+          </SettingsLayout>
         );
       case "about":
         return <AboutPage onOpenLegal={() => setPage("legal")} />;
@@ -813,19 +824,14 @@ function App() {
             )}
           </button>
 
-          <div className="nav-group">
-            <span className="nav-group-label">{t("nav_settings")}</span>
-            {settingsPages.map(({ page: p, labelKey }) => (
-              <button
-                key={p}
-                type="button"
-                className={`nav-item ${page === p ? "active" : ""}`}
-                onClick={() => setPage(p)}
-              >
-                {t(labelKey)}
-              </button>
-            ))}
-          </div>
+          <button
+            type="button"
+            className={`nav-item ${page.startsWith("settings-") ? "active" : ""}`}
+            onClick={() => setPage("settings-compute")}
+            data-testid="nav-settings"
+          >
+            {t("nav_settings")}
+          </button>
 
           <button
             type="button"
