@@ -309,7 +309,7 @@ checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
 name = "babel-ebook"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "anyhow",
  "async-openai",
@@ -339,7 +339,7 @@ dependencies = [
 
 [[package]]
 name = "babel-ebook-cli"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "anyhow",
  "babel-ebook",
@@ -353,7 +353,7 @@ dependencies = [
 
 [[package]]
 name = "babel-ebook-desktop"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "babel-ebook",
  "dirs 5.0.1",
