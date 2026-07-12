@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import type { Page } from "../types";
 import SettingsTabIcon, { type SettingsTabIconProps } from "../components/SettingsTabIcon";
+import "./SettingsPage.css";
 
 interface SettingsLayoutProps {
   activePage: Page;

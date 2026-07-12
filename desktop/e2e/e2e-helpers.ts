@@ -1,5 +1,32 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
+import { rmSync } from "node:fs";
+import { resolve } from "node:path";
+
+export function clearAppData() {
+  // Tauri persists settings and the task queue across launches. Clear the
+  // app data directory before each test so stale queue/tasks from previous
+  // runs do not leak into the current test.
+  const appDataDir = process.env.APPDATA;
+  if (appDataDir) {
+    const dataDir = resolve(appDataDir, "com.nevertiree.babel-ebook");
+    try {
+      rmSync(dataDir, { recursive: true, force: true });
+    } catch {
+      // ignore cleanup errors
+    }
+  }
+  // Settings are stored separately under the user's Documents folder.
+  const userProfile = process.env.USERPROFILE;
+  if (userProfile) {
+    const settingsDir = resolve(userProfile, "Documents", "BabelEbook");
+    try {
+      rmSync(settingsDir, { recursive: true, force: true });
+    } catch {
+      // ignore cleanup errors
+    }
+  }
+}
 
 export async function cleanupBrowserProcesses() {
   // E2E tests launch the Tauri app which spawns WebView2 processes. On Windows

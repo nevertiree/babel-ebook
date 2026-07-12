@@ -175,6 +175,182 @@ async fn core_translate_epub_produces_bilingual_output() {
     );
 }
 
+/// Creates a minimal EPUB with two translatable chapters and returns its path.
+fn create_two_chapter_fixture(dir: &std::path::Path) -> PathBuf {
+    let path = dir.join("two_chapters.epub");
+    let book = EpubBook {
+        metadata: EpubMetadata {
+            title: Some("Two Chapters".into()),
+            language: Some("en".into()),
+            identifier: Some("two-chapters-id".into()),
+        },
+        chapters: vec![
+            Chapter {
+                href: "ch01.xhtml".into(),
+                title: Some("Chapter 1".into()),
+                content: br#"<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head><title>Chapter 1</title></head>
+<body><h1>Chapter 1</h1><p>First chapter.</p></body>
+</html>"#
+                    .to_vec(),
+            },
+            Chapter {
+                href: "ch02.xhtml".into(),
+                title: Some("Chapter 2".into()),
+                content: br#"<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head><title>Chapter 2</title></head>
+<body><h1>Chapter 2</h1><p>Second chapter.</p></body>
+</html>"#
+                    .to_vec(),
+            },
+        ],
+        resources: vec![],
+    };
+    write_epub(&book, &path).expect("write two-chapter fixture");
+    path
+}
+
+struct AlwaysFailingTranslator;
+
+#[async_trait]
+impl Translator for AlwaysFailingTranslator {
+    fn name(&self) -> String {
+        "failing".into()
+    }
+
+    fn max_output_tokens(&self) -> usize {
+        2000
+    }
+
+    async fn translate(
+        &self,
+        _text: &str,
+        _context: &TranslateContext<'_>,
+    ) -> Result<String, babel_ebook::BabelEbookError> {
+        Err(babel_ebook::BabelEbookError::ApiError(
+            "forced failure".into(),
+        ))
+    }
+}
+
+#[tokio::test]
+async fn core_translate_epub_fails_when_all_chapters_fail() {
+    let temp_dir = TempDir::new().expect("create temp dir");
+    let fixture = create_sample_fixture(temp_dir.path());
+    let output = temp_dir.path().join("failed.epub");
+    let cache_dir = temp_dir.path().join("cache");
+    let config = test_config(fixture, output.clone(), cache_dir);
+
+    let result = translate_epub(&config, &AlwaysFailingTranslator, None, None).await;
+
+    assert!(
+        matches!(result, Err(babel_ebook::BabelEbookError::ApiError(_))),
+        "expected ApiError when all chapters fail, got {result:?}"
+    );
+}
+
+struct FailingThenSucceedingTranslator {
+    counter: std::sync::atomic::AtomicUsize,
+}
+
+#[async_trait]
+impl Translator for FailingThenSucceedingTranslator {
+    fn name(&self) -> String {
+        "partial".into()
+    }
+
+    fn max_output_tokens(&self) -> usize {
+        2000
+    }
+
+    async fn translate(
+        &self,
+        text: &str,
+        _context: &TranslateContext<'_>,
+    ) -> Result<String, babel_ebook::BabelEbookError> {
+        let count = self
+            .counter
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        if count == 0 {
+            Err(babel_ebook::BabelEbookError::ApiError(
+                "first chapter fails".into(),
+            ))
+        } else {
+            Ok(format!("[ZH] {}", text))
+        }
+    }
+}
+
+#[tokio::test]
+async fn core_translate_epub_writes_partial_output_on_partial_failure() {
+    let temp_dir = TempDir::new().expect("create temp dir");
+    let fixture = create_two_chapter_fixture(temp_dir.path());
+    let output = temp_dir.path().join("partial.epub");
+    let cache_dir = temp_dir.path().join("cache");
+    let mut config = test_config(fixture, output.clone(), cache_dir);
+    config.concurrency = 1;
+
+    translate_epub(
+        &config,
+        &FailingThenSucceedingTranslator {
+            counter: std::sync::atomic::AtomicUsize::new(0),
+        },
+        None,
+        None,
+    )
+    .await
+    .expect("partial failure should still succeed at the top level");
+
+    assert!(
+        output.exists(),
+        "output EPUB should be written on partial failure"
+    );
+
+    let book = babel_ebook::read_epub(&output).expect("read output EPUB");
+    let ch01 = book
+        .chapters
+        .iter()
+        .find(|c| c.href.contains("ch01"))
+        .expect("ch01 should exist");
+    let ch01_text = String::from_utf8_lossy(&ch01.content);
+    assert!(
+        !ch01_text.contains("[ZH]"),
+        "failed chapter should keep original content: {}",
+        ch01_text
+    );
+
+    let ch02 = book
+        .chapters
+        .iter()
+        .find(|c| c.href.contains("ch02"))
+        .expect("ch02 should exist");
+    let ch02_text = String::from_utf8_lossy(&ch02.content);
+    assert!(
+        ch02_text.contains("[ZH] Second chapter."),
+        "successful chapter should be translated: {}",
+        ch02_text
+    );
+}
+
+#[tokio::test]
+async fn core_translate_epub_rejects_unsupported_input_format() {
+    let temp_dir = TempDir::new().expect("create temp dir");
+    let source = temp_dir.path().join("document.xyz");
+    std::fs::write(&source, "not an ebook").expect("write dummy file");
+    let output = temp_dir.path().join("output.epub");
+    let cache_dir = temp_dir.path().join("cache");
+    let config = test_config(source, output, cache_dir);
+
+    let result = translate_epub(&config, &FakeTranslator, None, None).await;
+
+    assert!(
+        matches!(result, Err(babel_ebook::BabelEbookError::Configuration(_))),
+        "expected Configuration error for unsupported format, got {result:?}"
+    );
+}
+
 #[tokio::test]
 async fn core_translate_epub_dry_run_does_not_write_output() {
     let temp_dir = TempDir::new().expect("create temp dir");

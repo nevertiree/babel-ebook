@@ -56,6 +56,10 @@ export interface PromptTemplates {
 
 /**
  * Shared form state used across the desktop application.
+ *
+ * This is the canonical serializable shape persisted to disk. To reduce
+ * coupling and re-renders, individual settings pages receive focused slices
+ * (see below) instead of the full object.
  */
 export interface FormState {
   source: string;
@@ -97,6 +101,60 @@ export interface FormState {
   max_output_tokens: number;
   temperature: number;
 }
+
+/** Model / inference parameters shown on the Model settings page. */
+export type ModelParams = Pick<
+  FormState,
+  "model" | "max_input_tokens" | "max_output_tokens" | "temperature"
+>;
+
+/** Translation language, mode, style and element scope settings. */
+export type TranslationSettingsState = Pick<
+  FormState,
+  | "source_lang"
+  | "target_lang"
+  | "output_mode"
+  | "style"
+  | "preserve_classes"
+  | "exclude_selectors"
+  | "translate_attributes"
+  | "translate_body"
+  | "translate_metadata"
+  | "translate_toc"
+  | "translate_alt_text"
+  | "translate_image_captions"
+  | "translate_tables"
+  | "translate_footnotes"
+  | "translate_code"
+>;
+
+/** System prompt and per-style prompt templates. */
+export type PromptSettingsState = Pick<FormState, "system_prompt" | "prompts">;
+
+/** Output formatting and checkpoint directory settings. */
+export type OutputSettingsState = Pick<
+  FormState,
+  "output_font" | "output_filename_template" | "checkpoint_dir"
+>;
+
+/** Queue / concurrency settings. */
+export type QueueSettingsState = Pick<FormState, "concurrency">;
+
+/** Main translation inputs shown on the translate page. */
+export type TranslateInputs = Pick<
+  FormState,
+  | "source"
+  | "output"
+  | "source_lang"
+  | "target_lang"
+  | "output_mode"
+  | "providers"
+  | "active_provider"
+  | "model"
+  | "checkpoint_dir"
+  | "resume"
+  | "refine"
+>;
 
 /**
  * Available application pages.

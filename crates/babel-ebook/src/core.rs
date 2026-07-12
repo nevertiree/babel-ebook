@@ -4,17 +4,20 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
+use std::thread;
+use std::time::Duration;
 
 use serde::Serialize;
+use tokio::sync::Notify;
 
 use crate::cache::TranslationCache;
 use crate::checkpoint::CheckpointStore;
 use crate::chunking::count_tokens;
 use crate::config::Config;
-use crate::epub::{should_translate_doc, write_epub};
+use crate::epub::should_translate_doc;
 use crate::html::translate_text;
 use crate::input_formats::read_input_book;
-use crate::pipeline::run_ordered_pipeline;
+use crate::pipeline::{run_ordered_pipeline, PipelineContext};
 use crate::t;
 use crate::translator::Translator;
 
@@ -22,18 +25,30 @@ use crate::translator::Translator;
 #[derive(Clone, Debug, Default)]
 pub struct CancellationToken {
     cancelled: Arc<AtomicBool>,
+    notify: Arc<Notify>,
 }
 
 impl CancellationToken {
-    /// Request cancellation.
+    /// Request cancellation and wake any tasks waiting on [`Self::cancelled`].
     pub fn cancel(&self) {
         self.cancelled.store(true, Ordering::SeqCst);
+        self.notify.notify_waiters();
     }
 
     /// Return whether cancellation has been requested.
     #[must_use]
     pub fn is_cancelled(&self) -> bool {
         self.cancelled.load(Ordering::SeqCst)
+    }
+
+    /// Wait until cancellation has been requested.
+    ///
+    /// Returns immediately if the token is already cancelled.
+    pub async fn cancelled(&self) {
+        if self.is_cancelled() {
+            return;
+        }
+        self.notify.notified().await;
     }
 }
 
@@ -228,17 +243,20 @@ pub async fn translate_epub_with_cancellation(
         (Some(store), Some(id))
     };
 
-    let pipeline_result = run_ordered_pipeline(
-        &mut book,
-        translatable_indices.clone(),
+    let context = PipelineContext {
         translator,
         config,
         cache,
+        progress,
+        cancellation,
+    };
+    let pipeline_result = run_ordered_pipeline(
+        &mut book,
+        translatable_indices.clone(),
+        &context,
         checkpoint_store.as_ref(),
         job_id.as_deref(),
         &source_hash,
-        progress,
-        cancellation,
     )
     .await?;
     let failures = pipeline_result.failures;
@@ -258,7 +276,7 @@ pub async fn translate_epub_with_cancellation(
                     *index,
                     &title,
                     translator,
-                    config,
+                    &config.translation_options(),
                     cache,
                     &href,
                     progress,
@@ -286,7 +304,7 @@ pub async fn translate_epub_with_cancellation(
     ensure_not_cancelled(cancellation)?;
 
     tracing::info!(output = %config.output.display(), "writing translated EPUB");
-    write_epub(&book, &config.output)?;
+    book.write(&config.output)?;
     tracing::info!(output = %config.output.display(), "EPUB written successfully");
     emit_progress(progress, ProgressEvent::Completed);
 
@@ -344,6 +362,13 @@ pub fn run_dry_run(
             total: indices.len(),
         },
     );
+    // E2E-only: allow tests to keep the task in the running state long enough
+    // to exercise per-task pause/resume/cancel controls.
+    if let Ok(raw) = std::env::var("BABEL_EBOOK_E2E_SLOW_DRY_RUN_MS") {
+        if let Ok(ms) = raw.parse::<u64>() {
+            thread::sleep(Duration::from_millis(ms));
+        }
+    }
     let (total, count) = estimate_source_tokens(book, indices);
     let msg = t!(
         "log_estimated_tokens",
@@ -360,7 +385,7 @@ async fn translate_title(
     index: usize,
     title: &str,
     translator: &dyn Translator,
-    config: &Config,
+    options: &crate::config::TranslationOptions,
     cache: &TranslationCache,
     href: &str,
     _progress: Option<&dyn ProgressCallback>,
@@ -373,7 +398,7 @@ async fn translate_title(
     translate_text(
         title,
         translator,
-        config,
+        options,
         cache,
         index,
         &prompt_key,

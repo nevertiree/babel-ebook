@@ -15,6 +15,23 @@ use crate::epub::{Chapter, EpubBook};
 use crate::html::process_document;
 use crate::translator::Translator;
 
+/// Dependencies shared across pipeline stages.
+///
+/// Bundling these references reduces the argument surface of
+/// `run_ordered_pipeline` and makes the data flow explicit.
+pub struct PipelineContext<'a> {
+    /// Translator used to convert text.
+    pub translator: &'a dyn Translator,
+    /// Runtime configuration.
+    pub config: &'a Config,
+    /// Translation cache.
+    pub cache: &'a TranslationCache,
+    /// Optional progress callback.
+    pub progress: Option<&'a dyn ProgressCallback>,
+    /// Optional cooperative cancellation token.
+    pub cancellation: Option<&'a CancellationToken>,
+}
+
 /// Result of running the ordered pipeline.
 pub struct PipelineResult {
     /// `(href, error)` pairs for chapters that failed to translate.
@@ -37,14 +54,10 @@ pub struct PipelineResult {
 pub async fn run_ordered_pipeline(
     book: &mut EpubBook,
     indices: Vec<usize>,
-    translator: &dyn Translator,
-    config: &Config,
-    cache: &TranslationCache,
+    context: &PipelineContext<'_>,
     checkpoint_store: Option<&CheckpointStore>,
     job_id: Option<&str>,
     source_hash: &str,
-    progress: Option<&dyn ProgressCallback>,
-    cancellation: Option<&CancellationToken>,
 ) -> Result<PipelineResult, BabelEbookError> {
     if indices.is_empty() {
         return Ok(PipelineResult {
@@ -53,24 +66,25 @@ pub async fn run_ordered_pipeline(
         });
     }
 
-    let job_id = resolve_job_id(checkpoint_store, job_id, config);
+    let job_id = resolve_job_id(checkpoint_store, job_id, context.config);
     let mut checkpoint = build_checkpoint(book, &indices, checkpoint_store, &job_id, source_hash);
-    checkpoint.source_path = config.source.to_string_lossy().into_owned();
-    let completed = restore_completed_chapters(book, &indices, &checkpoint, progress);
+    checkpoint.source_path = context.config.source.to_string_lossy().into_owned();
+    let completed = restore_completed_chapters(book, &indices, &checkpoint, context.progress);
     let pending_indices: Vec<usize> = indices
         .into_iter()
         .filter(|i| !completed.contains(i))
         .collect();
 
     let checkpoint = Arc::new(tokio::sync::Mutex::new(checkpoint));
-    let semaphore = Arc::new(Semaphore::new(config.concurrency.max(1)));
+    let semaphore = Arc::new(Semaphore::new(context.config.concurrency.max(1)));
     let mut futures = FuturesUnordered::new();
 
     for &index in &pending_indices {
-        ensure_not_cancelled(cancellation)?;
+        ensure_not_cancelled(context.cancellation)?;
 
         let href = book.chapters[index].href.clone();
-        let content = book.chapters[index].content.clone();
+        let chapter_content = book.chapters[index].content.clone();
+        let options = context.config.translation_options();
         let semaphore = Arc::clone(&semaphore);
         let checkpoint = Arc::clone(&checkpoint);
         let store = checkpoint_store.cloned();
@@ -79,24 +93,27 @@ pub async fn run_ordered_pipeline(
             let result = match acquire_permit(semaphore).await {
                 Ok(permit) => {
                     emit_progress(
-                        progress,
+                        context.progress,
                         ProgressEvent::ChapterStarted {
                             index,
                             href: href.clone(),
                         },
                     );
-                    let output = if cancellation.is_some_and(CancellationToken::is_cancelled) {
+                    let output = if context
+                        .cancellation
+                        .is_some_and(CancellationToken::is_cancelled)
+                    {
                         Err(BabelEbookError::Cancelled)
                     } else {
                         process_document(
-                            &content,
-                            translator,
-                            config,
-                            cache,
+                            &chapter_content,
+                            context.translator,
+                            &options,
+                            context.cache,
                             index,
                             &href,
-                            progress,
-                            cancellation,
+                            context.progress,
+                            context.cancellation,
                         )
                         .await
                     };
@@ -119,17 +136,17 @@ pub async fn run_ordered_pipeline(
             return Err(BabelEbookError::Cancelled);
         }
         results.push((index, result));
-        ensure_not_cancelled(cancellation)?;
+        ensure_not_cancelled(context.cancellation)?;
     }
     results.sort_by_key(|(index, _)| *index);
 
     let mut failures = Vec::new();
     for (index, result) in results {
         match result {
-            Ok(content) => {
-                book.chapters[index].content = content;
+            Ok(chapter_content) => {
+                book.chapters[index].content = chapter_content;
                 emit_progress(
-                    progress,
+                    context.progress,
                     ProgressEvent::ChapterFinished {
                         index,
                         href: book.chapters[index].href.clone(),
@@ -139,7 +156,7 @@ pub async fn run_ordered_pipeline(
             Err(err) => {
                 let href = book.chapters[index].href.clone();
                 emit_progress(
-                    progress,
+                    context.progress,
                     ProgressEvent::Failed {
                         index,
                         href: href.clone(),
@@ -476,17 +493,20 @@ mod tests {
             .unwrap();
 
         let cache = TranslationCache::new(config.cache_dir.clone());
+        let context = PipelineContext {
+            translator: &DummyTranslator,
+            config: &config,
+            cache: &cache,
+            progress: None,
+            cancellation: None,
+        };
         let result = run_ordered_pipeline(
             &mut book,
             vec![0, 1, 2],
-            &DummyTranslator,
-            &config,
-            &cache,
+            &context,
             Some(&store),
             Some(&job_id),
             "hash",
-            None,
-            None,
         )
         .await
         .unwrap();
@@ -504,19 +524,14 @@ mod tests {
         let cancellation = CancellationToken::default();
         cancellation.cancel();
 
-        let result = run_ordered_pipeline(
-            &mut book,
-            vec![0, 1],
-            &DummyTranslator,
-            &config,
-            &cache,
-            None,
-            None,
-            "",
-            None,
-            Some(&cancellation),
-        )
-        .await;
+        let context = PipelineContext {
+            translator: &DummyTranslator,
+            config: &config,
+            cache: &cache,
+            progress: None,
+            cancellation: Some(&cancellation),
+        };
+        let result = run_ordered_pipeline(&mut book, vec![0, 1], &context, None, None, "").await;
         let Err(err) = result else {
             panic!("expected cancelled pipeline");
         };
@@ -536,20 +551,17 @@ mod tests {
                 let mut book = make_book(vec!["alpha", "bravo", "charlie"]);
                 let config = make_config();
                 let cache = TranslationCache::new(config.cache_dir.clone());
-                let result = run_ordered_pipeline(
-                    &mut book,
-                    vec![0, 1, 2],
-                    &DummyTranslator,
-                    &config,
-                    &cache,
-                    None,
-                    None,
-                    "",
-                    None,
-                    None,
-                )
-                .await
-                .unwrap();
+                let context = PipelineContext {
+                    translator: &DummyTranslator,
+                    config: &config,
+                    cache: &cache,
+                    progress: None,
+                    cancellation: None,
+                };
+                let result =
+                    run_ordered_pipeline(&mut book, vec![0, 1, 2], &context, None, None, "")
+                        .await
+                        .unwrap();
                 assert!(result.failures.is_empty());
 
                 let texts: Vec<String> = book
@@ -623,20 +635,17 @@ mod tests {
                     max_active: Arc::clone(&max_active),
                 };
                 let cache = TranslationCache::new(config.cache_dir.clone());
-                let result = run_ordered_pipeline(
-                    &mut book,
-                    vec![0, 1, 2, 3, 4],
-                    &translator,
-                    &config,
-                    &cache,
-                    None,
-                    None,
-                    "",
-                    None,
-                    None,
-                )
-                .await
-                .unwrap();
+                let context = PipelineContext {
+                    translator: &translator,
+                    config: &config,
+                    cache: &cache,
+                    progress: None,
+                    cancellation: None,
+                };
+                let result =
+                    run_ordered_pipeline(&mut book, vec![0, 1, 2, 3, 4], &context, None, None, "")
+                        .await
+                        .unwrap();
                 assert!(result.failures.is_empty());
                 // The exact observed concurrency depends on the Tokio scheduler; the
                 // important invariant is that it never exceeds the configured limit.
@@ -682,17 +691,20 @@ mod tests {
         config.checkpoint_dir = dir.path().join("checkpoints");
         let cache = TranslationCache::new(config.cache_dir.clone());
 
+        let context = PipelineContext {
+            translator: &SlowTranslator,
+            config: &config,
+            cache: &cache,
+            progress: None,
+            cancellation: None,
+        };
         let result = run_ordered_pipeline(
             &mut book,
             vec![0, 1, 2, 3, 4],
-            &SlowTranslator,
-            &config,
-            &cache,
+            &context,
             Some(&store),
             None,
             "hash",
-            None,
-            None,
         )
         .await
         .unwrap();
@@ -714,17 +726,20 @@ mod tests {
         config.checkpoint_dir = dir.path().join("checkpoints");
         let cache = TranslationCache::new(config.cache_dir.clone());
 
+        let context = PipelineContext {
+            translator: &DummyTranslator,
+            config: &config,
+            cache: &cache,
+            progress: None,
+            cancellation: None,
+        };
         let result = run_ordered_pipeline(
             &mut book,
             vec![0, 1, 2],
-            &DummyTranslator,
-            &config,
-            &cache,
+            &context,
             Some(&store),
             None,
             "hash",
-            None,
-            None,
         )
         .await
         .unwrap();

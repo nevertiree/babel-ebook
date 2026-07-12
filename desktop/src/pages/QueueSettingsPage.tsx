@@ -1,11 +1,11 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { FormState } from "../types";
+import type { QueueSettingsState } from "../types";
 import Tooltip from "../components/Tooltip";
 
 interface QueueSettingsPageProps {
-  form: FormState;
-  setForm: <K extends keyof FormState>(key: K, value: FormState[K]) => void;
+  queueSettings: QueueSettingsState;
+  setQueueSettings: (update: Partial<QueueSettingsState>) => void;
 }
 
 function clamp(value: number, min: number, max?: number): number {
@@ -16,7 +16,7 @@ function clamp(value: number, min: number, max?: number): number {
   return v;
 }
 
-export default function QueueSettingsPage({ form, setForm }: QueueSettingsPageProps) {
+function QueueSettingsPage({ queueSettings, setQueueSettings }: QueueSettingsPageProps) {
   const { t } = useTranslation();
   const [error, setError] = useState<string>("");
 
@@ -31,11 +31,11 @@ export default function QueueSettingsPage({ form, setForm }: QueueSettingsPagePr
     const raw = value === "" ? Number.NaN : Number(value);
     const err = validate(raw);
     setError(err ?? "");
-    setForm("concurrency", clamp(raw, 1, 10));
+    setQueueSettings({ concurrency: clamp(raw, 1, 10) });
   };
 
   const handleBlur = () => {
-    setForm("concurrency", clamp(form.concurrency, 1, 10));
+    setQueueSettings({ concurrency: clamp(queueSettings.concurrency, 1, 10) });
     setError("");
   };
 
@@ -58,7 +58,7 @@ export default function QueueSettingsPage({ form, setForm }: QueueSettingsPagePr
             min={1}
             max={10}
             step={1}
-            value={form.concurrency}
+            value={queueSettings.concurrency}
             onChange={(e) => handleChange(e.target.value)}
             onBlur={handleBlur}
             aria-invalid={!!error}
@@ -76,3 +76,5 @@ export default function QueueSettingsPage({ form, setForm }: QueueSettingsPagePr
     </div>
   );
 }
+
+export default memo(QueueSettingsPage);

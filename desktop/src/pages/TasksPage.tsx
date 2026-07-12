@@ -4,6 +4,7 @@ import { confirm } from "@tauri-apps/plugin-dialog";
 import type { Page, QueueState, Task } from "../types";
 import EmptyStateIcon from "../components/EmptyStateIcon";
 import TrashIcon from "../components/TrashIcon";
+import "./TasksPage.css";
 
 interface TasksPageProps {
   queue: QueueState;
@@ -23,7 +24,10 @@ function formatPath(path: string) {
   return parts[parts.length - 1] || path;
 }
 
-function formatDateTime(timestamp: number, t: (key: string) => string) {
+function formatDateTime(
+  timestamp: number,
+  t: (key: string, options?: Record<string, unknown>) => string
+) {
   const date = new Date(timestamp * 1000);
   const today = new Date();
   const isToday =
@@ -44,7 +48,10 @@ function formatDateTime(timestamp: number, t: (key: string) => string) {
   return `${dateStr} ${timeStr}`;
 }
 
-function formatDuration(seconds: number, t: (key: string) => string) {
+function formatDuration(
+  seconds: number,
+  t: (key: string, options?: Record<string, unknown>) => string
+) {
   if (seconds < 60) {
     return `${seconds}${t("task_time_seconds")}`;
   }
@@ -64,34 +71,37 @@ function getElapsedSeconds(startedAt?: number, completedAt?: number): number {
   return Math.max(0, Math.floor((end - start) / 1000));
 }
 
-function getTimeInfo(task: Task, t: (key: string, options?: Record<string, unknown>) => string) {
+function getTimeInfo(
+  task: Task,
+  t: (key: string, options?: Record<string, unknown>) => string
+) {
   const statusKey = `task_status_${task.status}`;
   const statusLabel = t(statusKey);
 
   switch (task.status) {
     case "running": {
       const elapsed = getElapsedSeconds(task.started_at);
-      return `${statusLabel} · ${t("task_time_running")} ${formatDuration(elapsed, t as (key: string) => string)}`;
+      return `${statusLabel} · ${t("task_time_running")} ${formatDuration(elapsed, t)}`;
     }
     case "completed": {
       const elapsed = getElapsedSeconds(task.started_at, task.completed_at);
       const completedTime = task.completed_at
-        ? formatDateTime(task.completed_at, t as (key: string) => string)
+        ? formatDateTime(task.completed_at, t)
         : "";
-      return `${statusLabel} · ${t("task_time_elapsed")} ${formatDuration(elapsed, t as (key: string) => string)}${completedTime ? ` · ${completedTime}` : ""}`;
+      return `${statusLabel} · ${t("task_time_elapsed")} ${formatDuration(elapsed, t)}${completedTime ? ` · ${completedTime}` : ""}`;
     }
     case "failed":
     case "cancelled": {
       const elapsed = getElapsedSeconds(task.started_at, task.completed_at);
-      return `${statusLabel} · ${t("task_time_elapsed")} ${formatDuration(elapsed, t as (key: string) => string)}`;
+      return `${statusLabel} · ${t("task_time_elapsed")} ${formatDuration(elapsed, t)}`;
     }
     case "paused": {
       const elapsed = getElapsedSeconds(task.started_at, task.completed_at);
-      return `${statusLabel} · ${t("task_time_elapsed")} ${formatDuration(elapsed, t as (key: string) => string)}`;
+      return `${statusLabel} · ${t("task_time_elapsed")} ${formatDuration(elapsed, t)}`;
     }
     case "pending":
     default: {
-      const createdTime = formatDateTime(task.created_at, t as (key: string) => string);
+      const createdTime = formatDateTime(task.created_at, t);
       return `${statusLabel} · ${t("task_time_created")} ${createdTime}`;
     }
   }

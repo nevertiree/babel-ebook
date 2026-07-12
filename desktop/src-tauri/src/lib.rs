@@ -13,6 +13,7 @@
 mod args;
 mod commands;
 mod config;
+mod error;
 mod keyring;
 mod queue;
 mod task;

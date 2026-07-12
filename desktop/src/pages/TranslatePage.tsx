@@ -1,8 +1,8 @@
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { CheckpointInfo, FormState, LogEntry, Page, Task, ValidationResult } from "../types";
+import type { CheckpointInfo, LogEntry, Page, Task, TranslateInputs, ValidationResult } from "../types";
 import {
   outputModes,
   targetLanguages,
@@ -11,6 +11,7 @@ import RunningPanel from "../components/RunningPanel";
 import LoadingSpinner from "../components/LoadingSpinner";
 import EmptyStateIcon from "../components/EmptyStateIcon";
 import ProviderIcon from "../components/ProviderIcon";
+import "./TranslatePage.css";
 
 interface ModelSelectProps {
   provider: string;
@@ -33,16 +34,10 @@ function ModelSelect({
   const [models, setModels] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
+  const requestIdRef = useRef(0);
 
   useEffect(() => {
-    if (abortRef.current) {
-      abortRef.current.abort();
-    }
-    const controller = new AbortController();
-    abortRef.current = controller;
-
-    let cancelled = false;
+    const requestId = (requestIdRef.current += 1);
     setLoading(true);
     setError(null);
 
@@ -55,25 +50,26 @@ function ModelSelect({
             base_url: useCustomBaseUrl ? baseUrl || null : null,
           },
         });
-        if (cancelled) return;
+        if (requestId !== requestIdRef.current) return;
         setModels(list);
         if (list.length > 0 && !list.includes(model) && model !== "__custom__") {
           onChange(list[0]);
         }
       } catch (err) {
-        if (cancelled) return;
+        if (requestId !== requestIdRef.current) return;
         setModels([]);
         setError(String(err));
       } finally {
-        if (!cancelled) {
+        if (requestId === requestIdRef.current) {
           setLoading(false);
         }
       }
     })();
 
     return () => {
-      cancelled = true;
-      controller.abort();
+      // Increment the id so that any in-flight response for this effect is
+      // discarded when the dependencies change.
+      requestIdRef.current += 1;
     };
   }, [provider, apiKey, baseUrl, useCustomBaseUrl]);
 
@@ -122,8 +118,8 @@ function ModelSelect({
 }
 
 interface TranslatePageProps {
-  form: FormState;
-  setForm: <K extends keyof FormState>(key: K, value: FormState[K]) => void;
+  inputs: TranslateInputs;
+  setInputs: (update: Partial<TranslateInputs>) => void;
   onStart: () => void;
   onDryRun: () => void;
   currentTask?: Task;
@@ -133,9 +129,9 @@ interface TranslatePageProps {
   onClearLogs: () => void;
 }
 
-export default function TranslatePage({
-  form,
-  setForm,
+function TranslatePage({
+  inputs,
+  setInputs,
   onStart,
   onDryRun,
   currentTask,
@@ -147,21 +143,21 @@ export default function TranslatePage({
   const { t } = useTranslation();
   const [checkpoints, setCheckpoints] = useState<CheckpointInfo[]>([]);
 
-  const hasProviders = form.providers.length > 0;
-  const activeProvider = form.providers.find((p) => p.name === form.active_provider);
-  const selectedCheckpoint = checkpoints.find((cp) => cp.job_id === form.resume);
+  const hasProviders = inputs.providers.length > 0;
+  const activeProvider = inputs.providers.find((p) => p.name === inputs.active_provider);
+  const selectedCheckpoint = checkpoints.find((cp) => cp.job_id === inputs.resume);
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      if (!form.checkpoint_dir) {
+      if (!inputs.checkpoint_dir) {
         setCheckpoints([]);
         return;
       }
       try {
         const list = await invoke<CheckpointInfo[]>("list_checkpoints", {
-          checkpoint_dir: form.checkpoint_dir,
-          current_source: form.source || null,
+          checkpoint_dir: inputs.checkpoint_dir,
+          current_source: inputs.source || null,
         });
         if (!cancelled) {
           setCheckpoints(list);
@@ -177,7 +173,7 @@ export default function TranslatePage({
       cancelled = true;
     };
     // Reload when a translation run finishes so newly created checkpoints appear.
-  }, [form.checkpoint_dir, form.source, form.resume]);
+  }, [inputs.checkpoint_dir, inputs.source, inputs.resume]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -208,10 +204,10 @@ export default function TranslatePage({
       ],
     });
     if (path) {
-      setForm("source", path);
+      setInputs({ source: path });
       // Clear any previous resume selection when a new source is chosen.
-      if (form.resume) {
-        setForm("resume", "");
+      if (inputs.resume) {
+        setInputs({ resume: "" });
       }
     }
   };
@@ -219,10 +215,10 @@ export default function TranslatePage({
   const selectOutput = async () => {
     const path = await save({
       filters: [{ name: "EPUB", extensions: ["epub"] }],
-      defaultPath: form.output || "output.epub",
+      defaultPath: inputs.output || "output.epub",
     });
     if (path) {
-      setForm("output", path);
+      setInputs({ output: path });
     }
   };
 
@@ -231,37 +227,20 @@ export default function TranslatePage({
     return path.split(sep).pop() || path;
   };
 
-  const sourceIsEpub = form.source?.toLowerCase().endsWith(".epub") ?? false;
-  const showSourceFormatWarning = Boolean(form.source && !sourceIsEpub);
+  const sourceIsEpub = inputs.source?.toLowerCase().endsWith(".epub") ?? false;
+  const showSourceFormatWarning = Boolean(inputs.source && !sourceIsEpub);
 
-  const [dragActive, setDragActive] = useState(false);
-  const dragCounter = useRef(0);
-
-  const supportedExtensions = new Set(["epub", "mobi", "azw3", "txt", "srt", "docx"]);
-
-  const pickSupportedFile = (files: FileList | null): string | null => {
-    if (!files || files.length === 0) return null;
-    for (let i = 0; i < files.length; i += 1) {
-      const file = files[i];
-      const ext = file.name.split(".").pop()?.toLowerCase();
-      if (ext && supportedExtensions.has(ext)) {
-        // Tauri file drops give a path via webkitGetAsEntry for some platforms,
-        // but the File object itself only carries the name. We fall back to name
-        // as a signal; the user must still use the file picker for the real path.
-        return file.name;
-      }
-    }
-    return null;
-  };
-
+  // Drag-and-drop of files is intentionally not advertised: browsers do not
+  // expose full filesystem paths through web drop events, so a dropped file
+  // cannot be passed to the Tauri backend. We only prevent the default
+  // browser behaviour to avoid navigating away when the user drags over the
+  // window.
   useEffect(() => {
     const handleDragOver = (e: DragEvent) => {
       e.preventDefault();
     };
     const handleDrop = (e: DragEvent) => {
       e.preventDefault();
-      dragCounter.current = 0;
-      setDragActive(false);
     };
     window.addEventListener("dragover", handleDragOver);
     window.addEventListener("drop", handleDrop);
@@ -270,37 +249,6 @@ export default function TranslatePage({
       window.removeEventListener("drop", handleDrop);
     };
   }, []);
-
-  const handleDragEnter = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    dragCounter.current += 1;
-    setDragActive(true);
-  };
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    dragCounter.current -= 1;
-    if (dragCounter.current <= 0) {
-      dragCounter.current = 0;
-      setDragActive(false);
-    }
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    dragCounter.current = 0;
-    setDragActive(false);
-    const name = pickSupportedFile(e.dataTransfer.files);
-    if (name) {
-      // We cannot reliably get a full filesystem path from a web drop event in Tauri,
-      // so we notify the user to use the picker for a real translation path.
-      // Still, we keep the visual feedback so the drop zone feels responsive.
-      selectSource();
-    }
-  };
 
   return (
     <div className="page translate-page">
@@ -317,10 +265,10 @@ export default function TranslatePage({
                     <ProviderIcon provider={activeProvider.provider} className="provider-select-icon" />
                   )}
                   <select
-                    value={form.active_provider}
-                    onChange={(e) => setForm("active_provider", e.target.value)}
+                    value={inputs.active_provider}
+                    onChange={(e) => setInputs({ active_provider: e.target.value })}
                   >
-                    {form.providers.map((p) => (
+                    {inputs.providers.map((p) => (
                       <option key={p.name} value={p.name}>
                         {p.name}
                       </option>
@@ -334,8 +282,8 @@ export default function TranslatePage({
                 apiKey={activeProvider.api_key}
                 baseUrl={activeProvider.base_url}
                 useCustomBaseUrl={activeProvider.use_custom_base_url}
-                model={form.model}
-                onChange={(value) => setForm("model", value)}
+                model={inputs.model}
+                onChange={(value) => setInputs({ model: value })}
               />
             </>
           )}
@@ -343,8 +291,8 @@ export default function TranslatePage({
           <label>
             {t("target_lang")}
             <select
-              value={form.target_lang}
-              onChange={(e) => setForm("target_lang", e.target.value)}
+              value={inputs.target_lang}
+              onChange={(e) => setInputs({ target_lang: e.target.value })}
             >
               {targetLanguages.map((lang) => (
                 <option key={lang.code} value={lang.code}>
@@ -357,8 +305,8 @@ export default function TranslatePage({
           <label>
             {t("output_mode")}
             <select
-              value={form.output_mode}
-              onChange={(e) => setForm("output_mode", e.target.value)}
+              value={inputs.output_mode}
+              onChange={(e) => setInputs({ output_mode: e.target.value })}
             >
               {outputModes.map((mode) => (
                 <option key={mode} value={mode}>
@@ -382,31 +330,27 @@ export default function TranslatePage({
 
       <section className="file-section">
         <div
-          className={`file-row file-row-source ${dragActive ? "drag-active" : ""}`}
+          className="file-row file-row-source"
           role="button"
           tabIndex={0}
           onClick={selectSource}
-          onDragEnter={handleDragEnter}
-          onDragOver={(e) => e.preventDefault()}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
           aria-label={t("drop_source_hint")}
         >
           <div className="file-info">
             <span className="file-label">{t("source")}</span>
-            <span className="file-path" title={form.source || undefined} data-testid="source-path">
-              {form.source || t("drop_source_hint")}
+            <span className="file-path" title={inputs.source || undefined} data-testid="source-path">
+              {inputs.source || t("drop_source_hint")}
             </span>
             {showSourceFormatWarning && (
               <span className="inline-warning">{t("source_format_warning")}</span>
             )}
           </div>
           <div className="file-row-actions">
-            {form.source && (
+            {inputs.source && (
               <button
                 type="button"
                 className="icon-button"
-                onClick={(e) => { e.stopPropagation(); setForm("source", ""); }}
+                onClick={(e) => { e.stopPropagation(); setInputs({ source: "" }); }}
                 title={t("clear")}
                 aria-label={t("clear")}
               >
@@ -422,16 +366,16 @@ export default function TranslatePage({
         <div className="file-row">
           <div className="file-info">
             <span className="file-label">{t("output")}</span>
-            <span className="file-path" title={form.output || undefined} data-testid="output-path">
-              {form.output || t("no_file_selected")}
+            <span className="file-path" title={inputs.output || undefined} data-testid="output-path">
+              {inputs.output || t("no_file_selected")}
             </span>
           </div>
           <div className="file-row-actions">
-            {form.output && (
+            {inputs.output && (
               <button
                 type="button"
                 className="icon-button"
-                onClick={(e) => { e.stopPropagation(); setForm("output", ""); }}
+                onClick={(e) => { e.stopPropagation(); setInputs({ output: "" }); }}
                 title={t("clear")}
                 aria-label={t("clear")}
               >
@@ -450,13 +394,13 @@ export default function TranslatePage({
           <label className="checkbox-label">
             <input
               type="checkbox"
-              checked={form.refine}
-              onChange={(e) => setForm("refine", e.target.checked)}
+              checked={inputs.refine}
+              onChange={(e) => setInputs({ refine: e.target.checked })}
               data-testid="refine-checkbox"
             />
             {t("refine_translation")}
           </label>
-          {form.refine && (
+          {inputs.refine && (
             <p className="refine-hint">
               {t("refine_translation_hint")}{" "}
               <button
@@ -471,7 +415,7 @@ export default function TranslatePage({
         </div>
 
         <div className="checkpoint-section">
-          {!form.checkpoint_dir ? (
+          {!inputs.checkpoint_dir ? (
             <div className="checkpoint-setup-prompt">
               <p>{t("checkpoint_setup_prompt")}</p>
               <button
@@ -492,16 +436,16 @@ export default function TranslatePage({
                   {checkpoints.map((cp) => (
                     <div
                       key={cp.job_id}
-                      className={`checkpoint-item ${form.resume === cp.job_id ? "selected" : ""} ${
+                      className={`checkpoint-item ${inputs.resume === cp.job_id ? "selected" : ""} ${
                         cp.matches_current_source ? "matches-source" : ""
                       }`}
-                      onClick={() => setForm("resume", cp.job_id)}
+                      onClick={() => setInputs({ resume: cp.job_id })}
                       role="button"
                       tabIndex={0}
                       data-testid={`checkpoint-item-${cp.job_id}`}
                       onKeyDown={(e) => {
                         if (e.key === "Enter" || e.key === " ") {
-                          setForm("resume", cp.job_id);
+                          setInputs({ resume: cp.job_id });
                         }
                       }}
                       title={cp.source_path}
@@ -558,11 +502,11 @@ export default function TranslatePage({
         >
           {t("dry_run")}
         </button>
-        {form.resume && (
+        {inputs.resume && (
           <button
             type="button"
             className="secondary-button resume-clear-button"
-            onClick={() => setForm("resume", "")}
+            onClick={() => setInputs({ resume: "" })}
             data-testid="clear-resume-selection"
             title={t("clear_resume_selection")}
           >
@@ -585,3 +529,5 @@ export default function TranslatePage({
     </div>
   );
 }
+
+export default memo(TranslatePage);

@@ -6,6 +6,7 @@ use docx_rs::read_docx as docx_rs_read;
 
 use crate::core::BabelEbookError;
 use crate::epub::{Chapter, EpubBook, EpubMetadata};
+use crate::escape::html_escape;
 use crate::input_formats::html_or_xhtml;
 
 /// Read a DOCX file and convert it to an internal EPUB representation.
@@ -70,14 +71,6 @@ pub fn read_docx(path: &Path) -> Result<EpubBook, BabelEbookError> {
         }],
         resources: vec![],
     })
-}
-
-fn html_escape(text: &str) -> String {
-    text.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
 }
 
 #[cfg(test)]

@@ -4,7 +4,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
-import { cleanupBrowserProcesses, forceKill, getFreePort, waitForCdp } from "./e2e-helpers";
+import { cleanupBrowserProcesses, clearAppData, forceKill, getFreePort, waitForCdp } from "./e2e-helpers";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const APP_PATH = resolve(__dirname, "../../target/release/babel-ebook-desktop.exe");
@@ -61,6 +61,7 @@ function seedOllamaSettings() {
 
 test.beforeAll(async () => {
   await cleanupBrowserProcesses();
+  clearAppData();
   seedOllamaSettings();
 
   const port = await getFreePort();

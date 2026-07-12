@@ -6,14 +6,15 @@
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use babel_ebook::{CancellationToken, TranslationWorker};
+use babel_ebook::{CancellationToken, ProgressEvent, TranslationWorker};
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager, Runtime};
 use tauri_plugin_store::Store;
-use tokio::sync::Notify;
+use tokio::sync::{mpsc, Mutex, Notify};
 
 use crate::args::TranslateArgs;
 use crate::commands::run_translation;
+use crate::error::AppError;
 use crate::task::{Task, TaskStatus};
 
 /// Snapshot of the queue exposed to the frontend.
@@ -30,7 +31,7 @@ pub struct QueueState {
 #[derive(Debug, Clone, Serialize)]
 struct TaskProgressPayload {
     task_id: String,
-    event: babel_ebook::ProgressEvent,
+    event: ProgressEvent,
 }
 
 /// Serializable representation of a queued task that is written to disk.
@@ -112,9 +113,9 @@ pub trait QueueStore: Send + Sync {
     /// Load the previously saved task list.
     ///
     /// Returns an empty vector when no persisted state exists yet.
-    fn load(&self) -> Result<Vec<StoredTask>, String>;
+    fn load(&self) -> Result<Vec<StoredTask>, AppError>;
     /// Save the given task list.
-    fn save(&self, tasks: &[StoredTask]) -> Result<(), String>;
+    fn save(&self, tasks: &[StoredTask]) -> Result<(), AppError>;
 }
 
 /// [`QueueStore`] implementation backed by `tauri_plugin_store`.
@@ -128,19 +129,19 @@ impl<R: Runtime> TauriTaskStore<R> {
 }
 
 impl<R: Runtime> QueueStore for TauriTaskStore<R> {
-    fn load(&self) -> Result<Vec<StoredTask>, String> {
+    fn load(&self) -> Result<Vec<StoredTask>, AppError> {
         self.0.get("tasks").map_or_else(
             || Ok(Vec::new()),
-            |value| serde_json::from_value(value).map_err(|e| e.to_string()),
+            |value| serde_json::from_value(value).map_err(AppError::from),
         )
     }
 
-    fn save(&self, tasks: &[StoredTask]) -> Result<(), String> {
+    fn save(&self, tasks: &[StoredTask]) -> Result<(), AppError> {
         self.0.set(
             "tasks",
-            serde_json::to_value(tasks).map_err(|e| e.to_string())?,
+            serde_json::to_value(tasks).map_err(AppError::from)?,
         );
-        self.0.save().map_err(|e| e.to_string())
+        self.0.save().map_err(|e| AppError::Store(e.to_string()))
     }
 }
 
@@ -154,9 +155,20 @@ struct QueueInner {
 /// Shared queue manager installed as Tauri state.
 #[derive(Clone)]
 pub struct QueueManager {
-    inner: Arc<std::sync::Mutex<QueueInner>>,
+    inner: Arc<Mutex<QueueInner>>,
     notifier: Arc<Notify>,
     store: Option<Arc<dyn QueueStore>>,
+}
+
+/// Outcome of finishing a translation run in the worker loop.
+enum TaskFinish {
+    /// Task was resumed while the previous run was finishing; leave it pending
+    /// so the worker loop picks it up again.
+    Requeued,
+    /// Task was paused or cancelled; completed_at has been set.
+    PausedOrCancelled,
+    /// Task completed or failed; status has been updated.
+    CompletedOrFailed,
 }
 
 impl QueueManager {
@@ -166,7 +178,7 @@ impl QueueManager {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
-            inner: Arc::new(std::sync::Mutex::new(QueueInner {
+            inner: Arc::new(Mutex::new(QueueInner {
                 tasks: Vec::new(),
                 running: false,
                 current_task_id: None,
@@ -199,7 +211,7 @@ impl QueueManager {
         }
 
         Self {
-            inner: Arc::new(std::sync::Mutex::new(QueueInner {
+            inner: Arc::new(Mutex::new(QueueInner {
                 tasks,
                 running: false,
                 current_task_id: None,
@@ -211,19 +223,58 @@ impl QueueManager {
     }
 
     /// Write the current task list to the configured store, if any.
-    fn persist(&self) -> Result<(), String> {
+    async fn persist(&self) -> Result<(), AppError> {
         let Some(store) = self.store.as_ref() else {
             return Ok(());
         };
 
-        let guard = self
-            .inner
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let guard = self.inner.lock().await;
         let stored: Vec<StoredTask> = guard.tasks.iter().map(StoredTask::from).collect();
         drop(guard);
 
         store.save(&stored)
+    }
+
+    /// Apply the result of a finished translation run to the queue state.
+    ///
+    /// This is extracted from the worker loop so the pause/resume race can be
+    /// covered by unit tests: a task that is resumed before the cleanup runs must
+    /// remain `Pending` instead of being marked `Failed` due to the intentional
+    /// pause-cancellation.
+    async fn finish_task(
+        &self,
+        task_id: &str,
+        result: Result<String, String>,
+        now: u64,
+    ) -> TaskFinish {
+        let mut guard = self.inner.lock().await;
+        guard.current_task_id = None;
+        guard.current_cancellation = None;
+        let Some(task) = guard.tasks.iter_mut().find(|t| t.id == task_id) else {
+            return TaskFinish::CompletedOrFailed;
+        };
+        if task.status == TaskStatus::Pending {
+            return TaskFinish::Requeued;
+        }
+        if task.status == TaskStatus::Cancelled || task.status == TaskStatus::Paused {
+            task.completed_at = Some(now);
+            return TaskFinish::PausedOrCancelled;
+        }
+        match result {
+            Ok(message) => {
+                task.status = TaskStatus::Completed;
+                task.progress_percent = 100;
+                task.chapters_completed = task.chapter_total;
+                task.message = message;
+                task.completed_at = Some(now);
+            }
+            Err(error) => {
+                task.status = TaskStatus::Failed;
+                task.message = "Failed".to_string();
+                task.error = Some(error);
+            }
+        }
+        TaskFinish::CompletedOrFailed
     }
 
     /// Start the background worker loop. Call once during Tauri setup.
@@ -238,14 +289,12 @@ impl QueueManager {
 
                 let now = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
+                    .inspect_err(|err| tracing::warn!("system time is before Unix epoch: {err}"))
                     .unwrap_or_default()
                     .as_secs();
 
                 let action = {
-                    let mut guard = self
-                        .inner
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    let mut guard = self.inner.lock().await;
                     if guard.running {
                         guard
                             .tasks
@@ -271,7 +320,7 @@ impl QueueManager {
                 // Persist the transition to Running so a crash while processing
                 // this task is restored as Paused on the next launch.
                 if matches!(action, Action::Run(_)) {
-                    if let Err(e) = self.persist() {
+                    if let Err(e) = self.persist().await {
                         tracing::error!("failed to persist running task: {e}");
                     }
                 }
@@ -285,65 +334,69 @@ impl QueueManager {
                 };
 
                 let cancellation = CancellationToken::default();
-                self.set_current_task(Some(task.id.clone()), Some(cancellation.clone()));
+                self.set_current_task(Some(task.id.clone()), Some(cancellation.clone()))
+                    .await;
                 if let Some(w) = app_handle.get_webview_window("main") {
                     let _ = w.emit("queue_state_changed", ());
                 }
                 let task_id = task.id.clone();
                 let window = app_handle.get_webview_window("main");
                 let queue = self.clone();
-                let progress = window.clone().map(|w| {
-                    Box::new(TaskProgressCallback {
-                        task_id: task_id.clone(),
-                        window: w,
-                        queue,
-                    }) as Box<dyn babel_ebook::ProgressCallback + Send + Sync>
-                });
+
+                // Decouple progress handling from the synchronous callback so that
+                // queue state can be updated through an async tokio mutex without
+                // blocking the worker loop.
+                let (progress_tx, mut progress_rx) = mpsc::unbounded_channel::<ProgressEvent>();
+                let progress: Option<Box<dyn babel_ebook::ProgressCallback + Send + Sync>> =
+                    window.clone().map(|_| {
+                        Box::new(TaskProgressCallback {
+                            sender: progress_tx,
+                        })
+                            as Box<dyn babel_ebook::ProgressCallback + Send + Sync>
+                    });
+
+                let progress_forwarder = {
+                    let window = window.clone();
+                    let task_id = task_id.clone();
+                    tauri::async_runtime::spawn(async move {
+                        while let Some(event) = progress_rx.recv().await {
+                            queue.update_task_progress(&task_id, &event).await;
+                            if let Some(w) = window.as_ref() {
+                                let payload = TaskProgressPayload {
+                                    task_id: task_id.clone(),
+                                    event: event.clone(),
+                                };
+                                if let Err(err) = w.emit("task_progress", &payload) {
+                                    tracing::warn!("failed to emit task_progress event: {err}");
+                                }
+                                if let Err(err) = w.emit("translation_progress", &event) {
+                                    tracing::warn!(
+                                        "failed to emit translation_progress event: {err}"
+                                    );
+                                }
+                            }
+                        }
+                    })
+                };
 
                 let result =
                     run_translation(task.args, progress, Some(cancellation), &worker).await;
 
-                // Update the current task id only after releasing any lock held
-                // during the translation above.
-                self.set_current_task(None, None);
-
-                let mut guard = self
-                    .inner
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                if let Some(t) = guard.tasks.iter_mut().find(|t| t.id == task_id) {
-                    if t.status == TaskStatus::Cancelled || t.status == TaskStatus::Paused {
-                        t.completed_at = Some(now);
-                        drop(guard);
-                        if let Err(e) = self.persist() {
+                let finish_action = self.finish_task(&task_id, result, now).await;
+                match finish_action {
+                    TaskFinish::Requeued => {}
+                    TaskFinish::PausedOrCancelled => {
+                        if let Err(e) = self.persist().await {
                             tracing::error!("failed to persist cancelled/paused task: {e}");
                         }
-                        if let Some(w) = window {
-                            let _ = w.emit("queue_state_changed", ());
-                        }
-                        continue;
                     }
-                    match result {
-                        Ok(message) => {
-                            t.status = TaskStatus::Completed;
-                            t.progress_percent = 100;
-                            t.chapters_completed = t.chapter_total;
-                            t.message = message;
-                            t.completed_at = Some(now);
-                        }
-                        Err(error) => {
-                            t.status = TaskStatus::Failed;
-                            t.message = "Failed".to_string();
-                            t.error = Some(error);
+                    TaskFinish::CompletedOrFailed => {
+                        if let Err(e) = self.persist().await {
+                            tracing::error!("failed to persist completed/failed task: {e}");
                         }
                     }
                 }
-                drop(guard);
-
-                if let Err(e) = self.persist() {
-                    tracing::error!("failed to persist completed/failed task: {e}");
-                }
-
+                progress_forwarder.await.ok();
                 if let Some(w) = window {
                     let _ = w.emit("queue_state_changed", ());
                 }
@@ -351,42 +404,41 @@ impl QueueManager {
         });
     }
 
-    fn set_current_task(&self, id: Option<String>, cancellation: Option<CancellationToken>) {
-        let mut guard = self
-            .inner
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+    async fn set_current_task(&self, id: Option<String>, cancellation: Option<CancellationToken>) {
+        let mut guard = self.inner.lock().await;
         guard.current_task_id = id;
         guard.current_cancellation = cancellation;
     }
 
     /// Update a task's progress fields from a core progress event.
     ///
-    /// This is called synchronously from the progress callback so that
-    /// `get_queue_state` always returns an up-to-date snapshot. Progress
-    /// updates are intentionally not persisted to avoid writing to disk on
-    /// every chunk.
-    fn update_task_progress(&self, task_id: &str, event: &babel_ebook::ProgressEvent) {
-        let mut guard = self
-            .inner
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+    /// This is called from the async progress forwarder so that `get_queue_state`
+    /// always returns an up-to-date snapshot. Progress updates are intentionally
+    /// not persisted to avoid writing to disk on every chunk.
+    async fn update_task_progress(&self, task_id: &str, event: &ProgressEvent) {
+        let mut guard = self.inner.lock().await;
         let Some(task) = guard.tasks.iter_mut().find(|t| t.id == task_id) else {
             return;
         };
 
         match event {
-            babel_ebook::ProgressEvent::Started { total } => {
+            ProgressEvent::Started { total } => {
                 task.chapter_total = Some(u32::try_from(*total).unwrap_or(u32::MAX));
                 task.chapters_completed = Some(0);
                 task.progress_percent = 0;
             }
-            babel_ebook::ProgressEvent::ChapterFinished { .. } => {
+            ProgressEvent::Completed => {
+                task.progress_percent = 100;
+                if let Some(total) = task.chapter_total {
+                    task.chapters_completed = Some(total);
+                }
+            }
+            ProgressEvent::ChapterFinished { .. } => {
                 let completed = task.chapters_completed.unwrap_or(0).saturating_add(1);
                 task.chapters_completed = Some(completed);
                 task.progress_percent = compute_progress_percent(task);
             }
-            babel_ebook::ProgressEvent::ChunkFinished {
+            ProgressEvent::ChunkFinished {
                 chunk_index,
                 chunk_total,
                 ..
@@ -407,16 +459,13 @@ impl QueueManager {
     }
 
     /// Add a new pending translation task to the queue.
-    pub fn enqueue(&self, args: TranslateArgs) -> Task {
+    pub async fn enqueue(&self, args: TranslateArgs) -> Task {
         let task = Task::new(args);
-        let mut guard = self
-            .inner
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut guard = self.inner.lock().await;
         guard.tasks.push(task.clone());
         drop(guard);
 
-        if let Err(e) = self.persist() {
+        if let Err(e) = self.persist().await {
             tracing::error!("failed to persist enqueued task: {e}");
         }
         self.notifier.notify_one();
@@ -424,40 +473,34 @@ impl QueueManager {
     }
 
     /// Remove a pending or completed task from the queue.
-    pub fn remove(&self, id: &str) -> Result<(), String> {
-        let mut guard = self
-            .inner
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+    pub async fn remove(&self, id: &str) -> Result<(), AppError> {
+        let mut guard = self.inner.lock().await;
         let pos = guard
             .tasks
             .iter()
             .position(|t| t.id == id)
-            .ok_or_else(|| "task not found".to_string())?;
+            .ok_or(AppError::TaskNotFound)?;
         let task = &guard.tasks[pos];
         if task.status == TaskStatus::Running {
-            return Err("cannot remove a running task".to_string());
+            return Err(AppError::CannotRemoveRunningTask);
         }
         guard.tasks.remove(pos);
         drop(guard);
-        self.persist()
+        self.persist().await
     }
 
     /// Reorder tasks to match the provided list of IDs.
-    pub fn reorder(&self, ids: &[String]) -> Result<(), String> {
-        let mut guard = self
-            .inner
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+    pub async fn reorder(&self, ids: &[String]) -> Result<(), AppError> {
+        let mut guard = self.inner.lock().await;
         let mut new_order: Vec<Task> = Vec::with_capacity(guard.tasks.len());
         for id in ids {
             let task = guard
                 .tasks
                 .iter()
                 .find(|t| t.id == *id)
-                .ok_or_else(|| format!("unknown task id: {id}"))?;
+                .ok_or_else(|| AppError::UnknownTaskId(id.clone()))?;
             if task.status == TaskStatus::Running {
-                return Err("cannot reorder a running task".to_string());
+                return Err(AppError::CannotReorderRunningTask);
             }
             new_order.push(task.clone());
         }
@@ -469,21 +512,18 @@ impl QueueManager {
         }
         guard.tasks = new_order;
         drop(guard);
-        self.persist()
+        self.persist().await
     }
 
     /// Mark a pending or running task as cancelled.
-    pub fn cancel(&self, id: &str) -> Result<(), String> {
-        let mut guard = self
-            .inner
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+    pub async fn cancel(&self, id: &str) -> Result<(), AppError> {
+        let mut guard = self.inner.lock().await;
         let current_cancellation = guard.current_cancellation.clone();
         let task = guard
             .tasks
             .iter_mut()
             .find(|t| t.id == id)
-            .ok_or_else(|| "task not found".to_string())?;
+            .ok_or(AppError::TaskNotFound)?;
         match task.status {
             TaskStatus::Pending => {
                 task.status = TaskStatus::Cancelled;
@@ -496,49 +536,36 @@ impl QueueManager {
                     token.cancel();
                 }
             }
-            _ => return Err("only pending or running tasks can be cancelled".to_string()),
+            _ => return Err(AppError::CancelInvalidStatus),
         }
         drop(guard);
-        self.persist()
+        self.persist().await
     }
 
     /// Pause the currently running task so it can be resumed later.
-    pub fn pause_task(&self, id: &str) -> Result<(), String> {
-        let (current_id, current_cancellation) = {
-            let guard = self
-                .inner
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            (
-                guard.current_task_id.clone(),
-                guard.current_cancellation.clone(),
-            )
-        };
-
+    pub async fn pause_task(&self, id: &str) -> Result<(), AppError> {
+        let mut guard = self.inner.lock().await;
+        let current_id = guard.current_task_id.clone();
         let Some(current_id) = current_id else {
-            return Err("no running task".to_string());
+            return Err(AppError::NoRunningTask);
         };
         if current_id != id {
-            return Err("task is not currently running".to_string());
+            return Err(AppError::NotCurrentTask);
         }
-
-        let mut guard = self
-            .inner
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let task = guard
             .tasks
             .iter_mut()
             .find(|t| t.id == id)
-            .ok_or_else(|| "task not found".to_string())?;
+            .ok_or(AppError::TaskNotFound)?;
         if task.status != TaskStatus::Running {
-            return Err("task is not running".to_string());
+            return Err(AppError::TaskNotRunning);
         }
         task.status = TaskStatus::Paused;
         task.message = "Paused".to_string();
+        let current_cancellation = guard.current_cancellation.clone();
         drop(guard);
 
-        let result = self.persist();
+        let result = self.persist().await;
         if let Some(token) = current_cancellation {
             token.cancel();
         }
@@ -546,45 +573,39 @@ impl QueueManager {
     }
 
     /// Resume a paused task from its last checkpoint without resetting progress.
-    pub fn resume_task(&self, id: &str) -> Result<(), String> {
-        let mut guard = self
-            .inner
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+    pub async fn resume_task(&self, id: &str) -> Result<(), AppError> {
+        let mut guard = self.inner.lock().await;
         let task = guard
             .tasks
             .iter_mut()
             .find(|t| t.id == id)
-            .ok_or_else(|| "task not found".to_string())?;
+            .ok_or(AppError::TaskNotFound)?;
         if task.status != TaskStatus::Paused {
-            return Err("only paused tasks can be resumed".to_string());
+            return Err(AppError::ResumeInvalidStatus);
         }
         task.status = TaskStatus::Pending;
         task.message = String::new();
         task.error = None;
         task.completed_at = None;
         drop(guard);
-        self.persist()?;
+        self.persist().await?;
         self.notifier.notify_one();
         Ok(())
     }
 
     /// Reset a failed, cancelled or paused task to pending.
-    pub fn retry(&self, id: &str) -> Result<(), String> {
-        let mut guard = self
-            .inner
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+    pub async fn retry(&self, id: &str) -> Result<(), AppError> {
+        let mut guard = self.inner.lock().await;
         let task = guard
             .tasks
             .iter_mut()
             .find(|t| t.id == id)
-            .ok_or_else(|| "task not found".to_string())?;
+            .ok_or(AppError::TaskNotFound)?;
         if task.status != TaskStatus::Failed
             && task.status != TaskStatus::Cancelled
             && task.status != TaskStatus::Paused
         {
-            return Err("only failed, cancelled or paused tasks can be retried".to_string());
+            return Err(AppError::RetryInvalidStatus);
         }
         task.status = TaskStatus::Pending;
         task.message = String::new();
@@ -594,29 +615,23 @@ impl QueueManager {
         task.chapters_completed = None;
         task.chapter_total = None;
         drop(guard);
-        self.persist()?;
+        self.persist().await?;
         self.notifier.notify_one();
         Ok(())
     }
 
     /// Allow the worker to start processing pending tasks.
-    pub fn start(&self) {
-        let mut guard = self
-            .inner
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+    pub async fn start(&self) {
+        let mut guard = self.inner.lock().await;
         guard.running = true;
         self.notifier.notify_one();
     }
 
     /// Pause the worker and cancel the currently running task so it can be
     /// resumed from its checkpoint later.
-    pub fn pause(&self) {
+    pub async fn pause(&self) {
         let current_cancellation = {
-            let mut guard = self
-                .inner
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut guard = self.inner.lock().await;
             guard.running = false;
             if let Some(current_id) = guard.current_task_id.clone() {
                 if let Some(task) = guard.tasks.iter_mut().find(|t| t.id == current_id) {
@@ -629,7 +644,7 @@ impl QueueManager {
             guard.current_cancellation.clone()
         };
 
-        if let Err(e) = self.persist() {
+        if let Err(e) = self.persist().await {
             tracing::error!("failed to persist queue pause: {e}");
         }
         if let Some(token) = current_cancellation {
@@ -638,11 +653,8 @@ impl QueueManager {
     }
 
     /// Return a snapshot of the current queue state.
-    pub fn state(&self) -> QueueState {
-        let guard = self
-            .inner
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+    pub async fn state(&self) -> QueueState {
+        let guard = self.inner.lock().await;
         QueueState {
             tasks: guard.tasks.clone(),
             running: guard.running,
@@ -672,25 +684,14 @@ fn compute_progress_percent_raw(chapter_total: Option<u32>, completed: u32, in_f
 }
 
 struct TaskProgressCallback {
-    task_id: String,
-    window: tauri::WebviewWindow,
-    queue: QueueManager,
+    sender: mpsc::UnboundedSender<ProgressEvent>,
 }
 
 impl babel_ebook::ProgressCallback for TaskProgressCallback {
     fn on_progress(&self, event: babel_ebook::ProgressEvent) {
-        // Keep the backend task state in sync so the queue UI survives refreshes.
-        self.queue.update_task_progress(&self.task_id, &event);
-
-        // Emit a per-task event so the queue UI can update the correct task.
-        let payload = TaskProgressPayload {
-            task_id: self.task_id.clone(),
-            event: event.clone(),
-        };
-        let _ = self.window.emit("task_progress", &payload);
-        // Also emit the legacy translation_progress event so the log panel and
-        // the translate-page progress bar receive updates from queued tasks.
-        let _ = self.window.emit("translation_progress", &event);
+        // Forward the event to the async progress forwarder. Dropping the sender
+        // ends the forwarder loop when the translation finishes.
+        let _ = self.sender.send(event);
     }
 }
 
@@ -754,17 +755,18 @@ mod tests {
     }
 
     impl QueueStore for JsonFileTaskStore {
-        fn load(&self) -> Result<Vec<StoredTask>, String> {
+        fn load(&self) -> Result<Vec<StoredTask>, AppError> {
             if !self.path.exists() {
                 return Ok(Vec::new());
             }
-            let text = fs::read_to_string(&self.path).map_err(|e| e.to_string())?;
-            serde_json::from_str(&text).map_err(|e| e.to_string())
+            let text =
+                fs::read_to_string(&self.path).map_err(|e| AppError::Store(e.to_string()))?;
+            serde_json::from_str(&text).map_err(AppError::from)
         }
 
-        fn save(&self, tasks: &[StoredTask]) -> Result<(), String> {
-            let text = serde_json::to_string_pretty(tasks).map_err(|e| e.to_string())?;
-            fs::write(&self.path, text).map_err(|e| e.to_string())
+        fn save(&self, tasks: &[StoredTask]) -> Result<(), AppError> {
+            let text = serde_json::to_string_pretty(tasks).map_err(AppError::from)?;
+            fs::write(&self.path, text).map_err(|e| AppError::Store(e.to_string()))
         }
     }
 
@@ -777,8 +779,8 @@ mod tests {
     #[tokio::test]
     async fn enqueue_adds_pending_task() {
         let queue = QueueManager::new();
-        let task = queue.enqueue(sample_args("a.epub", "a.out.epub"));
-        let state = queue.state();
+        let task = queue.enqueue(sample_args("a.epub", "a.out.epub")).await;
+        let state = queue.state().await;
         assert_eq!(state.tasks.len(), 1);
         assert_eq!(state.tasks[0].id, task.id);
         assert_eq!(state.tasks[0].status, TaskStatus::Pending);
@@ -787,30 +789,27 @@ mod tests {
     #[tokio::test]
     async fn cancel_only_pending_task() {
         let queue = QueueManager::new();
-        let task = queue.enqueue(sample_args("a.epub", "a.out.epub"));
-        queue.cancel(&task.id).unwrap();
-        let state = queue.state();
+        let task = queue.enqueue(sample_args("a.epub", "a.out.epub")).await;
+        queue.cancel(&task.id).await.unwrap();
+        let state = queue.state().await;
         assert_eq!(state.tasks[0].status, TaskStatus::Cancelled);
     }
 
     #[tokio::test]
     async fn cancel_running_task_requests_current_cancellation() {
         let queue = QueueManager::new();
-        let task = queue.enqueue(sample_args("a.epub", "a.out.epub"));
+        let task = queue.enqueue(sample_args("a.epub", "a.out.epub")).await;
         let token = CancellationToken::default();
         {
-            let mut guard = queue
-                .inner
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut guard = queue.inner.lock().await;
             guard.tasks[0].status = TaskStatus::Running;
             guard.current_task_id = Some(task.id.clone());
             guard.current_cancellation = Some(token.clone());
         }
 
-        queue.cancel(&task.id).unwrap();
+        queue.cancel(&task.id).await.unwrap();
 
-        let state = queue.state();
+        let state = queue.state().await;
         assert_eq!(state.tasks[0].status, TaskStatus::Cancelled);
         assert!(token.is_cancelled());
     }
@@ -818,10 +817,10 @@ mod tests {
     #[tokio::test]
     async fn retry_resets_failed_task() {
         let queue = QueueManager::new();
-        let task = queue.enqueue(sample_args("a.epub", "a.out.epub"));
-        queue.cancel(&task.id).unwrap();
-        queue.retry(&task.id).unwrap();
-        let state = queue.state();
+        let task = queue.enqueue(sample_args("a.epub", "a.out.epub")).await;
+        queue.cancel(&task.id).await.unwrap();
+        queue.retry(&task.id).await.unwrap();
+        let state = queue.state().await;
         assert_eq!(state.tasks[0].status, TaskStatus::Pending);
         assert!(state.tasks[0].error.is_none());
         assert_eq!(state.tasks[0].progress_percent, 0);
@@ -832,22 +831,19 @@ mod tests {
     #[tokio::test]
     async fn pause_cancels_running_task() {
         let queue = QueueManager::new();
-        let task = queue.enqueue(sample_args("a.epub", "a.out.epub"));
+        let task = queue.enqueue(sample_args("a.epub", "a.out.epub")).await;
         let token = CancellationToken::default();
         {
-            let mut guard = queue
-                .inner
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut guard = queue.inner.lock().await;
             guard.tasks[0].status = TaskStatus::Running;
             guard.current_task_id = Some(task.id);
             guard.current_cancellation = Some(token.clone());
             guard.running = true;
         }
 
-        queue.pause();
+        queue.pause().await;
 
-        let state = queue.state();
+        let state = queue.state().await;
         assert!(!state.running);
         assert_eq!(state.tasks[0].status, TaskStatus::Paused);
         assert!(token.is_cancelled());
@@ -856,46 +852,74 @@ mod tests {
     #[tokio::test]
     async fn pause_task_pauses_only_current_running_task() {
         let queue = QueueManager::new();
-        let first = queue.enqueue(sample_args("a.epub", "a.out.epub"));
-        let second = queue.enqueue(sample_args("b.epub", "b.out.epub"));
+        let first = queue.enqueue(sample_args("a.epub", "a.out.epub")).await;
+        let second = queue.enqueue(sample_args("b.epub", "b.out.epub")).await;
         let token = CancellationToken::default();
         {
-            let mut guard = queue
-                .inner
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut guard = queue.inner.lock().await;
             guard.tasks[0].status = TaskStatus::Running;
             guard.current_task_id = Some(first.id.clone());
             guard.current_cancellation = Some(token.clone());
         }
 
-        assert!(queue.pause_task(&second.id).is_err());
-        queue.pause_task(&first.id).unwrap();
+        assert!(queue.pause_task(&second.id).await.is_err());
+        queue.pause_task(&first.id).await.unwrap();
 
-        let state = queue.state();
+        let state = queue.state().await;
         assert_eq!(state.tasks[0].status, TaskStatus::Paused);
         assert_eq!(state.tasks[1].status, TaskStatus::Pending);
         assert!(token.is_cancelled());
     }
 
     #[tokio::test]
+    async fn resume_before_worker_cleanup_keeps_task_pending() {
+        let queue = QueueManager::new();
+        let task = queue.enqueue(sample_args("a.epub", "a.out.epub")).await;
+        let token = CancellationToken::default();
+        {
+            let mut guard = queue.inner.lock().await;
+            guard.tasks[0].status = TaskStatus::Running;
+            guard.current_task_id = Some(task.id.clone());
+            guard.current_cancellation = Some(token.clone());
+            guard.running = true;
+        }
+
+        queue.pause_task(&task.id).await.unwrap();
+        queue.resume_task(&task.id).await.unwrap();
+
+        // Simulate the worker loop finishing the cancelled run after the user
+        // already resumed the task. The previous run must not overwrite the
+        // resumed Pending status with Failed.
+        let result: Result<String, String> = Err("translation cancelled".to_string());
+        let finish_action = queue.finish_task(&task.id, result, 1).await;
+
+        assert!(matches!(finish_action, super::TaskFinish::Requeued));
+        let state = queue.state().await;
+        assert_eq!(state.tasks[0].status, TaskStatus::Pending);
+        assert!(state.tasks[0].error.is_none());
+        assert!(state.tasks[0].completed_at.is_none());
+        assert!(state.current_task_id.is_none());
+    }
+
+    #[tokio::test]
     async fn remove_deletes_pending_task() {
         let queue = QueueManager::new();
-        let task = queue.enqueue(sample_args("a.epub", "a.out.epub"));
-        queue.remove(&task.id).unwrap();
-        let state = queue.state();
+        let task = queue.enqueue(sample_args("a.epub", "a.out.epub")).await;
+        queue.remove(&task.id).await.unwrap();
+        let state = queue.state().await;
         assert!(state.tasks.is_empty());
     }
 
     #[tokio::test]
     async fn reorder_changes_task_order() {
         let queue = QueueManager::new();
-        let first = queue.enqueue(sample_args("a.epub", "a.out.epub"));
-        let second = queue.enqueue(sample_args("b.epub", "b.out.epub"));
+        let first = queue.enqueue(sample_args("a.epub", "a.out.epub")).await;
+        let second = queue.enqueue(sample_args("b.epub", "b.out.epub")).await;
         queue
             .reorder(&[second.id.clone(), first.id.clone()])
+            .await
             .unwrap();
-        let state = queue.state();
+        let state = queue.state().await;
         assert_eq!(state.tasks[0].id, second.id);
         assert_eq!(state.tasks[1].id, first.id);
     }
@@ -903,41 +927,44 @@ mod tests {
     #[tokio::test]
     async fn start_and_pause_toggle_running() {
         let queue = QueueManager::new();
-        queue.start();
-        assert!(queue.state().running);
-        queue.pause();
-        assert!(!queue.state().running);
+        queue.start().await;
+        assert!(queue.state().await.running);
+        queue.pause().await;
+        assert!(!queue.state().await.running);
     }
 
     #[tokio::test]
     async fn progress_state_survives_state_refresh() {
         let queue = QueueManager::new();
-        let task = queue.enqueue(sample_args("a.epub", "a.out.epub"));
+        let task = queue.enqueue(sample_args("a.epub", "a.out.epub")).await;
         {
-            let mut guard = queue
-                .inner
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut guard = queue.inner.lock().await;
             guard.tasks[0].status = TaskStatus::Running;
         }
 
-        queue.update_task_progress(&task.id, &babel_ebook::ProgressEvent::Started { total: 10 });
-        queue.update_task_progress(
-            &task.id,
-            &babel_ebook::ProgressEvent::ChapterFinished {
-                index: 0,
-                href: "ch01.xhtml".to_string(),
-            },
-        );
-        queue.update_task_progress(
-            &task.id,
-            &babel_ebook::ProgressEvent::ChapterFinished {
-                index: 1,
-                href: "ch02.xhtml".to_string(),
-            },
-        );
+        queue
+            .update_task_progress(&task.id, &ProgressEvent::Started { total: 10 })
+            .await;
+        queue
+            .update_task_progress(
+                &task.id,
+                &ProgressEvent::ChapterFinished {
+                    index: 0,
+                    href: "ch01.xhtml".to_string(),
+                },
+            )
+            .await;
+        queue
+            .update_task_progress(
+                &task.id,
+                &ProgressEvent::ChapterFinished {
+                    index: 1,
+                    href: "ch02.xhtml".to_string(),
+                },
+            )
+            .await;
 
-        let state = queue.state();
+        let state = queue.state().await;
         let task = &state.tasks[0];
         assert_eq!(task.chapter_total, Some(10));
         assert_eq!(task.chapters_completed, Some(2));
@@ -947,18 +974,22 @@ mod tests {
     #[tokio::test]
     async fn progress_reaches_one_hundred_after_all_chapters() {
         let queue = QueueManager::new();
-        let task = queue.enqueue(sample_args("a.epub", "a.out.epub"));
-        queue.update_task_progress(&task.id, &babel_ebook::ProgressEvent::Started { total: 3 });
+        let task = queue.enqueue(sample_args("a.epub", "a.out.epub")).await;
+        queue
+            .update_task_progress(&task.id, &ProgressEvent::Started { total: 3 })
+            .await;
         for index in 0..3 {
-            queue.update_task_progress(
-                &task.id,
-                &babel_ebook::ProgressEvent::ChapterFinished {
-                    index,
-                    href: format!("ch{index:02}.xhtml"),
-                },
-            );
+            queue
+                .update_task_progress(
+                    &task.id,
+                    &ProgressEvent::ChapterFinished {
+                        index,
+                        href: format!("ch{index:02}.xhtml"),
+                    },
+                )
+                .await;
         }
-        let state = queue.state();
+        let state = queue.state().await;
         let task = &state.tasks[0];
         assert_eq!(task.chapters_completed, Some(3));
         assert_eq!(task.progress_percent, 100);
@@ -968,7 +999,7 @@ mod tests {
     fn task_progress_payload_serializes_with_nested_event() {
         let payload = TaskProgressPayload {
             task_id: "task-1".to_string(),
-            event: babel_ebook::ProgressEvent::Started { total: 5 },
+            event: ProgressEvent::Started { total: 5 },
         };
         let json = serde_json::to_string(&payload).unwrap();
         assert!(json.contains("\"task_id\":\"task-1\""));
@@ -976,7 +1007,7 @@ mod tests {
 
         let completed = TaskProgressPayload {
             task_id: "task-1".to_string(),
-            event: babel_ebook::ProgressEvent::Completed,
+            event: ProgressEvent::Completed,
         };
         let json_completed = serde_json::to_string(&completed).unwrap();
         assert!(json_completed.contains("\"event\":\"Completed\""));
@@ -987,11 +1018,11 @@ mod tests {
         let (_dir, store) = temp_store();
         let queue = QueueManager::with_store(store.clone());
         let args = sample_args("a.epub", "a.out.epub");
-        let task = queue.enqueue(args.clone());
+        let task = queue.enqueue(args.clone()).await;
 
         // Simulate an app restart by loading the same store into a new manager.
         let restored = QueueManager::with_store(store);
-        let state = restored.state();
+        let state = restored.state().await;
         assert_eq!(state.tasks.len(), 1);
         assert_eq!(state.tasks[0].id, task.id);
         assert_eq!(state.tasks[0].status, TaskStatus::Pending);
@@ -1022,7 +1053,7 @@ mod tests {
         store.save(&[stored]).unwrap();
 
         let queue = QueueManager::with_store(store);
-        let state = queue.state();
+        let state = queue.state().await;
         assert!(!state.running);
         assert_eq!(state.tasks.len(), 1);
         assert_eq!(state.tasks[0].status, TaskStatus::Paused);
@@ -1051,7 +1082,7 @@ mod tests {
         store.save(&[stored]).unwrap();
 
         let queue = QueueManager::with_store(store);
-        let state = queue.state();
+        let state = queue.state().await;
         assert_eq!(state.tasks[0].status, TaskStatus::Completed);
         assert_eq!(state.tasks[0].progress_percent, 100);
         assert_eq!(state.tasks[0].completed_at, Some(2));
@@ -1061,23 +1092,20 @@ mod tests {
     async fn pause_persists_task_status() {
         let (_dir, store) = temp_store();
         let queue = QueueManager::with_store(store.clone());
-        let task = queue.enqueue(sample_args("a.epub", "a.out.epub"));
+        let task = queue.enqueue(sample_args("a.epub", "a.out.epub")).await;
         let token = CancellationToken::default();
         {
-            let mut guard = queue
-                .inner
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut guard = queue.inner.lock().await;
             guard.tasks[0].status = TaskStatus::Running;
             guard.current_task_id = Some(task.id);
             guard.current_cancellation = Some(token);
             guard.running = true;
         }
 
-        queue.pause();
+        queue.pause().await;
 
         let restored = QueueManager::with_store(store);
-        let state = restored.state();
+        let state = restored.state().await;
         assert!(!state.running);
         assert_eq!(state.tasks[0].status, TaskStatus::Paused);
     }
@@ -1086,20 +1114,23 @@ mod tests {
     async fn cancel_remove_and_retry_are_persisted() {
         let (_dir, store) = temp_store();
         let queue = QueueManager::with_store(store.clone());
-        let first = queue.enqueue(sample_args("a.epub", "a.out.epub"));
-        let second = queue.enqueue(sample_args("b.epub", "b.out.epub"));
+        let first = queue.enqueue(sample_args("a.epub", "a.out.epub")).await;
+        let second = queue.enqueue(sample_args("b.epub", "b.out.epub")).await;
 
-        queue.cancel(&first.id).unwrap();
-        queue.remove(&second.id).unwrap();
+        queue.cancel(&first.id).await.unwrap();
+        queue.remove(&second.id).await.unwrap();
 
         let restored = QueueManager::with_store(store.clone());
-        assert_eq!(restored.state().tasks.len(), 1);
-        assert_eq!(restored.state().tasks[0].status, TaskStatus::Cancelled);
+        assert_eq!(restored.state().await.tasks.len(), 1);
+        assert_eq!(
+            restored.state().await.tasks[0].status,
+            TaskStatus::Cancelled
+        );
 
-        queue.retry(&first.id).unwrap();
+        queue.retry(&first.id).await.unwrap();
         let restored_after_retry = QueueManager::with_store(store);
         assert_eq!(
-            restored_after_retry.state().tasks[0].status,
+            restored_after_retry.state().await.tasks[0].status,
             TaskStatus::Pending
         );
     }
@@ -1108,15 +1139,16 @@ mod tests {
     async fn reorder_is_persisted() {
         let (_dir, store) = temp_store();
         let queue = QueueManager::with_store(store.clone());
-        let first = queue.enqueue(sample_args("a.epub", "a.out.epub"));
-        let second = queue.enqueue(sample_args("b.epub", "b.out.epub"));
+        let first = queue.enqueue(sample_args("a.epub", "a.out.epub")).await;
+        let second = queue.enqueue(sample_args("b.epub", "b.out.epub")).await;
 
         queue
             .reorder(&[second.id.clone(), first.id.clone()])
+            .await
             .unwrap();
 
         let restored = QueueManager::with_store(store);
-        let state = restored.state();
+        let state = restored.state().await;
         assert_eq!(state.tasks[0].id, second.id);
         assert_eq!(state.tasks[1].id, first.id);
     }
@@ -1125,26 +1157,27 @@ mod tests {
     async fn progress_updates_are_not_persisted() {
         let (_dir, store) = temp_store();
         let queue = QueueManager::with_store(store.clone());
-        let task = queue.enqueue(sample_args("a.epub", "a.out.epub"));
+        let task = queue.enqueue(sample_args("a.epub", "a.out.epub")).await;
         {
-            let mut guard = queue
-                .inner
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut guard = queue.inner.lock().await;
             guard.tasks[0].status = TaskStatus::Running;
         }
 
-        queue.update_task_progress(&task.id, &babel_ebook::ProgressEvent::Started { total: 10 });
-        queue.update_task_progress(
-            &task.id,
-            &babel_ebook::ProgressEvent::ChapterFinished {
-                index: 0,
-                href: "ch01.xhtml".to_string(),
-            },
-        );
+        queue
+            .update_task_progress(&task.id, &ProgressEvent::Started { total: 10 })
+            .await;
+        queue
+            .update_task_progress(
+                &task.id,
+                &ProgressEvent::ChapterFinished {
+                    index: 0,
+                    href: "ch01.xhtml".to_string(),
+                },
+            )
+            .await;
 
         let restored = QueueManager::with_store(store);
-        let state = restored.state();
+        let state = restored.state().await;
         assert_eq!(state.tasks[0].progress_percent, 0);
         assert_eq!(state.tasks[0].chapters_completed, None);
         assert_eq!(state.tasks[0].chapter_total, None);
@@ -1160,5 +1193,145 @@ mod tests {
         let object = value.as_object().expect("stored task is a JSON object");
         assert!(!object.contains_key("cancellation_token"));
         assert!(!object.contains_key("token"));
+    }
+
+    #[tokio::test]
+    async fn finish_task_marks_task_completed() {
+        let queue = QueueManager::new();
+        let task = queue.enqueue(sample_args("a.epub", "a.out.epub")).await;
+        {
+            let mut guard = queue.inner.lock().await;
+            guard.tasks[0].status = TaskStatus::Running;
+            guard.current_task_id = Some(task.id.clone());
+        }
+
+        let action = queue
+            .finish_task(&task.id, Ok("Done".to_string()), 42)
+            .await;
+
+        assert!(matches!(action, super::TaskFinish::CompletedOrFailed));
+        let state = queue.state().await;
+        let task = &state.tasks[0];
+        assert_eq!(task.status, TaskStatus::Completed);
+        assert_eq!(task.progress_percent, 100);
+        assert_eq!(task.message, "Done");
+        assert_eq!(task.completed_at, Some(42));
+        assert!(state.current_task_id.is_none());
+    }
+
+    #[tokio::test]
+    async fn finish_task_marks_task_failed() {
+        let queue = QueueManager::new();
+        let task = queue.enqueue(sample_args("a.epub", "a.out.epub")).await;
+        {
+            let mut guard = queue.inner.lock().await;
+            guard.tasks[0].status = TaskStatus::Running;
+            guard.current_task_id = Some(task.id.clone());
+        }
+
+        let action = queue
+            .finish_task(&task.id, Err("something broke".to_string()), 42)
+            .await;
+
+        assert!(matches!(action, super::TaskFinish::CompletedOrFailed));
+        let state = queue.state().await;
+        let task = &state.tasks[0];
+        assert_eq!(task.status, TaskStatus::Failed);
+        assert_eq!(task.message, "Failed");
+        assert_eq!(task.error, Some("something broke".to_string()));
+    }
+
+    #[tokio::test]
+    async fn cancel_invalid_status_errors() {
+        let queue = QueueManager::new();
+        let task = queue.enqueue(sample_args("a.epub", "a.out.epub")).await;
+        queue.cancel(&task.id).await.unwrap();
+        let err = queue.cancel(&task.id).await.unwrap_err();
+        assert!(matches!(err, AppError::CancelInvalidStatus));
+    }
+
+    #[tokio::test]
+    async fn resume_invalid_status_errors() {
+        let queue = QueueManager::new();
+        let task = queue.enqueue(sample_args("a.epub", "a.out.epub")).await;
+        let err = queue.resume_task(&task.id).await.unwrap_err();
+        assert!(matches!(err, AppError::ResumeInvalidStatus));
+    }
+
+    #[tokio::test]
+    async fn retry_invalid_status_errors() {
+        let queue = QueueManager::new();
+        let task = queue.enqueue(sample_args("a.epub", "a.out.epub")).await;
+        let err = queue.retry(&task.id).await.unwrap_err();
+        assert!(matches!(err, AppError::RetryInvalidStatus));
+    }
+
+    #[tokio::test]
+    async fn pause_task_errors_for_missing_running_task() {
+        let queue = QueueManager::new();
+        let task = queue.enqueue(sample_args("a.epub", "a.out.epub")).await;
+        let err = queue.pause_task(&task.id).await.unwrap_err();
+        assert!(matches!(err, AppError::NoRunningTask));
+    }
+
+    #[tokio::test]
+    async fn pause_task_errors_for_non_current_task() {
+        let queue = QueueManager::new();
+        let first = queue.enqueue(sample_args("a.epub", "a.out.epub")).await;
+        let second = queue.enqueue(sample_args("b.epub", "b.out.epub")).await;
+        {
+            let mut guard = queue.inner.lock().await;
+            guard.tasks[0].status = TaskStatus::Running;
+            guard.current_task_id = Some(first.id.clone());
+        }
+
+        let err = queue.pause_task(&second.id).await.unwrap_err();
+        assert!(matches!(err, AppError::NotCurrentTask));
+    }
+
+    #[tokio::test]
+    async fn pause_task_errors_when_task_is_not_running() {
+        let queue = QueueManager::new();
+        let task = queue.enqueue(sample_args("a.epub", "a.out.epub")).await;
+        {
+            let mut guard = queue.inner.lock().await;
+            guard.current_task_id = Some(task.id.clone());
+        }
+
+        let err = queue.pause_task(&task.id).await.unwrap_err();
+        assert!(matches!(err, AppError::TaskNotRunning));
+    }
+
+    #[tokio::test]
+    async fn chunk_finished_updates_in_flight_progress() {
+        let queue = QueueManager::new();
+        let task = queue.enqueue(sample_args("a.epub", "a.out.epub")).await;
+        {
+            let mut guard = queue.inner.lock().await;
+            guard.tasks[0].status = TaskStatus::Running;
+        }
+
+        queue
+            .update_task_progress(&task.id, &ProgressEvent::Started { total: 10 })
+            .await;
+        queue
+            .update_task_progress(
+                &task.id,
+                &ProgressEvent::ChunkFinished {
+                    index: 0,
+                    href: "ch01.xhtml".to_string(),
+                    chunk_index: 4,
+                    chunk_total: 10,
+                },
+            )
+            .await;
+
+        let state = queue.state().await;
+        let task = &state.tasks[0];
+        assert_eq!(task.chapters_completed, Some(0));
+        assert_eq!(
+            task.progress_percent, 5,
+            "halfway through first chapter of 10"
+        );
     }
 }

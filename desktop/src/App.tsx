@@ -1,10 +1,21 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 import { confirm } from "@tauri-apps/plugin-dialog";
-import "./App.css";
-import type { FormState, LogEntry, Page, ProviderConfig, QueueState, Task, ValidationResult } from "./types";
+import "./styles/theme.css";
+import "./styles/base.css";
+import type {
+  FormState,
+  ModelParams,
+  OutputSettingsState,
+  Page,
+  ProviderConfig,
+  PromptSettingsState,
+  QueueSettingsState,
+  TranslateInputs,
+  TranslationSettingsState,
+  ValidationResult,
+} from "./types";
 import { defaults } from "./types";
 import TranslatePage from "./pages/TranslatePage";
 import ComputeSettingsPage from "./pages/ComputeSettingsPage";
@@ -22,6 +33,8 @@ import SettingsLayout from "./pages/SettingsLayout";
 import ToastContainer from "./components/ToastContainer";
 import type { Toast } from "./components/ToastContainer";
 import NavIcon from "./components/NavIcon";
+import { useQueue } from "./hooks/useQueue";
+import { useLogState } from "./hooks/useLogState";
 import {
   loadGeneralSettings,
   loadSettings,
@@ -30,6 +43,7 @@ import {
   saveSettings,
   type GeneralSettings,
 } from "./config";
+import { generateId } from "./utils";
 
 interface E2EArgs {
   source?: string;
@@ -38,19 +52,6 @@ interface E2EArgs {
   api_key?: string;
   dry_run?: boolean;
   ui_language?: string;
-}
-
-type ProgressPayload =
-  | { Started: { total: number } }
-  | { ChapterStarted: { index: number; href: string } }
-  | { ChapterFinished: { index: number; href: string } }
-  | { ChunkStarted: { index: number; href: string; chunk_index: number; chunk_total: number } }
-  | { ChunkFinished: { index: number; href: string; chunk_index: number; chunk_total: number } }
-  | { Failed: { index: number; href: string; error: string } }
-  | "Completed";
-
-function generateId() {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
 const DEFAULT_GENERAL: GeneralSettings = {
@@ -95,101 +96,6 @@ function ensureProvider(form: FormState, providerType: string): FormState {
   };
 }
 
-function computeChunkProgressPercent(
-  chapterTotal: number,
-  chaptersCompleted: number,
-  chapterProgress: Record<number, { chunk_total: number; chunks_done: number }>
-): number {
-  if (chapterTotal <= 0) return 0;
-  const inFlight = Object.values(chapterProgress).reduce((sum, p) => {
-    if (p.chunk_total <= 0) return sum;
-    return sum + p.chunks_done / p.chunk_total;
-  }, 0);
-  return Math.round(((chaptersCompleted + inFlight) / chapterTotal) * 100);
-}
-
-function applyProgressToTask(task: Task, payload: ProgressPayload): Task {
-  if (typeof payload === "string" && payload === "Completed") {
-    return { ...task, progress_percent: 100, status: "completed" };
-  }
-  if (typeof payload === "object" && "Started" in payload) {
-    return {
-      ...task,
-      progress_percent: 0,
-      status: "running",
-      chapter_total: payload.Started.total,
-      chapter_progress: {},
-      chapters_completed: 0,
-      error: undefined,
-    };
-  }
-  if (typeof payload === "object" && "ChapterStarted" in payload) {
-    const total = task.chapter_total ?? 0;
-    const chapterProgress = { ...(task.chapter_progress ?? {}) };
-    chapterProgress[payload.ChapterStarted.index] = chapterProgress[payload.ChapterStarted.index] ?? {
-      chunk_total: 1,
-      chunks_done: 0,
-    };
-    const completed = task.chapters_completed ?? 0;
-    return {
-      ...task,
-      progress_percent: computeChunkProgressPercent(total, completed, chapterProgress),
-      status: "running",
-      chapter_progress: chapterProgress,
-    };
-  }
-  if (typeof payload === "object" && "ChapterFinished" in payload) {
-    const total = task.chapter_total ?? 0;
-    const chapterProgress = { ...(task.chapter_progress ?? {}) };
-    delete chapterProgress[payload.ChapterFinished.index];
-    const completed = (task.chapters_completed ?? 0) + 1;
-    return {
-      ...task,
-      progress_percent: computeChunkProgressPercent(total, completed, chapterProgress),
-      status: "running",
-      chapter_progress: chapterProgress,
-      chapters_completed: completed,
-    };
-  }
-  if (typeof payload === "object" && "ChunkStarted" in payload) {
-    const total = task.chapter_total ?? 0;
-    const chapterProgress = { ...(task.chapter_progress ?? {}) };
-    chapterProgress[payload.ChunkStarted.index] = {
-      chunk_total: payload.ChunkStarted.chunk_total,
-      chunks_done: payload.ChunkStarted.chunk_index,
-    };
-    return {
-      ...task,
-      progress_percent: computeChunkProgressPercent(total, task.chapters_completed ?? 0, chapterProgress),
-      status: "running",
-      chapter_progress: chapterProgress,
-    };
-  }
-  if (typeof payload === "object" && "ChunkFinished" in payload) {
-    const total = task.chapter_total ?? 0;
-    const chapterProgress = { ...(task.chapter_progress ?? {}) };
-    chapterProgress[payload.ChunkFinished.index] = {
-      chunk_total: payload.ChunkFinished.chunk_total,
-      chunks_done: payload.ChunkFinished.chunk_index + 1,
-    };
-    return {
-      ...task,
-      progress_percent: computeChunkProgressPercent(total, task.chapters_completed ?? 0, chapterProgress),
-      status: "running",
-      chapter_progress: chapterProgress,
-    };
-  }
-  if (typeof payload === "object" && "Failed" in payload) {
-    return {
-      ...task,
-      status: "failed",
-      message: payload.Failed.error,
-      error: payload.Failed.error,
-    };
-  }
-  return task;
-}
-
 function parseCommaList(value: string) {
   return value
     .split(",")
@@ -226,6 +132,43 @@ function buildTranslateArgs(form: FormState): object {
   };
 }
 
+/**
+ * Apply E2E-injected values to a form state and return the merged form plus the
+ * injected output path, if any. Keeping this logic isolated makes the settings
+ * loading effect easier to follow and test.
+ */
+function applyE2EOverrides(
+  form: FormState,
+  e2e: E2EArgs
+): { form: FormState; injectedOutput: string | null } {
+  let merged = form;
+  let injectedOutput: string | null = null;
+
+  if (e2e.api_key) {
+    merged = {
+      ...merged,
+      providers: merged.providers.map((p) =>
+        p.name === merged.active_provider ? { ...p, api_key: e2e.api_key ?? "" } : p
+      ),
+    };
+  }
+  if (e2e.source) {
+    merged = { ...merged, source: e2e.source };
+  }
+  if (e2e.output) {
+    merged = { ...merged, output: e2e.output };
+    injectedOutput = e2e.output;
+  }
+  if (e2e.checkpoint_dir) {
+    merged = { ...merged, checkpoint_dir: e2e.checkpoint_dir };
+  }
+  if (e2e.dry_run !== undefined) {
+    merged = { ...merged, dry_run: e2e.dry_run };
+  }
+
+  return { form: merged, injectedOutput };
+}
+
 function App() {
   const { t, i18n } = useTranslation();
   const [form, setForm] = useState<FormState>(() => ({
@@ -233,17 +176,149 @@ function App() {
     target_lang: defaults.target_lang,
   }));
   const [page, setPage] = useState<Page>("translate");
-  const [logs, setLogs] = useState<LogEntry[]>([]);
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   const [general, setGeneral] = useState<GeneralSettings>(DEFAULT_GENERAL);
   const [detectedLocale, setDetectedLocale] = useState<string>("en");
-  const [queue, setQueue] = useState<QueueState>({
-    tasks: [],
-    running: false,
-  });
 
-  const [lastTaskId, setLastTaskId] = useState<string | undefined>();
+  const {
+    queue,
+    currentTask,
+    runningTaskCount,
+    refreshQueue,
+    removeTask,
+    retryTask,
+    cancelTask,
+    reorderTasks,
+    pauseTask,
+    resumeTask,
+    startQueue,
+    pauseQueue,
+  } = useQueue();
+  const { logs, clearLogs, appendError } = useLogState();
+
+  // Focused slices derived from the serializable FormState. Passing slices to
+  // settings pages instead of the whole FormState reduces coupling and, together
+  // with memo(), prevents re-renders when unrelated fields change.
+  const modelParams: ModelParams = useMemo(
+    () => ({
+      model: form.model,
+      max_input_tokens: form.max_input_tokens,
+      max_output_tokens: form.max_output_tokens,
+      temperature: form.temperature,
+    }),
+    [form.model, form.max_input_tokens, form.max_output_tokens, form.temperature]
+  );
+
+  const translationSettings: TranslationSettingsState = useMemo(
+    () => ({
+      source_lang: form.source_lang,
+      target_lang: form.target_lang,
+      output_mode: form.output_mode,
+      style: form.style,
+      preserve_classes: form.preserve_classes,
+      exclude_selectors: form.exclude_selectors,
+      translate_attributes: form.translate_attributes,
+      translate_body: form.translate_body,
+      translate_metadata: form.translate_metadata,
+      translate_toc: form.translate_toc,
+      translate_alt_text: form.translate_alt_text,
+      translate_image_captions: form.translate_image_captions,
+      translate_tables: form.translate_tables,
+      translate_footnotes: form.translate_footnotes,
+      translate_code: form.translate_code,
+    }),
+    [
+      form.source_lang,
+      form.target_lang,
+      form.output_mode,
+      form.style,
+      form.preserve_classes,
+      form.exclude_selectors,
+      form.translate_attributes,
+      form.translate_body,
+      form.translate_metadata,
+      form.translate_toc,
+      form.translate_alt_text,
+      form.translate_image_captions,
+      form.translate_tables,
+      form.translate_footnotes,
+      form.translate_code,
+    ]
+  );
+
+  const promptSettings: PromptSettingsState = useMemo(
+    () => ({ system_prompt: form.system_prompt, prompts: form.prompts }),
+    [form.system_prompt, form.prompts]
+  );
+
+  const outputSettings: OutputSettingsState = useMemo(
+    () => ({
+      output_font: form.output_font,
+      output_filename_template: form.output_filename_template,
+      checkpoint_dir: form.checkpoint_dir,
+    }),
+    [form.output_font, form.output_filename_template, form.checkpoint_dir]
+  );
+
+  const queueSettings: QueueSettingsState = useMemo(
+    () => ({ concurrency: form.concurrency }),
+    [form.concurrency]
+  );
+
+  const translateInputs: TranslateInputs = useMemo(
+    () => ({
+      source: form.source,
+      output: form.output,
+      source_lang: form.source_lang,
+      target_lang: form.target_lang,
+      output_mode: form.output_mode,
+      providers: form.providers,
+      active_provider: form.active_provider,
+      model: form.model,
+      checkpoint_dir: form.checkpoint_dir,
+      resume: form.resume,
+      refine: form.refine,
+    }),
+    [
+      form.source,
+      form.output,
+      form.source_lang,
+      form.target_lang,
+      form.output_mode,
+      form.providers,
+      form.active_provider,
+      form.model,
+      form.checkpoint_dir,
+      form.resume,
+      form.refine,
+    ]
+  );
+
+  const setModelParams = useCallback(
+    (update: Partial<ModelParams>) => setForm((prev) => ({ ...prev, ...update })),
+    []
+  );
+  const setTranslationSettings = useCallback(
+    (update: Partial<TranslationSettingsState>) => setForm((prev) => ({ ...prev, ...update })),
+    []
+  );
+  const setPromptSettings = useCallback(
+    (update: Partial<PromptSettingsState>) => setForm((prev) => ({ ...prev, ...update })),
+    []
+  );
+  const setOutputSettings = useCallback(
+    (update: Partial<OutputSettingsState>) => setForm((prev) => ({ ...prev, ...update })),
+    []
+  );
+  const setQueueSettings = useCallback(
+    (update: Partial<QueueSettingsState>) => setForm((prev) => ({ ...prev, ...update })),
+    []
+  );
+  const setInputs = useCallback(
+    (update: Partial<TranslateInputs>) => setForm((prev) => ({ ...prev, ...update })),
+    []
+  );
 
   const [sidebarWidth, setSidebarWidth] = useState(180);
   const isResizing = useRef(false);
@@ -280,27 +355,6 @@ function App() {
   }, [sidebarWidth]);
 
   useEffect(() => {
-    if (queue.current_task_id) {
-      setLastTaskId(queue.current_task_id);
-    }
-  }, [queue.current_task_id]);
-
-  const currentTask = useMemo(() => {
-    if (queue.current_task_id) {
-      return queue.tasks.find((t) => t.id === queue.current_task_id);
-    }
-    if (lastTaskId) {
-      return queue.tasks.find((t) => t.id === lastTaskId);
-    }
-    return undefined;
-  }, [queue, lastTaskId]);
-
-  const runningTaskCount = useMemo(
-    () => queue.tasks.filter((t) => t.status === "running").length,
-    [queue]
-  );
-
-  useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
       switch (e.key) {
@@ -332,9 +386,6 @@ function App() {
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  const completedRef = useRef(0);
-  const totalRef = useRef(0);
-  const chapterProgressRef = useRef<Record<number, { chunk_total: number; chunks_done: number }>>({});
   const e2eOutputRef = useRef<string | null>(null);
   const generalLoadedRef = useRef(false);
   const initialLanguageAppliedRef = useRef(false);
@@ -366,29 +417,10 @@ function App() {
           merged = { ...merged, active_provider: merged.providers[0].name };
         }
 
-        // If E2E injects an API key, apply it to the active provider.
-        if (e2e.api_key) {
-          merged = {
-            ...merged,
-            providers: merged.providers.map((p) =>
-              p.name === merged.active_provider ? { ...p, api_key: e2e.api_key ?? "" } : p
-            ),
-          };
-        }
-
-        // If E2E injects source/output/checkpoint paths, apply them to the form.
-        if (e2e.source) {
-          merged = { ...merged, source: e2e.source };
-        }
-        if (e2e.output) {
-          merged = { ...merged, output: e2e.output };
-          e2eOutputRef.current = e2e.output;
-        }
-        if (e2e.checkpoint_dir) {
-          merged = { ...merged, checkpoint_dir: e2e.checkpoint_dir };
-        }
-        if (e2e.dry_run !== undefined) {
-          merged = { ...merged, dry_run: e2e.dry_run };
+        const e2eResult = applyE2EOverrides(merged, e2e);
+        merged = e2eResult.form;
+        if (e2eResult.injectedOutput) {
+          e2eOutputRef.current = e2eResult.injectedOutput;
         }
 
         // If no target language was saved, default to the UI language.
@@ -496,49 +528,6 @@ function App() {
     }
   }, [general.follow_system_language, general.ui_language, i18n]);
 
-  useEffect(() => {
-    void (async () => {
-      const initial = await invoke<QueueState>("get_queue_state").catch(() => ({
-        tasks: [],
-        running: false,
-      }));
-      setQueue(initial);
-    })();
-  }, []);
-
-  useEffect(() => {
-    const unlistenProgress = listen<{ task_id: string; event: ProgressPayload }>(
-      "task_progress",
-      (event) => {
-        const { task_id, event: progressEvent } = event.payload;
-        setQueue((prev) => {
-          const tasks = prev.tasks.map((t) => {
-            if (t.id !== task_id) return t;
-            return applyProgressToTask(t, progressEvent);
-          });
-          // Ensure the running task is surfaced even if queue_state_changed is delayed.
-          const current_task_id = prev.current_task_id ?? task_id;
-          return { ...prev, tasks, current_task_id };
-        });
-      }
-    );
-
-    const unlistenChanged = listen<unknown>("queue_state_changed", () => {
-      void (async () => {
-        const state = await invoke<QueueState>("get_queue_state").catch(() => ({
-          tasks: [],
-          running: false,
-        }));
-        setQueue(state);
-      })();
-    });
-
-    return () => {
-      void unlistenProgress.then((f) => f());
-      void unlistenChanged.then((f) => f());
-    };
-  }, []);
-
   const validation: ValidationResult = useMemo(() => {
     const errors: ValidationResult["errors"] = {};
     const provider = activeProvider(form);
@@ -563,112 +552,6 @@ function App() {
     return { valid: Object.keys(errors).length === 0, errors, reason };
   }, [form, t]);
 
-  useEffect(() => {
-    const unlisten = listen<ProgressPayload>("translation_progress", (event) => {
-      const payload = event.payload;
-
-      setLogs((prev) => {
-        if (typeof payload === "string" && payload === "Completed") {
-          return [...prev, { id: generateId(), timestamp: Date.now(), kind: "success", message: t("completed") }];
-        }
-        if (typeof payload === "object" && "Started" in payload) {
-          totalRef.current = payload.Started.total;
-          completedRef.current = 0;
-          chapterProgressRef.current = {};
-          return [
-            ...prev,
-            {
-              id: generateId(), timestamp: Date.now(),
-              kind: "info",
-              message: t("log_started", { total: payload.Started.total }),
-            },
-          ];
-        }
-        if (typeof payload === "object" && "ChapterStarted" in payload) {
-          return [
-            ...prev,
-            {
-              id: generateId(), timestamp: Date.now(),
-              kind: "chapter",
-              message: t("log_chapter_started", { href: payload.ChapterStarted.href }),
-            },
-          ];
-        }
-        if (typeof payload === "object" && "ChapterFinished" in payload) {
-          const message = t("log_chapter_finished", {
-            href: payload.ChapterFinished.href,
-            current: completedRef.current,
-            total: totalRef.current,
-          });
-          completedRef.current += 1;
-          delete chapterProgressRef.current[payload.ChapterFinished.index];
-          return [
-            ...prev,
-            {
-              id: generateId(), timestamp: Date.now(),
-              kind: "chapter",
-              message,
-            },
-          ];
-        }
-        if (typeof payload === "object" && "ChunkStarted" in payload) {
-          chapterProgressRef.current[payload.ChunkStarted.index] = {
-            chunk_total: payload.ChunkStarted.chunk_total,
-            chunks_done: payload.ChunkStarted.chunk_index,
-          };
-          return [
-            ...prev,
-            {
-              id: generateId(), timestamp: Date.now(),
-              kind: "chapter",
-              message: t("log_chunk_started", {
-                chunk_index: payload.ChunkStarted.chunk_index + 1,
-                chunk_total: payload.ChunkStarted.chunk_total,
-                href: payload.ChunkStarted.href,
-              }),
-            },
-          ];
-        }
-        if (typeof payload === "object" && "ChunkFinished" in payload) {
-          chapterProgressRef.current[payload.ChunkFinished.index] = {
-            chunk_total: payload.ChunkFinished.chunk_total,
-            chunks_done: payload.ChunkFinished.chunk_index + 1,
-          };
-          return [
-            ...prev,
-            {
-              id: generateId(), timestamp: Date.now(),
-              kind: "chapter",
-              message: t("log_chunk_finished", {
-                chunk_index: payload.ChunkFinished.chunk_index + 1,
-                chunk_total: payload.ChunkFinished.chunk_total,
-                href: payload.ChunkFinished.href,
-              }),
-            },
-          ];
-        }
-        if (typeof payload === "object" && "Failed" in payload) {
-          return [
-            ...prev,
-            {
-              id: generateId(), timestamp: Date.now(),
-              kind: "error",
-              message: t("log_chapter_failed", {
-                href: payload.Failed.href,
-                error: payload.Failed.error,
-              }),
-              details: payload.Failed.error,
-            },
-          ];
-        }
-        return prev;
-      });
-    });
-    return () => {
-      void unlisten.then((f) => f());
-    };
-  }, [t]);
-
   async function handleStart() {
     if (!validation.valid) return;
 
@@ -692,11 +575,7 @@ function App() {
       await invoke("start_queue");
       await refreshQueue();
     } catch (err) {
-      const message = `${t("error")}: ${err}`;
-      setLogs((prev) => [
-        ...prev,
-        { id: generateId(), timestamp: Date.now(), kind: "error", message },
-      ]);
+      appendError(`${t("error")}: ${err}`);
     }
   }
 
@@ -708,11 +587,7 @@ function App() {
       await invoke("start_queue");
       await refreshQueue();
     } catch (err) {
-      const message = `${t("error")}: ${err}`;
-      setLogs((prev) => [
-        ...prev,
-        { id: generateId(), timestamp: Date.now(), kind: "error", message },
-      ]);
+      appendError(`${t("error")}: ${err}`);
     }
   }
 
@@ -740,8 +615,6 @@ function App() {
     });
   };
 
-  const clearLogs = () => setLogs([]);
-
   const showToast = (message: string, kind: Toast["kind"] = "info") => {
     const id = generateId();
     setToasts((prev) => [...prev, { id, message, kind }]);
@@ -751,61 +624,13 @@ function App() {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   };
 
-  const refreshQueue = async () => {
-    const state = await invoke<QueueState>("get_queue_state").catch(() => ({
-      tasks: [],
-      running: false,
-    }));
-    setQueue(state);
-  };
-
-  const removeTask = async (ids: string[]) => {
-    await Promise.all(ids.map((id) => invoke("remove_task", { id })));
-    await refreshQueue();
-  };
-
-  const retryTask = async (ids: string[]) => {
-    await Promise.all(ids.map((id) => invoke("retry_task", { id })));
-    await refreshQueue();
-  };
-
-  const cancelTask = async (ids: string[]) => {
-    await Promise.all(ids.map((id) => invoke("cancel_task", { id })));
-    await refreshQueue();
-  };
-
-  const reorderTasks = async (ids: string[]) => {
-    await invoke("reorder_tasks", { ids });
-    await refreshQueue();
-  };
-
-  const pauseTask = async (id: string) => {
-    await invoke("pause_task", { id });
-    await refreshQueue();
-  };
-
-  const resumeTask = async (id: string) => {
-    await invoke("resume_task", { id });
-    await refreshQueue();
-  };
-
-  const startQueue = async () => {
-    await invoke("start_queue");
-    await refreshQueue();
-  };
-
-  const pauseQueue = async () => {
-    await invoke("pause_queue");
-    await refreshQueue();
-  };
-
   const renderPage = () => {
     switch (page) {
       case "translate":
         return (
           <TranslatePage
-            form={form}
-            setForm={updateForm}
+            inputs={translateInputs}
+            setInputs={setInputs}
             onStart={handleStart}
             onDryRun={handleDryRun}
             currentTask={currentTask}
@@ -849,11 +674,28 @@ function App() {
                 onChangeActiveProvider={(provider) => updateForm("active_provider", provider)}
               />
             )}
-            {page === "settings-model" && <ModelParamsPage form={form} setForm={updateForm} />}
-            {page === "settings-translation" && <TranslationSettingsPage form={form} setForm={updateForm} />}
-            {page === "settings-prompts" && <PromptsPage form={form} setForm={updateForm} />}
-            {page === "settings-output" && <OutputSettingsPage form={form} setForm={updateForm} />}
-            {page === "settings-queue" && <QueueSettingsPage form={form} setForm={updateForm} />}
+            {page === "settings-model" && (
+              <ModelParamsPage modelParams={modelParams} setModelParams={setModelParams} />
+            )}
+            {page === "settings-translation" && (
+              <TranslationSettingsPage
+                settings={translationSettings}
+                setSettings={setTranslationSettings}
+              />
+            )}
+            {page === "settings-prompts" && (
+              <PromptsPage promptSettings={promptSettings} setPromptSettings={setPromptSettings} />
+            )}
+            {page === "settings-output" && (
+              <OutputSettingsPage
+                outputSettings={outputSettings}
+                setOutputSettings={setOutputSettings}
+                targetLang={form.target_lang}
+              />
+            )}
+            {page === "settings-queue" && (
+              <QueueSettingsPage queueSettings={queueSettings} setQueueSettings={setQueueSettings} />
+            )}
             {page === "settings-general" && (
               <GeneralSettingsPage
                 general={general}

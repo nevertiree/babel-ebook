@@ -6,7 +6,6 @@
 //! Tokio runtime, avoiding the creation of a fresh runtime per translation.
 
 use std::thread::{Builder, JoinHandle};
-use std::time::Duration;
 
 use tokio::runtime;
 use tokio::sync::{mpsc, oneshot};
@@ -93,12 +92,21 @@ pub struct TranslationJobHandle {
     pub result_rx: oneshot::Receiver<Result<(), BabelEbookError>>,
 }
 
+impl std::fmt::Debug for TranslationJobHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TranslationJobHandle")
+            .finish_non_exhaustive()
+    }
+}
+
 impl TranslationJobHandle {
     /// Wait for the job to finish and return its result.
     pub async fn result(self) -> Result<(), BabelEbookError> {
-        self.result_rx
-            .await
-            .unwrap_or(Err(BabelEbookError::Cancelled))
+        self.result_rx.await.unwrap_or_else(|_| {
+            Err(BabelEbookError::Anyhow(anyhow::anyhow!(
+                "translation worker terminated unexpectedly"
+            )))
+        })
     }
 }
 
@@ -175,14 +183,12 @@ impl TranslationWorker {
 
                                 tokio::task::spawn_local(async move {
                                     // Monitor worker shutdown and propagate it
-                                    // to the job token.
+                                    // to the job token without busy-waiting.
                                     let monitor = tokio::task::spawn_local(async move {
-                                        while !worker_token.is_cancelled()
-                                            && !job_token.is_cancelled()
-                                        {
-                                            tokio::time::sleep(Duration::from_millis(50)).await;
+                                        tokio::select! {
+                                            () = worker_token.cancelled() => job_token.cancel(),
+                                            () = job_token.cancelled() => {}
                                         }
-                                        job_token.cancel();
                                     });
 
                                     let result = crate::translate_epub_with_cancellation(
@@ -238,7 +244,7 @@ impl TranslationWorker {
     ///
     /// This cancels any in-flight job and waits for the worker thread to
     /// finish. Calling this multiple times is a no-op after the first call.
-    pub fn shutdown(mut self) {
+    pub fn shutdown(&mut self) {
         self.worker_token.cancel();
         let _ = self.tx.send(WorkerCommand::Shutdown);
         if let Some(thread) = self.thread.take() {
@@ -376,7 +382,7 @@ mod tests {
         let mut config = make_config(source, output);
         config.dry_run = true;
 
-        let worker = TranslationWorker::new().expect("spawn worker");
+        let mut worker = TranslationWorker::new().expect("spawn worker");
         let job = TranslationJob::new(config, Box::new(DummyTranslator));
         let TranslationJobHandle {
             progress: mut progress_rx,
@@ -404,7 +410,7 @@ mod tests {
         let output = dir.path().join("progress-out.epub");
         let config = make_config(source, output);
 
-        let worker = TranslationWorker::new().expect("spawn worker");
+        let mut worker = TranslationWorker::new().expect("spawn worker");
         let job = TranslationJob::new(config, Box::new(DummyTranslator));
         let TranslationJobHandle {
             progress: mut progress_rx,
@@ -470,7 +476,7 @@ mod tests {
         };
         let token = CancellationToken::default();
 
-        let worker = TranslationWorker::new().expect("spawn worker");
+        let mut worker = TranslationWorker::new().expect("spawn worker");
         let job =
             TranslationJob::new(config, Box::new(translator)).with_cancellation(token.clone());
         let TranslationJobHandle {
@@ -495,6 +501,87 @@ mod tests {
         assert!(
             matches!(result, Err(BabelEbookError::Cancelled)),
             "expected cancelled, got {result:?}"
+        );
+
+        worker.shutdown();
+    }
+
+    #[tokio::test]
+    async fn worker_runs_sequential_jobs() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let source1 = write_test_epub(dir.path(), "first.epub", &["First job."]);
+        let output1 = dir.path().join("first-out.epub");
+        let source2 = write_test_epub(dir.path(), "second.epub", &["Second job."]);
+        let output2 = dir.path().join("second-out.epub");
+
+        let mut worker = TranslationWorker::new().expect("spawn worker");
+
+        let job1 = TranslationJob::new(
+            make_config(source1, output1.clone()),
+            Box::new(DummyTranslator),
+        );
+        let handle1 = worker.submit(job1).await.expect("submit first job");
+        let result1 = handle1.result().await;
+        assert!(result1.is_ok(), "{result1:?}");
+        assert!(output1.exists(), "first output should exist");
+
+        let job2 = TranslationJob::new(
+            make_config(source2, output2.clone()),
+            Box::new(DummyTranslator),
+        );
+        let handle2 = worker.submit(job2).await.expect("submit second job");
+        let result2 = handle2.result().await;
+        assert!(result2.is_ok(), "{result2:?}");
+        assert!(output2.exists(), "second output should exist");
+
+        worker.shutdown();
+    }
+
+    #[tokio::test]
+    async fn worker_submit_after_shutdown_returns_error() {
+        let mut worker = TranslationWorker::new().expect("spawn worker");
+        worker.shutdown();
+
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let source = write_test_epub(dir.path(), "after_shutdown.epub", &["Too late."]);
+        let output = dir.path().join("after_shutdown-out.epub");
+        let job = TranslationJob::new(make_config(source, output), Box::new(DummyTranslator));
+
+        let result = worker.submit(job).await;
+        assert!(
+            matches!(result, Err(WorkerError::ShutDown)),
+            "expected ShutDown error, got {result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn worker_job_with_cache_writes_cache_entries() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let source = write_test_epub(dir.path(), "cached.epub", &["<p>Repeat</p><p>Again</p>"]);
+        let output = dir.path().join("cached-out.epub");
+        let cache = TranslationCache::new(dir.path().join("cache"));
+        let mut config = make_config(source, output.clone());
+        config.cache_dir = dir.path().join("cache");
+
+        let mut worker = TranslationWorker::new().expect("spawn worker");
+        let job = TranslationJob::new(config, Box::new(DummyTranslator)).with_cache(cache.clone());
+        let handle = worker.submit(job).await.expect("submit cached job");
+        let result = handle.result().await;
+        assert!(result.is_ok(), "{result:?}");
+        assert!(output.exists(), "output should be written");
+
+        // The cache should contain entries for both translated paragraphs.
+        let cached = cache.get("dummy", "Repeat");
+        assert_eq!(
+            cached,
+            Some("[Repeat]".to_string()),
+            "cache should store the first paragraph translation"
+        );
+        let cached = cache.get("dummy", "Again");
+        assert_eq!(
+            cached,
+            Some("[Again]".to_string()),
+            "cache should store the second paragraph translation"
         );
 
         worker.shutdown();

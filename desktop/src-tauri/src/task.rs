@@ -45,6 +45,7 @@ impl Task {
     pub fn new(args: TranslateArgs) -> Self {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
+            .inspect_err(|err| tracing::warn!("system time is before Unix epoch: {err}"))
             .unwrap_or_default()
             .as_secs();
         Self {
@@ -62,5 +63,68 @@ impl Task {
             started_at: None,
             completed_at: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::args::{PromptTemplates, TranslateArgs};
+
+    fn sample_args() -> TranslateArgs {
+        TranslateArgs {
+            source: "input.epub".to_string(),
+            output: "output.epub".to_string(),
+            provider: "deepseek".to_string(),
+            api_key: "test".to_string(),
+            model: "deepseek-chat".to_string(),
+            concurrency: 1,
+            max_input_tokens: 1000,
+            max_output_tokens: 500,
+            temperature: 0.3,
+            source_lang: "en".to_string(),
+            target_lang: "zh-CN".to_string(),
+            dry_run: true,
+            base_url: None,
+            output_mode: "bilingual".to_string(),
+            style: "default".to_string(),
+            preserve_classes: false,
+            exclude_selectors: Vec::new(),
+            translate_attributes: Vec::new(),
+            translate_body: true,
+            translate_metadata: true,
+            translate_toc: true,
+            translate_alt_text: true,
+            translate_image_captions: true,
+            translate_tables: true,
+            translate_footnotes: true,
+            translate_code: false,
+            output_font: None,
+            system_prompt: None,
+            prompts: PromptTemplates::default(),
+            refine: false,
+            checkpoint_dir: ".babel_ebook_checkpoints".to_string(),
+            resume: None,
+        }
+    }
+
+    #[test]
+    fn task_new_starts_pending_with_uuid() {
+        let task = Task::new(sample_args());
+        assert_eq!(task.status, TaskStatus::Pending);
+        assert!(!task.id.is_empty());
+        assert_eq!(task.source_path, "input.epub");
+        assert_eq!(task.output_path, "output.epub");
+        assert_eq!(task.progress_percent, 0);
+        assert!(task.chapter_total.is_none());
+        assert!(task.chapters_completed.is_none());
+    }
+
+    #[test]
+    fn task_status_serializes_to_snake_case() {
+        let value = serde_json::to_value(TaskStatus::Failed).unwrap();
+        assert_eq!(value, "failed");
+        let value = serde_json::to_value(TaskStatus::Paused).unwrap();
+        assert_eq!(value, "paused");
     }
 }

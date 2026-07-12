@@ -1,5 +1,6 @@
+import { memo } from "react";
 import { useTranslation } from "react-i18next";
-import type { FormState } from "../types";
+import type { TranslationSettingsState } from "../types";
 import Tooltip from "../components/Tooltip";
 import {
   excludeSelectorExamples,
@@ -11,21 +12,32 @@ import {
 } from "../types";
 
 interface TranslationSettingsPageProps {
-  form: FormState;
-  setForm: <K extends keyof FormState>(key: K, value: FormState[K]) => void;
+  settings: TranslationSettingsState;
+  setSettings: (update: Partial<TranslationSettingsState>) => void;
 }
 
-export default function TranslationSettingsPage({
-  form,
-  setForm,
+const SCOPE_KEYS = [
+  "translate_body",
+  "translate_metadata",
+  "translate_toc",
+  "translate_alt_text",
+  "translate_image_captions",
+  "translate_tables",
+  "translate_footnotes",
+  "translate_code",
+] as const;
+
+function TranslationSettingsPage({
+  settings,
+  setSettings,
 }: TranslationSettingsPageProps) {
   const { t } = useTranslation();
 
   const appendExample = (key: "exclude_selectors" | "translate_attributes", value: string) => {
-    const current = form[key];
+    const current = settings[key];
     const parts = current.split(",").map((s) => s.trim()).filter(Boolean);
     if (parts.includes(value)) return;
-    setForm(key, parts.length > 0 ? `${current}, ${value}` : value);
+    setSettings({ [key]: parts.length > 0 ? `${current}, ${value}` : value });
   };
 
   return (
@@ -36,8 +48,8 @@ export default function TranslationSettingsPage({
         <label>
           {t("source_lang")}
           <select
-            value={form.source_lang}
-            onChange={(e) => setForm("source_lang", e.target.value)}
+            value={settings.source_lang}
+            onChange={(e) => setSettings({ source_lang: e.target.value })}
           >
             {sourceLanguages.map((lang) => (
               <option key={lang.code} value={lang.code}>
@@ -50,8 +62,8 @@ export default function TranslationSettingsPage({
         <label>
           {t("target_lang")}
           <select
-            value={form.target_lang}
-            onChange={(e) => setForm("target_lang", e.target.value)}
+            value={settings.target_lang}
+            onChange={(e) => setSettings({ target_lang: e.target.value })}
           >
             {targetLanguages.map((lang) => (
               <option key={lang.code} value={lang.code}>
@@ -66,8 +78,8 @@ export default function TranslationSettingsPage({
         <label>
           {t("output_mode")}
           <select
-            value={form.output_mode}
-            onChange={(e) => setForm("output_mode", e.target.value)}
+            value={settings.output_mode}
+            onChange={(e) => setSettings({ output_mode: e.target.value })}
           >
             {outputModes.map((mode) => (
               <option key={mode} value={mode}>
@@ -80,8 +92,8 @@ export default function TranslationSettingsPage({
         <label>
           {t("style")}
           <select
-            value={form.style}
-            onChange={(e) => setForm("style", e.target.value)}
+            value={settings.style}
+            onChange={(e) => setSettings({ style: e.target.value })}
           >
             {styles.map((style) => (
               <option key={style} value={style}>
@@ -95,31 +107,20 @@ export default function TranslationSettingsPage({
       <label className="checkbox">
         <input
           type="checkbox"
-          checked={form.preserve_classes}
-          onChange={(e) => setForm("preserve_classes", e.target.checked)}
+          checked={settings.preserve_classes}
+          onChange={(e) => setSettings({ preserve_classes: e.target.checked })}
         />
         {t("preserve_classes")}
       </label>
 
       <fieldset className="scope-fieldset">
         <legend>{t("translation_scope")}</legend>
-        {(
-          [
-            "translate_body",
-            "translate_metadata",
-            "translate_toc",
-            "translate_alt_text",
-            "translate_image_captions",
-            "translate_tables",
-            "translate_footnotes",
-            "translate_code",
-          ] as const
-        ).map((key) => (
+        {SCOPE_KEYS.map((key) => (
           <label className="checkbox" key={key}>
             <input
               type="checkbox"
-              checked={form[key]}
-              onChange={(e) => setForm(key, e.target.checked)}
+              checked={settings[key]}
+              onChange={(e) => setSettings({ [key]: e.target.checked })}
             />
             {t(key)}
           </label>
@@ -135,8 +136,8 @@ export default function TranslationSettingsPage({
         </span>
         <input
           type="text"
-          value={form.exclude_selectors}
-          onChange={(e) => setForm("exclude_selectors", e.target.value)}
+          value={settings.exclude_selectors}
+          onChange={(e) => setSettings({ exclude_selectors: e.target.value })}
           placeholder={t("exclude_selectors_placeholder")}
         />
         <div className="example-chips">
@@ -157,8 +158,8 @@ export default function TranslationSettingsPage({
         </span>
         <input
           type="text"
-          value={form.translate_attributes}
-          onChange={(e) => setForm("translate_attributes", e.target.value)}
+          value={settings.translate_attributes}
+          onChange={(e) => setSettings({ translate_attributes: e.target.value })}
           placeholder={t("translate_attributes_placeholder")}
         />
         <div className="example-chips">
@@ -172,3 +173,5 @@ export default function TranslationSettingsPage({
     </div>
   );
 }
+
+export default memo(TranslationSettingsPage);

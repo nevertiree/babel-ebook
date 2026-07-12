@@ -4,7 +4,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
-import { cleanupBrowserProcesses, forceKill, getFreePort, waitForCdp } from "./e2e-helpers";
+import { cleanupBrowserProcesses, clearAppData, forceKill, getFreePort, waitForCdp } from "./e2e-helpers";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const APP_PATH = resolve(__dirname, "../../target/release/babel-ebook-desktop.exe");
@@ -83,6 +83,7 @@ function settingsHasNoApiKeys(): boolean {
 
 test.beforeAll(async () => {
   await cleanupBrowserProcesses();
+  clearAppData();
   seedSettingsWithPlaintextKey();
 
   const port = await getFreePort();
@@ -129,7 +130,8 @@ test("migrates plaintext API keys to keyring and never writes them back to setti
   expect(settingsHasNoApiKeys()).toBe(true);
 
   // Open the Compute settings page and enter a new API key.
-  await page.getByRole("button", { name: "Compute" }).click();
+  await page.getByTestId("nav-settings").click();
+  await page.getByTestId("settings-tab-compute").click();
   const keyInput = page.locator(".compute-settings-page .provider-api-key input").first();
   await expect(keyInput).toBeVisible();
   await keyInput.fill("sk-ui-secret-key");
