@@ -15,6 +15,7 @@ export interface Task {
   message: string;
   error?: string;
   created_at: number;
+  started_at?: number;
   completed_at?: number;
   chapter_total?: number;
   chapter_progress?: Record<number, { chunk_total: number; chunks_done: number }>;
@@ -109,6 +110,7 @@ export type Page =
   | "settings-translation"
   | "settings-output"
   | "settings-prompts"
+  | "settings-queue"
   | "settings-general"
   | "about"
   | "legal";

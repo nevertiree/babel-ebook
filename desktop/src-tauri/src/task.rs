@@ -36,6 +36,7 @@ pub struct Task {
     #[serde(skip)]
     pub args: TranslateArgs,
     pub created_at: u64,
+    pub started_at: Option<u64>,
     pub completed_at: Option<u64>,
 }
 
@@ -58,6 +59,7 @@ impl Task {
             error: None,
             args,
             created_at: now,
+            started_at: None,
             completed_at: None,
         }
     }
