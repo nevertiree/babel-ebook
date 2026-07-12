@@ -1,12 +1,12 @@
-import { useEffect, useState } from "react";
+import { memo, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { confirm } from "@tauri-apps/plugin-dialog";
-import type { FormState, PromptTemplates } from "../types";
+import type { PromptSettingsState, PromptTemplates } from "../types";
 
 interface PromptsPageProps {
-  form: FormState;
-  setForm: <K extends keyof FormState>(key: K, value: FormState[K]) => void;
+  promptSettings: PromptSettingsState;
+  setPromptSettings: (update: Partial<PromptSettingsState>) => void;
 }
 
 const emptyPrompts: PromptTemplates = {
@@ -21,46 +21,27 @@ function promptsAreEmpty(prompts: PromptTemplates): boolean {
   return Object.values(prompts).every((v) => typeof v === "string" && v.trim() === "");
 }
 
-export default function PromptsPage({ form, setForm }: PromptsPageProps) {
+function PromptsPage({ promptSettings, setPromptSettings }: PromptsPageProps) {
   const { t } = useTranslation();
-  const [focusedField, setFocusedField] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!promptsAreEmpty(form.prompts)) {
+    if (!promptsAreEmpty(promptSettings.prompts)) {
       return;
     }
     invoke<PromptTemplates>("get_default_prompts")
       .then((defaults) => {
-        if (promptsAreEmpty(form.prompts)) {
-          setForm("prompts", defaults);
+        if (promptsAreEmpty(promptSettings.prompts)) {
+          setPromptSettings({ prompts: defaults });
         }
       })
       .catch(() => undefined);
   }, []);
 
-  const baseStyle: React.CSSProperties = {
-    padding: "0.55rem 0.75rem",
-    border: "1px solid var(--border)",
-    borderRadius: "var(--radius)",
-    background: "var(--input-bg)",
-    color: "var(--text)",
-    fontSize: "0.95rem",
-    outline: "none",
-    minHeight: "120px",
-    resize: "vertical",
-    fontFamily: "inherit",
-    lineHeight: 1.5,
-  };
-
-  const focusStyle: React.CSSProperties = {
-    borderColor: "var(--accent)",
-  };
-
   const updatePrompt = <K extends keyof PromptTemplates>(
     key: K,
     value: PromptTemplates[K]
   ) => {
-    setForm("prompts", { ...form.prompts, [key]: value });
+    setPromptSettings({ prompts: { ...promptSettings.prompts, [key]: value } });
   };
 
   const handleReset = async () => {
@@ -69,12 +50,12 @@ export default function PromptsPage({ form, setForm }: PromptsPageProps) {
       kind: "warning",
     });
     if (!confirmed) return;
-    setForm("system_prompt", "");
+    setPromptSettings({ system_prompt: "" });
     try {
       const defaults = await invoke<PromptTemplates>("get_default_prompts");
-      setForm("prompts", defaults);
+      setPromptSettings({ prompts: defaults });
     } catch {
-      setForm("prompts", { ...emptyPrompts });
+      setPromptSettings({ prompts: { ...emptyPrompts } });
     }
   };
 
@@ -93,15 +74,9 @@ export default function PromptsPage({ form, setForm }: PromptsPageProps) {
       <label>
         {t("system_prompt")}
         <textarea
-          value={form.system_prompt}
-          onChange={(e) => setForm("system_prompt", e.target.value)}
-          onFocus={() => setFocusedField("system_prompt")}
-          onBlur={() => setFocusedField(null)}
-          style={
-            focusedField === "system_prompt"
-              ? { ...baseStyle, ...focusStyle }
-              : baseStyle
-          }
+          value={promptSettings.system_prompt}
+          onChange={(e) => setPromptSettings({ system_prompt: e.target.value })}
+          className="prompt-textarea"
           placeholder={t("system_prompt_placeholder")}
         />
       </label>
@@ -110,15 +85,9 @@ export default function PromptsPage({ form, setForm }: PromptsPageProps) {
         <label key={key}>
           {t(labelKey)}
           <textarea
-            value={form.prompts[key]}
+            value={promptSettings.prompts[key]}
             onChange={(e) => updatePrompt(key, e.target.value)}
-            onFocus={() => setFocusedField(key)}
-            onBlur={() => setFocusedField(null)}
-            style={
-              focusedField === key
-                ? { ...baseStyle, ...focusStyle }
-                : baseStyle
-            }
+            className="prompt-textarea"
             placeholder={t(`prompt_${key}_placeholder`)}
           />
         </label>
@@ -141,3 +110,5 @@ export default function PromptsPage({ form, setForm }: PromptsPageProps) {
     </div>
   );
 }
+
+export default memo(PromptsPage);

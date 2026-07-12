@@ -82,7 +82,7 @@ async fn translate_text_translates_and_caches() {
     let result = translate_text(
         "hello world",
         &FakeTranslator,
-        &config,
+        &config.translation_options(),
         &cache,
         0,
         "",
@@ -106,7 +106,7 @@ async fn process_document_translates_headings_and_paragraphs() {
     let out = process_document(
         html.as_bytes(),
         &FakeTranslator,
-        &config,
+        &config.translation_options(),
         &cache,
         0,
         "",
@@ -148,7 +148,7 @@ async fn process_document_skips_code_blocks() {
     let out = process_document(
         html.as_bytes(),
         &FakeTranslator,
-        &config,
+        &config.translation_options(),
         &cache,
         0,
         "",
@@ -179,7 +179,7 @@ async fn process_document_adds_lang_attributes() {
     let out = process_document(
         html.as_bytes(),
         &FakeTranslator,
-        &config,
+        &config.translation_options(),
         &cache,
         0,
         "",
@@ -204,7 +204,7 @@ async fn process_document_skips_short_text_and_single_cjk_char() {
     let out = process_document(
         html.as_bytes(),
         &FakeTranslator,
-        &config,
+        &config.translation_options(),
         &cache,
         0,
         "",
@@ -241,7 +241,7 @@ async fn process_document_skips_nested_translatable_children() {
     let out = process_document(
         html.as_bytes(),
         &FakeTranslator,
-        &config,
+        &config.translation_options(),
         &cache,
         0,
         "",
@@ -278,7 +278,7 @@ async fn process_document_ignores_skipped_descendants_when_checking_children() {
     let out = process_document(
         html.as_bytes(),
         &FakeTranslator,
-        &config,
+        &config.translation_options(),
         &cache,
         0,
         "",
@@ -310,7 +310,7 @@ async fn process_document_handles_list_items() {
     let out = process_document(
         html.as_bytes(),
         &FakeTranslator,
-        &config,
+        &config.translation_options(),
         &cache,
         0,
         "",
@@ -343,7 +343,7 @@ async fn translation_only_replaces_original() {
     let out = process_document(
         html.as_bytes(),
         &FakeTranslator,
-        &config,
+        &config.translation_options(),
         &cache,
         0,
         "",
@@ -368,7 +368,7 @@ async fn exclude_selector_skips_matching_element() {
     let out = process_document(
         html.as_bytes(),
         &FakeTranslator,
-        &config,
+        &config.translation_options(),
         &cache,
         0,
         "",
@@ -403,7 +403,7 @@ async fn translate_attributes_translates_configured_attributes() {
     let out = process_document(
         html.as_bytes(),
         &FakeTranslator,
-        &config,
+        &config.translation_options(),
         &cache,
         0,
         "",
@@ -443,7 +443,7 @@ async fn exclude_selector_skips_attributes() {
     let out = process_document(
         html.as_bytes(),
         &FakeTranslator,
-        &config,
+        &config.translation_options(),
         &cache,
         0,
         "",
@@ -477,7 +477,7 @@ async fn short_attribute_values_are_not_translated() {
     let out = process_document(
         html.as_bytes(),
         &FakeTranslator,
-        &config,
+        &config.translation_options(),
         &cache,
         0,
         "",
@@ -510,7 +510,7 @@ async fn process_document_interleaved_paragraph() {
     let out = process_document(
         html.as_bytes(),
         &FakeTranslator,
-        &config,
+        &config.translation_options(),
         &cache,
         0,
         "",
@@ -544,7 +544,7 @@ async fn translation_scope_body_false_skips_paragraphs() {
     let out = process_document(
         html.as_bytes(),
         &FakeTranslator,
-        &config,
+        &config.translation_options(),
         &cache,
         0,
         "",
@@ -574,7 +574,7 @@ async fn translation_scope_alt_text_false_skips_alt_attributes() {
     let out = process_document(
         html.as_bytes(),
         &FakeTranslator,
-        &config,
+        &config.translation_options(),
         &cache,
         0,
         "",
@@ -607,7 +607,7 @@ async fn exclude_selector_protects_descendants() {
     let out = process_document(
         html.as_bytes(),
         &FakeTranslator,
-        &config,
+        &config.translation_options(),
         &cache,
         0,
         "",
@@ -640,7 +640,7 @@ async fn preserve_classes_copies_original_class() {
     let out = process_document(
         html.as_bytes(),
         &FakeTranslator,
-        &config,
+        &config.translation_options(),
         &cache,
         0,
         "",
@@ -672,7 +672,7 @@ async fn refine_false_returns_first_pass_only() {
     let result = translate_text(
         "hello world",
         &FakeTranslator,
-        &config,
+        &config.translation_options(),
         &cache,
         0,
         "",
@@ -693,7 +693,7 @@ async fn refine_true_applies_second_pass() {
     let result = translate_text(
         "hello world",
         &FakeTranslator,
-        &config,
+        &config.translation_options(),
         &cache,
         0,
         "",
@@ -714,7 +714,7 @@ async fn refine_pass_is_cached() {
     let result = translate_text(
         "hello world",
         &FakeTranslator,
-        &config,
+        &config.translation_options(),
         &cache,
         0,
         "",
@@ -744,7 +744,7 @@ async fn process_document_injects_output_font_css() {
     let out = process_document(
         html.as_bytes(),
         &FakeTranslator,
-        &config,
+        &config.translation_options(),
         &cache,
         0,
         "",
@@ -772,7 +772,7 @@ async fn process_document_uses_configured_source_lang_bilingual() {
     let out = process_document(
         html.as_bytes(),
         &FakeTranslator,
-        &config,
+        &config.translation_options(),
         &cache,
         0,
         "",
@@ -806,7 +806,7 @@ async fn process_document_uses_configured_source_lang_interleaved() {
     let out = process_document(
         html.as_bytes(),
         &FakeTranslator,
-        &config,
+        &config.translation_options(),
         &cache,
         0,
         "",
@@ -839,7 +839,7 @@ async fn process_document_uses_configured_source_lang_li() {
     let out = process_document(
         html.as_bytes(),
         &FakeTranslator,
-        &config,
+        &config.translation_options(),
         &cache,
         0,
         "",
@@ -914,7 +914,7 @@ async fn translate_text_stops_between_chunks_when_cancelled() {
     let result = translate_text(
         text,
         &translator,
-        &config,
+        &config.translation_options(),
         &cache,
         0,
         "",
@@ -956,7 +956,7 @@ async fn process_document_stops_between_chunks_when_cancelled() {
     let result = process_document(
         html.as_bytes(),
         &translator,
-        &config,
+        &config.translation_options(),
         &cache,
         0,
         "",
@@ -976,5 +976,128 @@ async fn process_document_stops_between_chunks_when_cancelled() {
         1,
         "only the first chunk should be translated, got {:?}",
         seen
+    );
+}
+
+/// Translator that returns markup in the translated text to verify escaping.
+struct MarkupTranslator;
+
+#[async_trait]
+impl Translator for MarkupTranslator {
+    fn name(&self) -> String {
+        "markup".into()
+    }
+
+    fn max_output_tokens(&self) -> usize {
+        2000
+    }
+
+    async fn translate(
+        &self,
+        text: &str,
+        _context: &TranslateContext<'_>,
+    ) -> Result<String, babel_ebook::BabelEbookError> {
+        Ok(format!("<b>{}</b>", text))
+    }
+}
+
+#[tokio::test]
+async fn translated_markup_is_escaped_as_text() {
+    let (_dir, cache) = test_cache();
+    let config = test_config();
+    let html = r#"<html><body><p>Hello</p></body></html>"#;
+
+    let out = process_document(
+        html.as_bytes(),
+        &MarkupTranslator,
+        &config.translation_options(),
+        &cache,
+        0,
+        "",
+        None,
+        None,
+    )
+    .await
+    .expect("processing should succeed");
+    let s = String::from_utf8(out).unwrap();
+
+    assert!(
+        s.contains("<p lang=\"zh-CN\">&lt;b&gt;Hello&lt;/b&gt;</p>"),
+        "translated markup should be escaped: {}",
+        s
+    );
+    assert!(
+        !s.contains("<p lang=\"zh-CN\"><b>Hello</b></p>"),
+        "raw markup should not be inserted: {}",
+        s
+    );
+}
+
+#[tokio::test]
+async fn translation_scope_tables_false_skips_table_cells() {
+    let (_dir, cache) = test_cache();
+    let mut config = test_config();
+    config.translate_tags = vec!["td".into(), "p".into()];
+    config.translation_scope.tables = false;
+    let html = r#"<html><body><table><tr><td>Cell</td></tr></table><p>Hello</p></body></html>"#;
+
+    let out = process_document(
+        html.as_bytes(),
+        &FakeTranslator,
+        &config.translation_options(),
+        &cache,
+        0,
+        "",
+        None,
+        None,
+    )
+    .await
+    .expect("processing should succeed");
+    let s = String::from_utf8(out).unwrap();
+
+    assert!(
+        !s.contains("[ZH] Cell"),
+        "table cell should not be translated when scope.tables is false: {}",
+        s
+    );
+    assert!(
+        s.contains("[ZH] Hello"),
+        "paragraph should still be translated: {}",
+        s
+    );
+}
+
+#[tokio::test]
+async fn translation_scope_metadata_false_skips_title_attribute() {
+    let (_dir, cache) = test_cache();
+    let mut config = test_config();
+    config.translate_tags = vec!["p".into()];
+    config.translate_attributes = vec!["title".into()];
+    config.translation_scope.metadata = false;
+    let html = r#"<html><body><p title="A title">Hello</p></body></html>"#;
+
+    let out = process_document(
+        html.as_bytes(),
+        &FakeTranslator,
+        &config.translation_options(),
+        &cache,
+        0,
+        "",
+        None,
+        None,
+    )
+    .await
+    .expect("processing should succeed");
+    let s = String::from_utf8(out).unwrap();
+
+    assert!(
+        s.contains(r#"title="A title""#),
+        "title attribute should not be translated when scope.metadata is false: {}",
+        s
+    );
+    assert!(
+        s.contains("[ZH] Hello"),
+        "paragraph text should still be translated: {}",
+        s
     );
 }

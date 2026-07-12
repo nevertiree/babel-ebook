@@ -4,6 +4,7 @@ use std::path::Path;
 
 use crate::core::BabelEbookError;
 use crate::epub::{Chapter, EpubBook, EpubMetadata};
+use crate::escape::html_escape;
 
 pub mod docx;
 pub mod srt;
@@ -225,14 +226,6 @@ fn wrap_text_as_xhtml(text: &str, title: &str) -> String {
 </html>"#,
         body = paragraphs.join("\n")
     )
-}
-
-fn html_escape(text: &str) -> String {
-    text.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
 }
 
 /// Return a list of supported input file extensions for UI filters.

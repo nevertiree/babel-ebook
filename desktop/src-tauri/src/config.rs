@@ -7,12 +7,14 @@ use babel_ebook::{Config, OutputMode, ProviderConfig, TranslationScope, Translat
 use crate::args::{TestConnectionArgs, TranslateArgs};
 
 pub fn build_config(args: &TranslateArgs) -> Result<Config, String> {
-    // Start from a JSON skeleton so that Config's serde defaults (skip patterns,
-    // translate tags, cache dir, etc.) are filled in by the core crate.
-    let source = serde_json::to_string(&args.source).map_err(|e| e.to_string())?;
-    let output = serde_json::to_string(&args.output).map_err(|e| e.to_string())?;
-    let json = format!(r#"{{"source":{source},"output":{output}}}"#);
-    let mut config: Config = serde_json::from_str(&json).map_err(|e| e.to_string())?;
+    // Start from typed defaults and override with the frontend arguments. This
+    // avoids the fragility of round-tripping through JSON strings and keeps
+    // compile-time field checking.
+    let mut config = Config {
+        source: PathBuf::from(&args.source),
+        output: PathBuf::from(&args.output),
+        ..Config::default()
+    };
 
     config.provider.clone_from(&args.provider);
     config.api_key = if args.api_key.is_empty() {
@@ -104,11 +106,12 @@ pub fn build_config(args: &TranslateArgs) -> Result<Config, String> {
     Ok(config)
 }
 
-pub fn build_test_config(args: &TestConnectionArgs) -> Result<Config, String> {
-    let source = serde_json::to_string("input.epub").map_err(|e| e.to_string())?;
-    let output = serde_json::to_string("output.epub").map_err(|e| e.to_string())?;
-    let json = format!(r#"{{"source":{source},"output":{output}}}"#);
-    let mut config: Config = serde_json::from_str(&json).map_err(|e| e.to_string())?;
+pub fn build_test_config(args: &TestConnectionArgs) -> Config {
+    let mut config = Config {
+        source: PathBuf::from("input.epub"),
+        output: PathBuf::from("output.epub"),
+        ..Config::default()
+    };
 
     config.provider.clone_from(&args.provider);
     config.api_key = if args.api_key.is_empty() {
@@ -122,13 +125,13 @@ pub fn build_test_config(args: &TestConnectionArgs) -> Result<Config, String> {
     config.dry_run = false;
     config.verbose = false;
 
-    Ok(config)
+    config
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::args::{PromptTemplates, TranslateArgs};
-    use crate::config::build_config;
+    use super::*;
+    use crate::args::PromptTemplates;
 
     fn sample_translate_args() -> TranslateArgs {
         TranslateArgs {
@@ -211,5 +214,127 @@ mod tests {
         assert!(!config.prompts.technical.is_empty());
         assert!(!config.prompts.academic.is_empty());
         assert!(!config.prompts.refine.is_empty());
+    }
+
+    #[test]
+    fn build_config_maps_output_mode_and_style() {
+        let mut args = sample_translate_args();
+        args.output_mode = "translation_only".to_string();
+        args.style = "literary".to_string();
+        let config = build_config(&args).unwrap();
+        assert_eq!(config.output_mode, babel_ebook::OutputMode::TranslationOnly);
+        assert!(matches!(
+            config.style,
+            babel_ebook::TranslationStyle::Literary
+        ));
+    }
+
+    #[test]
+    fn build_config_maps_translation_scope() {
+        let mut args = sample_translate_args();
+        args.translate_body = false;
+        args.translate_metadata = false;
+        args.translate_toc = false;
+        args.translate_alt_text = false;
+        args.translate_image_captions = false;
+        args.translate_tables = false;
+        args.translate_footnotes = false;
+        let config = build_config(&args).unwrap();
+        assert!(!config.translation_scope.body);
+        assert!(!config.translation_scope.metadata);
+        assert!(!config.translation_scope.toc);
+        assert!(!config.translation_scope.alt_text);
+        assert!(!config.translation_scope.image_captions);
+        assert!(!config.translation_scope.tables);
+        assert!(!config.translation_scope.footnotes);
+    }
+
+    #[test]
+    fn build_config_adds_pre_code_selectors_when_translate_code_false() {
+        let mut args = sample_translate_args();
+        args.translate_code = false;
+        let config = build_config(&args).unwrap();
+        assert!(config.exclude_selectors.contains(&"pre".to_string()));
+        assert!(config.exclude_selectors.contains(&"code".to_string()));
+    }
+
+    #[test]
+    fn build_config_omits_pre_code_selectors_when_translate_code_true() {
+        let mut args = sample_translate_args();
+        args.translate_code = true;
+        let config = build_config(&args).unwrap();
+        assert!(!config.exclude_selectors.contains(&"pre".to_string()));
+        assert!(!config.exclude_selectors.contains(&"code".to_string()));
+    }
+
+    #[test]
+    fn build_config_maps_provider_config() {
+        let mut args = sample_translate_args();
+        args.provider = "deepseek".to_string();
+        args.api_key = "sk-test".to_string();
+        args.base_url = Some("https://api.example.com".to_string());
+        args.model = "custom-model".to_string();
+        args.max_output_tokens = 1234;
+        args.temperature = 0.7;
+        let config = build_config(&args).unwrap();
+        let pc = config
+            .provider_config
+            .expect("provider_config should be set");
+        assert_eq!(pc.name, "deepseek");
+        assert_eq!(pc.api_key, Some("sk-test".to_string()));
+        assert_eq!(pc.base_url, Some("https://api.example.com".to_string()));
+        assert_eq!(pc.default_model, "custom-model");
+        assert_eq!(pc.max_tokens, 1234);
+        assert!((pc.temperature - 0.7).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn build_config_ignores_empty_api_key_and_base_url() {
+        let mut args = sample_translate_args();
+        args.api_key = String::new();
+        args.base_url = Some(String::new());
+        let config = build_config(&args).unwrap();
+        assert!(config.api_key.is_none());
+        assert!(config.base_url.is_none());
+        let pc = config
+            .provider_config
+            .expect("provider_config should be set");
+        assert!(pc.api_key.is_none());
+        assert!(pc.base_url.is_none());
+    }
+
+    #[test]
+    fn build_config_uses_checkpoint_dir_and_resume() {
+        let mut args = sample_translate_args();
+        args.checkpoint_dir = "/tmp/checkpoints".to_string();
+        args.resume = Some("job-42".to_string());
+        let config = build_config(&args).unwrap();
+        assert_eq!(
+            config.checkpoint_dir,
+            std::path::PathBuf::from("/tmp/checkpoints")
+        );
+        assert_eq!(config.resume_job_id, Some("job-42".to_string()));
+    }
+
+    #[test]
+    fn build_config_rejects_invalid_output_mode() {
+        let mut args = sample_translate_args();
+        args.output_mode = "invalid".to_string();
+        let err = build_config(&args).unwrap_err();
+        assert!(err.contains("invalid output_mode"));
+    }
+
+    #[test]
+    fn build_test_config_uses_default_model() {
+        let args = crate::args::TestConnectionArgs {
+            provider: "openai".to_string(),
+            api_key: "sk-test".to_string(),
+            base_url: Some("https://api.openai.com".to_string()),
+        };
+        let config = build_test_config(&args);
+        assert_eq!(config.model, "default");
+        assert_eq!(config.provider, "openai");
+        assert_eq!(config.api_key, Some("sk-test".to_string()));
+        assert_eq!(config.base_url, Some("https://api.openai.com".to_string()));
     }
 }

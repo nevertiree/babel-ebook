@@ -22,6 +22,20 @@ pub enum OutputMode {
     Interleaved,
 }
 
+impl OutputMode {
+    /// Return a stable, snake-case string representation for use in hashes and
+    /// persistence. This does not rely on the `Debug` derive, so renaming the
+    /// enum variants will not break existing checkpoints.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Bilingual => "bilingual",
+            Self::TranslationOnly => "translation_only",
+            Self::Interleaved => "interleaved",
+        }
+    }
+}
+
 /// Which parts of an EPUB document should be translated.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[allow(clippy::struct_excessive_bools)]
@@ -194,6 +208,91 @@ pub struct Config {
     /// If `true`, refine an existing translation instead of translating from scratch.
     #[serde(default)]
     pub refine: bool,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            source: PathBuf::new(),
+            output: PathBuf::new(),
+            provider: default_provider(),
+            api_key: None,
+            base_url: None,
+            model: default_model(),
+            concurrency: default_concurrency(),
+            max_input_tokens: default_max_input_tokens(),
+            max_output_tokens: default_max_output_tokens(),
+            cache_dir: default_cache_dir(),
+            checkpoint_dir: default_checkpoint_dir(),
+            resume_job_id: None,
+            temperature: default_temperature(),
+            source_lang: default_source_lang(),
+            target_lang: default_target_lang(),
+            skip_doc_patterns: default_skip_doc_patterns(),
+            translate_tags: default_translate_tags(),
+            system_prompt: None,
+            dry_run: false,
+            verbose: false,
+            provider_config: None,
+            providers: HashMap::default(),
+            output_mode: OutputMode::default(),
+            translation_scope: TranslationScope::default(),
+            style: TranslationStyle::default(),
+            chapter_prompts: HashMap::default(),
+            prompts: PromptTemplates::default(),
+            glossary: Vec::default(),
+            exclude_selectors: Vec::default(),
+            translate_attributes: Vec::default(),
+            preserve_classes: false,
+            output_font: None,
+            refine: false,
+        }
+    }
+}
+
+/// Translation-only options extracted from [`Config`].
+///
+/// Grouping these fields makes it easier to pass the subset of configuration
+/// that HTML translation needs without dragging the full `Config` object
+/// (paths, API keys, provider settings, etc.) through the document pipeline.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct TranslationOptions {
+    /// Source language for the translation.
+    pub source_lang: String,
+    /// Target language for the translation.
+    pub target_lang: String,
+    /// How the translated EPUB should present source and target text.
+    pub output_mode: OutputMode,
+    /// Which parts of an EPUB document should be translated.
+    pub translation_scope: TranslationScope,
+    /// Desired style or register for the translation output.
+    pub style: TranslationStyle,
+    /// Optional custom system prompt; the default prompt is used if `None`.
+    pub system_prompt: Option<String>,
+    /// Configurable prompt templates for each translation style.
+    pub prompts: PromptTemplates,
+    /// Glossary of terms with preferred translations.
+    pub glossary: Vec<GlossaryEntry>,
+    /// CSS selectors matching elements whose text should not be translated.
+    pub exclude_selectors: Vec<String>,
+    /// HTML attributes whose values should be translated.
+    pub translate_attributes: Vec<String>,
+    /// HTML tag names whose text content should be translated.
+    pub translate_tags: Vec<String>,
+    /// Whether to preserve original CSS classes when rewriting HTML.
+    pub preserve_classes: bool,
+    /// Optional font-family CSS injected into every translated XHTML document.
+    pub output_font: Option<String>,
+    /// If `true`, refine an existing translation instead of translating from scratch.
+    pub refine: bool,
+    /// Maximum input tokens per API request.
+    pub max_input_tokens: usize,
+    /// Maximum output tokens per API request.
+    pub max_output_tokens: usize,
+    /// Sampling temperature for the LLM.
+    pub temperature: f32,
+    /// Per-chapter custom system prompts keyed by chapter href.
+    pub chapter_prompts: HashMap<String, String>,
 }
 
 /// Configurable prompt templates for each translation style.
@@ -615,6 +714,72 @@ impl Config {
         Ok(())
     }
 
+    /// Return a copy of the translation-related subset of this configuration.
+    #[must_use]
+    pub fn translation_options(&self) -> TranslationOptions {
+        TranslationOptions {
+            source_lang: self.source_lang.clone(),
+            target_lang: self.target_lang.clone(),
+            output_mode: self.output_mode,
+            translation_scope: self.translation_scope.clone(),
+            style: self.style.clone(),
+            system_prompt: self.system_prompt.clone(),
+            prompts: self.prompts.clone(),
+            glossary: self.glossary.clone(),
+            exclude_selectors: self.exclude_selectors.clone(),
+            translate_attributes: self.translate_attributes.clone(),
+            translate_tags: self.translate_tags.clone(),
+            preserve_classes: self.preserve_classes,
+            output_font: self.output_font.clone(),
+            refine: self.refine,
+            max_input_tokens: self.max_input_tokens,
+            max_output_tokens: self.max_output_tokens,
+            temperature: self.temperature,
+            chapter_prompts: self.chapter_prompts.clone(),
+        }
+    }
+
+    /// Return the configured system prompt, or the default prompt localised to
+    /// `target_lang`.
+    #[must_use]
+    pub fn system_prompt(&self) -> String {
+        self.translation_options().system_prompt()
+    }
+
+    /// Return the system prompt configured for a specific chapter, falling back
+    /// to the global system prompt when no chapter-specific prompt exists.
+    #[must_use]
+    pub fn system_prompt_for_chapter(&self, href: &str) -> String {
+        self.translation_options().system_prompt_for_chapter(href)
+    }
+
+    /// Return the configured refine prompt localised to the source/target
+    /// language.
+    #[must_use]
+    pub fn refine_prompt(&self) -> String {
+        self.translation_options().refine_prompt()
+    }
+
+    /// Maximum source text tokens for a refine-pass API call.
+    ///
+    /// Reserves tokens for the refine prompt plus a safety margin and keeps the
+    /// expected output within the configured limit.
+    #[must_use]
+    pub fn max_refine_source_tokens(&self) -> usize {
+        self.translation_options().max_refine_source_tokens()
+    }
+
+    /// Maximum source text tokens per API call.
+    ///
+    /// Reserves tokens for the system prompt and keeps the expected output
+    /// within the configured limit.
+    #[must_use]
+    pub fn max_source_tokens(&self) -> usize {
+        self.translation_options().max_source_tokens()
+    }
+}
+
+impl TranslationOptions {
     fn style_prompt(&self) -> String {
         match &self.style {
             TranslationStyle::Default => self.prompts.default.clone(),

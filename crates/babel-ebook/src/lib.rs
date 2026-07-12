@@ -17,6 +17,7 @@ pub mod chunking;
 pub mod config;
 pub mod core;
 pub mod epub;
+pub mod escape;
 pub mod html;
 pub mod input_formats;
 pub mod pipeline;
@@ -25,8 +26,8 @@ pub mod worker;
 
 pub use cache::TranslationCache;
 pub use config::{
-    provider_env_var, Config, GlossaryEntry, OutputMode, ProviderConfig, TranslationScope,
-    TranslationStyle, KNOWN_PROVIDERS,
+    provider_env_var, Config, GlossaryEntry, OutputMode, ProviderConfig, TranslationOptions,
+    TranslationScope, TranslationStyle, KNOWN_PROVIDERS,
 };
 pub use core::{
     estimate_source_tokens, run_dry_run, translatable_chapters, translate_epub,

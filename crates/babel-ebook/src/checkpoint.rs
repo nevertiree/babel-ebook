@@ -164,8 +164,7 @@ impl CheckpointStore {
         provider: &str,
         model: &str,
     ) -> String {
-        let mode_str = format!("{output_mode:?}").to_lowercase();
-        let input = format!("{target_lang}|{mode_str}|{provider}|{model}");
+        let input = format!("{target_lang}|{}|{provider}|{model}", output_mode.as_str());
         let mut hasher = Sha256::new();
         hasher.update(input.as_bytes());
         let hash = hasher.finalize();

@@ -13,6 +13,7 @@ use zip::CompressionMethod;
 use zip::ZipWriter;
 
 use crate::core::BabelEbookError;
+use crate::escape::xml_escape;
 
 const DEFAULT_TITLE: &str = "Untitled";
 const DEFAULT_LANGUAGE: &str = "en";
@@ -79,6 +80,28 @@ pub struct EpubBook {
     pub chapters: Vec<Chapter>,
     /// Non-document resources.
     pub resources: Vec<Resource>,
+}
+
+impl EpubBook {
+    /// Read an EPUB from disk into the `EpubBook` abstraction.
+    ///
+    /// # Errors
+    ///
+    /// Returns `BabelEbookError::Anyhow` if `rbook` fails to open or parse the
+    /// EPUB.
+    pub fn read(path: &Path) -> Result<Self, BabelEbookError> {
+        read_epub(path)
+    }
+
+    /// Write this `EpubBook` to disk as a valid EPUB 2 archive.
+    ///
+    /// # Errors
+    ///
+    /// Returns `BabelEbookError::Anyhow` if the output file or parent directory
+    /// cannot be created.
+    pub fn write(&self, path: &Path) -> Result<(), BabelEbookError> {
+        write_epub(self, path)
+    }
 }
 
 /// Read an EPUB from disk into the `EpubBook` abstraction.
@@ -215,15 +238,6 @@ fn unique_manifest_id(href: &str, used: &mut HashSet<String>) -> String {
         }
         counter += 1;
     }
-}
-
-/// Escape text for XML attribute or element content.
-fn xml_escape(text: &str) -> String {
-    text.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
 }
 
 /// Write an EPUB using `zip::ZipWriter` and handwritten `content.opf`/`toc.ncx`.

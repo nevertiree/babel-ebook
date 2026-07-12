@@ -113,7 +113,9 @@ pub struct WindowProgressCallback(tauri::Window);
 #[cfg(not(test))]
 impl ProgressCallback for WindowProgressCallback {
     fn on_progress(&self, event: babel_ebook::ProgressEvent) {
-        let _ = self.0.emit("translation_progress", event);
+        if let Err(err) = self.0.emit("translation_progress", event) {
+            tracing::warn!("failed to emit translation_progress event: {err}");
+        }
     }
 }
 
@@ -192,7 +194,9 @@ pub async fn run_translation(
     let result = result_rx
         .await
         .map_err(|_| "translation worker dropped".to_string())?;
-    let _ = forwarder.await;
+    if let Err(err) = forwarder.await {
+        tracing::error!("progress forwarder task failed: {err}");
+    }
 
     tracing::info!(
         output = %config.output.display(),
@@ -255,7 +259,10 @@ pub fn suggest_output_path(
         .replace("{target_lang}", &target_lang)
         .replace("{output_mode}", &output_mode);
 
-    format!("{parent}/{rendered}.epub")
+    Path::new(&parent)
+        .join(format!("{rendered}.epub"))
+        .to_string_lossy()
+        .into_owned()
 }
 
 /// Returns the best-matching supported UI locale for the host system.
@@ -321,26 +328,15 @@ fn validate_connection_args(args: &TestConnectionArgs) -> Result<(), String> {
 #[tauri::command]
 pub async fn test_connection(args: TestConnectionArgs) -> Result<String, String> {
     validate_connection_args(&args)?;
-    tokio::task::spawn_blocking(move || {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .map_err(|e| e.to_string())?;
+    let config = build_test_config(&args);
+    let mut provider_config = ProviderConfig::for_provider(&args.provider);
+    provider_config.base_url = args.base_url.clone().filter(|url| !url.is_empty());
 
-        rt.block_on(async {
-            let config = build_test_config(&args)?;
-            let mut provider_config = ProviderConfig::for_provider(&args.provider);
-            provider_config.base_url = args.base_url.clone().filter(|url| !url.is_empty());
+    let translator = get_translator(&args.provider, Some(&provider_config), &config, false)
+        .map_err(|e| e.to_string())?;
 
-            let translator = get_translator(&args.provider, Some(&provider_config), &config, false)
-                .map_err(|e| e.to_string())?;
-
-            translator.health_check().await.map_err(|e| e.to_string())
-        })
-    })
-    .await
-    .map_err(|e| format!("health check task panicked: {e}"))?
-    .map(|()| "connection ok".to_string())
+    translator.health_check().await.map_err(|e| e.to_string())?;
+    Ok("connection ok".to_string())
 }
 
 /// List available models for the given provider.
@@ -348,25 +344,14 @@ pub async fn test_connection(args: TestConnectionArgs) -> Result<String, String>
 #[tauri::command]
 pub async fn list_models(args: TestConnectionArgs) -> Result<Vec<String>, String> {
     validate_connection_args(&args)?;
-    tokio::task::spawn_blocking(move || {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .map_err(|e| e.to_string())?;
+    let config = build_test_config(&args);
+    let mut provider_config = ProviderConfig::for_provider(&args.provider);
+    provider_config.base_url = args.base_url.clone().filter(|url| !url.is_empty());
 
-        rt.block_on(async {
-            let config = build_test_config(&args)?;
-            let mut provider_config = ProviderConfig::for_provider(&args.provider);
-            provider_config.base_url = args.base_url.clone().filter(|url| !url.is_empty());
+    let translator = get_translator(&args.provider, Some(&provider_config), &config, false)
+        .map_err(|e| e.to_string())?;
 
-            let translator = get_translator(&args.provider, Some(&provider_config), &config, false)
-                .map_err(|e| e.to_string())?;
-
-            translator.list_models().await.map_err(|e| e.to_string())
-        })
-    })
-    .await
-    .map_err(|e| format!("list models task panicked: {e}"))?
+    translator.list_models().await.map_err(|e| e.to_string())
 }
 
 /// Return the built-in default prompt templates for each translation style.
@@ -392,79 +377,81 @@ pub fn get_app_version() -> String {
 /// Add a book to the translation queue using the current form arguments.
 #[allow(dead_code)]
 #[tauri::command]
-pub fn enqueue_task(
+pub async fn enqueue_task(
     args: TranslateArgs,
     queue: tauri::State<'_, QueueManager>,
 ) -> Result<Task, String> {
-    Ok(queue.enqueue(args))
+    let config = build_config(&args)?;
+    config.validate().map_err(|e| e.to_string())?;
+    Ok(queue.enqueue(args).await)
 }
 
 /// Remove a pending or finished task from the queue.
 #[allow(dead_code)]
 #[tauri::command]
-pub fn remove_task(id: String, queue: tauri::State<'_, QueueManager>) -> Result<(), String> {
-    queue.remove(&id)
+pub async fn remove_task(id: String, queue: tauri::State<'_, QueueManager>) -> Result<(), String> {
+    queue.remove(&id).await.map_err(|e| e.to_string())
 }
 
 /// Reorder pending tasks to match the provided list of ids.
 #[allow(dead_code)]
 #[tauri::command]
-pub fn reorder_tasks(
+pub async fn reorder_tasks(
     ids: Vec<String>,
     queue: tauri::State<'_, QueueManager>,
 ) -> Result<(), String> {
-    queue.reorder(&ids)
+    queue.reorder(&ids).await.map_err(|e| e.to_string())
 }
 
 /// Cancel a pending task.
 #[allow(dead_code)]
 #[tauri::command]
-pub fn cancel_task(id: String, queue: tauri::State<'_, QueueManager>) -> Result<(), String> {
-    queue.cancel(&id)
+pub async fn cancel_task(id: String, queue: tauri::State<'_, QueueManager>) -> Result<(), String> {
+    queue.cancel(&id).await.map_err(|e| e.to_string())
 }
 
 /// Retry a failed or cancelled task.
 #[allow(dead_code)]
 #[tauri::command]
-pub fn retry_task(id: String, queue: tauri::State<'_, QueueManager>) -> Result<(), String> {
-    queue.retry(&id)
+pub async fn retry_task(id: String, queue: tauri::State<'_, QueueManager>) -> Result<(), String> {
+    queue.retry(&id).await.map_err(|e| e.to_string())
 }
 
 /// Resume a paused task from its last checkpoint.
 #[allow(dead_code)]
 #[tauri::command]
-pub fn resume_task(id: String, queue: tauri::State<'_, QueueManager>) -> Result<(), String> {
-    queue.resume_task(&id)
+pub async fn resume_task(id: String, queue: tauri::State<'_, QueueManager>) -> Result<(), String> {
+    queue.resume_task(&id).await.map_err(|e| e.to_string())
 }
 
 /// Start processing the queue.
 #[allow(dead_code)]
 #[tauri::command]
-pub fn start_queue(queue: tauri::State<'_, QueueManager>) -> Result<(), String> {
-    queue.start();
+pub async fn start_queue(queue: tauri::State<'_, QueueManager>) -> Result<(), String> {
+    queue.start().await;
     Ok(())
 }
 
 /// Pause after the current task finishes.
 #[allow(dead_code)]
 #[tauri::command]
-pub fn pause_queue(queue: tauri::State<'_, QueueManager>) -> Result<(), String> {
-    queue.pause();
+pub async fn pause_queue(queue: tauri::State<'_, QueueManager>) -> Result<(), String> {
+    queue.pause().await;
     Ok(())
 }
 
 /// Pause the currently running task so it can be resumed later.
 #[allow(dead_code)]
 #[tauri::command]
-pub fn pause_task(id: String, queue: tauri::State<'_, QueueManager>) -> Result<(), String> {
-    queue.pause_task(&id)
+pub async fn pause_task(id: String, queue: tauri::State<'_, QueueManager>) -> Result<(), String> {
+    queue.pause_task(&id).await.map_err(|e| e.to_string())
 }
 
 /// Return the current queue state.
 #[allow(dead_code)]
 #[tauri::command]
-pub fn get_queue_state(queue: tauri::State<'_, QueueManager>) -> Result<QueueState, String> {
-    Ok(queue.state())
+pub async fn get_queue_state(queue: tauri::State<'_, QueueManager>) -> Result<QueueState, String> {
+    Ok(queue.state().await)
 }
 
 /// List translation checkpoints stored in `checkpoint_dir`.
@@ -522,8 +509,7 @@ pub async fn list_checkpoints(
 
 #[cfg(test)]
 mod tests {
-    use crate::args::TestConnectionArgs;
-    use crate::commands::validate_connection_args;
+    use super::*;
 
     #[test]
     fn connection_args_validation_rejects_empty_api_key() {
@@ -534,5 +520,163 @@ mod tests {
         };
         let err = validate_connection_args(&args).unwrap_err();
         assert!(err.contains("api_key is required"));
+    }
+
+    #[test]
+    fn connection_args_validation_rejects_unknown_provider() {
+        let args = TestConnectionArgs {
+            provider: "not-real".to_string(),
+            api_key: "test".to_string(),
+            base_url: None,
+        };
+        let err = validate_connection_args(&args).unwrap_err();
+        assert!(err.contains("unknown provider"));
+    }
+
+    #[test]
+    fn connection_args_validation_allows_ollama_without_api_key() {
+        let args = TestConnectionArgs {
+            provider: "ollama".to_string(),
+            api_key: String::new(),
+            base_url: None,
+        };
+        assert!(validate_connection_args(&args).is_ok());
+    }
+
+    #[test]
+    fn connection_args_validation_requires_base_url_for_openai_compatible() {
+        let args = TestConnectionArgs {
+            provider: "openai-compatible".to_string(),
+            api_key: "test".to_string(),
+            base_url: None,
+        };
+        let err = validate_connection_args(&args).unwrap_err();
+        assert!(err.contains("base_url is required"));
+    }
+
+    #[test]
+    fn connection_args_validation_rejects_invalid_base_url_scheme() {
+        let args = TestConnectionArgs {
+            provider: "deepseek".to_string(),
+            api_key: "test".to_string(),
+            base_url: Some("ftp://example.com".to_string()),
+        };
+        let err = validate_connection_args(&args).unwrap_err();
+        assert!(err.contains("http or https"));
+    }
+
+    #[test]
+    fn suggest_output_path_uses_default_template_when_empty() {
+        let result = suggest_output_path(
+            "/home/user/book.epub".to_string(),
+            "en".to_string(),
+            "zh-CN".to_string(),
+            "bilingual".to_string(),
+            String::new(),
+        );
+        assert!(result.ends_with("book_zh-CN.epub"), "got {result}");
+    }
+
+    #[test]
+    fn suggest_output_path_renders_custom_template() {
+        let result = suggest_output_path(
+            "/home/user/book.epub".to_string(),
+            "en".to_string(),
+            "zh-CN".to_string(),
+            "translation_only".to_string(),
+            "{stem}_{source_lang}_{target_lang}_{output_mode}".to_string(),
+        );
+        assert!(
+            result.ends_with("book_en_zh-CN_translation_only.epub"),
+            "got {result}"
+        );
+    }
+
+    #[tokio::test]
+    async fn check_file_exists_true_for_existing_file() {
+        let path = std::env::current_dir().unwrap().join("Cargo.toml");
+        assert!(check_file_exists(path.to_string_lossy().to_string())
+            .await
+            .unwrap());
+    }
+
+    #[tokio::test]
+    async fn check_file_exists_false_for_missing_file() {
+        assert!(
+            !check_file_exists("/nonexistent/babel_ebook_missing_file.txt".to_string())
+                .await
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn get_system_locale_returns_supported_code() {
+        let locale = get_system_locale();
+        assert!(
+            ["en", "es", "ja", "ko", "ru", "zh-CN"].contains(&locale.as_str()),
+            "unexpected locale: {locale}"
+        );
+    }
+
+    #[test]
+    fn get_default_prompts_returns_non_empty_templates() {
+        let prompts = get_default_prompts();
+        assert!(!prompts.default.is_empty());
+        assert!(!prompts.literary.is_empty());
+        assert!(!prompts.technical.is_empty());
+        assert!(!prompts.academic.is_empty());
+        assert!(!prompts.refine.is_empty());
+    }
+
+    #[tokio::test]
+    async fn list_checkpoints_parses_valid_checkpoints() {
+        let dir = tempfile::tempdir().unwrap();
+        let cp = babel_ebook::checkpoint::Checkpoint {
+            job_id: "job-1".to_string(),
+            source_hash: "abc123".to_string(),
+            source_path: "/input/book.epub".to_string(),
+            chapters: vec![
+                babel_ebook::checkpoint::ChapterCheckpoint {
+                    index: 0,
+                    href: "ch01.xhtml".to_string(),
+                    status: babel_ebook::checkpoint::ChapterStatus::Completed,
+                    content: None,
+                    error: None,
+                },
+                babel_ebook::checkpoint::ChapterCheckpoint {
+                    index: 1,
+                    href: "ch02.xhtml".to_string(),
+                    status: babel_ebook::checkpoint::ChapterStatus::Failed,
+                    content: None,
+                    error: Some("boom".to_string()),
+                },
+            ],
+        };
+        std::fs::write(
+            dir.path().join("job-1.json"),
+            serde_json::to_string_pretty(&cp).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("ignore.txt"), "not a checkpoint").unwrap();
+
+        let infos = list_checkpoints(dir.path().to_string_lossy().to_string(), None)
+            .await
+            .unwrap();
+
+        assert_eq!(infos.len(), 1);
+        assert_eq!(infos[0].job_id, "job-1");
+        assert_eq!(infos[0].completed, 1);
+        assert_eq!(infos[0].failed, 1);
+        assert_eq!(infos[0].total, 2);
+        assert_eq!(infos[0].pending, 0);
+        assert!(!infos[0].matches_current_source);
+    }
+
+    #[tokio::test]
+    async fn list_checkpoints_returns_empty_for_missing_dir() {
+        let infos = list_checkpoints("/nonexistent/babel_ebook_checkpoints".to_string(), None)
+            .await
+            .unwrap();
+        assert!(infos.is_empty());
     }
 }

@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
+import "./Tooltip.css";
 import { createPortal } from "react-dom";
 
 interface TooltipProps {

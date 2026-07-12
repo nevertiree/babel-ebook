@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import "./ToastContainer.css";
 
 export interface Toast {
   id: string;

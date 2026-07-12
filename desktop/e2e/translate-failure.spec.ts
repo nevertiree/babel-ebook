@@ -3,7 +3,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync, rmSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { cleanupBrowserProcesses, forceKill, getFreePort, waitForCdp } from "./e2e-helpers";
+import { cleanupBrowserProcesses, clearAppData, forceKill, getFreePort, waitForCdp } from "./e2e-helpers";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const APP_PATH = resolve(__dirname, "../../target/release/babel-ebook-desktop.exe");
@@ -20,6 +20,7 @@ test.beforeAll(async () => {
   }
 
   await cleanupBrowserProcesses();
+  clearAppData();
 
   mkdirSync(dirname(TEST_OUTPUT), { recursive: true });
   rmSync(TEST_OUTPUT, { force: true });

@@ -194,8 +194,7 @@ fn init_locale(lang: &str) {
 async fn main() -> Result<()> {
     let cmd = Args::command();
     let matches = cmd.get_matches();
-    let args =
-        Args::from_arg_matches(&matches).unwrap_or_else(|_| panic!("{}", t!("err_parsed_args")));
+    let args = Args::from_arg_matches(&matches).unwrap_or_else(|err| err.exit());
 
     init_locale(&args.lang);
 
@@ -219,7 +218,7 @@ async fn main() -> Result<()> {
     )
     .context(t!("err_create_translator").to_string())?;
 
-    let worker =
+    let mut worker =
         babel_ebook::TranslationWorker::new().context("failed to spawn translation worker")?;
     let job = babel_ebook::TranslationJob::new(config, translator);
     let handle = worker
