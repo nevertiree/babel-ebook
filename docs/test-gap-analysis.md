@@ -114,7 +114,8 @@
    - `run_translation` 的 `build_config` 失败、校验失败、translator 创建失败、worker drop 路径。
    - `check_file_exists`、`suggest_output_path`、`get_system_locale`、`list_checkpoints` 成功/失败路径。
 4. **Config 映射与默认值**
-   - `build_config` 对 `output_mode`、`style`、`translation_scope`、`provider_config`、token 限制、`cache_dir`、`checkpoint_dir`、`resume`、`translate_code`→`pre`/`code` 排除选择器的映射。
+   - `build_config` 对 `output_mode`、`style`、`translation_scope`、`provider_config`、token 限制、`cache_dir`、
+     `checkpoint_dir`、`resume`、`translate_code`→`pre`/`code` 排除选择器的映射。
    - `build_test_config` 未测。
 5. **Keyring 回退**
    - `load_api_key` 在 `keyring::Error::NoEntry` 时返回 `Ok(None)`。
