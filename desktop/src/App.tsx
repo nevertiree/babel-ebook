@@ -12,6 +12,7 @@ import ModelParamsPage from "./pages/ModelParamsPage";
 import TranslationSettingsPage from "./pages/TranslationSettingsPage";
 import PromptsPage from "./pages/PromptsPage";
 import OutputSettingsPage from "./pages/OutputSettingsPage";
+import QueueSettingsPage from "./pages/QueueSettingsPage";
 import GeneralSettingsPage from "./pages/GeneralSettingsPage";
 import AboutPage from "./pages/AboutPage";
 import LegalPage from "./pages/LegalPage";
@@ -830,6 +831,7 @@ function App() {
       case "settings-translation":
       case "settings-prompts":
       case "settings-output":
+      case "settings-queue":
       case "settings-general":
         return (
           <SettingsLayout activePage={page} onNavigate={setPage}>
@@ -845,6 +847,7 @@ function App() {
             {page === "settings-translation" && <TranslationSettingsPage form={form} setForm={updateForm} />}
             {page === "settings-prompts" && <PromptsPage form={form} setForm={updateForm} />}
             {page === "settings-output" && <OutputSettingsPage form={form} setForm={updateForm} />}
+            {page === "settings-queue" && <QueueSettingsPage form={form} setForm={updateForm} />}
             {page === "settings-general" && (
               <GeneralSettingsPage
                 general={general}

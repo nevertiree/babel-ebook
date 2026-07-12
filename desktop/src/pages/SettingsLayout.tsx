@@ -14,6 +14,7 @@ const settingsTabs: { page: Page; labelKey: string; icon: SettingsTabIconProps["
   { page: "settings-translation", labelKey: "settings_translation", icon: "translation" },
   { page: "settings-prompts", labelKey: "settings_prompts", icon: "prompts" },
   { page: "settings-output", labelKey: "settings_output", icon: "output" },
+  { page: "settings-queue", labelKey: "settings_queue", icon: "queue" },
   { page: "settings-general", labelKey: "settings_general", icon: "general" },
 ];
 

@@ -61,6 +61,8 @@ pub struct StoredTask {
     pub args: TranslateArgs,
     /// Unix timestamp when the task was created.
     pub created_at: u64,
+    /// Unix timestamp when the task started running.
+    pub started_at: Option<u64>,
     /// Unix timestamp when the task finished, failed or was cancelled.
     pub completed_at: Option<u64>,
 }
@@ -79,6 +81,7 @@ impl From<&Task> for StoredTask {
             error: task.error.clone(),
             args: task.args.clone(),
             created_at: task.created_at,
+            started_at: task.started_at,
             completed_at: task.completed_at,
         }
     }
@@ -98,6 +101,7 @@ impl From<StoredTask> for Task {
             error: stored.error,
             args: stored.args,
             created_at: stored.created_at,
+            started_at: stored.started_at,
             completed_at: stored.completed_at,
         }
     }
@@ -232,6 +236,11 @@ impl QueueManager {
                     Run(Box<Task>),
                 }
 
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+
                 let action = {
                     let mut guard = self
                         .inner
@@ -247,6 +256,7 @@ impl QueueManager {
                             .map_or(Action::Wait, |t| {
                                 t.status = TaskStatus::Running;
                                 t.message = "Running".to_string();
+                                t.started_at = Some(now);
                                 Action::Run(Box::new(t.clone()))
                             })
                     } else {
@@ -288,11 +298,6 @@ impl QueueManager {
 
                 let result =
                     run_translation(task.args, progress, Some(cancellation), &worker).await;
-
-                let now = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs();
 
                 // Update the current task id only after releasing any lock held
                 // during the translation above.
@@ -983,6 +988,7 @@ mod tests {
             error: None,
             args: sample_args("a.epub", "a.out.epub"),
             created_at: 1,
+            started_at: None,
             completed_at: Some(2),
         };
         store.save(&[stored]).unwrap();
@@ -1011,6 +1017,7 @@ mod tests {
             error: None,
             args: sample_args("a.epub", "a.out.epub"),
             created_at: 1,
+            started_at: Some(3),
             completed_at: Some(2),
         };
         store.save(&[stored]).unwrap();

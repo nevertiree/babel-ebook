@@ -5,6 +5,7 @@ export interface SettingsTabIconProps {
     | "translation"
     | "prompts"
     | "output"
+    | "queue"
     | "general";
   className?: string;
 }
@@ -66,6 +67,14 @@ export default function SettingsTabIcon({ icon, className }: SettingsTabIconProp
       return (
         <svg {...commonProps}>
           <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+        </svg>
+      );
+    case "queue":
+      return (
+        <svg {...commonProps}>
+          <path d="M4 6h16" />
+          <path d="M4 12h16" />
+          <path d="M4 18h16" />
         </svg>
       );
     case "general":
