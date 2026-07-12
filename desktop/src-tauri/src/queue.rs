@@ -256,7 +256,11 @@ impl QueueManager {
                             .map_or(Action::Wait, |t| {
                                 t.status = TaskStatus::Running;
                                 t.message = "Running".to_string();
-                                t.started_at = Some(now);
+                                // Preserve original start time when resuming from a
+                                // checkpoint so elapsed time reflects the full run.
+                                if t.started_at.is_none() || t.progress_percent == 0 {
+                                    t.started_at = Some(now);
+                                }
                                 Action::Run(Box::new(t.clone()))
                             })
                     } else {
@@ -539,6 +543,30 @@ impl QueueManager {
             token.cancel();
         }
         result
+    }
+
+    /// Resume a paused task from its last checkpoint without resetting progress.
+    pub fn resume_task(&self, id: &str) -> Result<(), String> {
+        let mut guard = self
+            .inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let task = guard
+            .tasks
+            .iter_mut()
+            .find(|t| t.id == id)
+            .ok_or_else(|| "task not found".to_string())?;
+        if task.status != TaskStatus::Paused {
+            return Err("only paused tasks can be resumed".to_string());
+        }
+        task.status = TaskStatus::Pending;
+        task.message = String::new();
+        task.error = None;
+        task.completed_at = None;
+        drop(guard);
+        self.persist()?;
+        self.notifier.notify_one();
+        Ok(())
     }
 
     /// Reset a failed, cancelled or paused task to pending.

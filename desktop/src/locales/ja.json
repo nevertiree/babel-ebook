@@ -205,6 +205,7 @@
   "details": "詳細",
   "error_details": "エラーの詳細",
   "pause_queue": "キューを一時停止",
+  "pause": "一時停止",
   "queue_empty": "キューにタスクがありません。",
   "refresh": "更新",
   "remove": "削除",

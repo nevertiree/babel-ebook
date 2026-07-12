@@ -784,6 +784,11 @@ function App() {
     await refreshQueue();
   };
 
+  const resumeTask = async (id: string) => {
+    await invoke("resume_task", { id });
+    await refreshQueue();
+  };
+
   const startQueue = async () => {
     await invoke("start_queue");
     await refreshQueue();
@@ -820,6 +825,7 @@ function App() {
             onRetry={retryTask}
             onCancel={cancelTask}
             onPauseTask={pauseTask}
+            onResumeTask={resumeTask}
             onStart={startQueue}
             onPause={pauseQueue}
             onReorder={reorderTasks}

@@ -210,6 +210,7 @@
   "details": "详情",
   "error_details": "错误详情",
   "pause_queue": "暂停队列",
+  "pause": "暂停",
   "resume": "继续",
   "queue_empty": "队列中没有任务。",
   "refresh": "刷新",

@@ -33,6 +33,7 @@ export default function SettingsLayout({ activePage, onNavigate, children }: Set
               role="tab"
               aria-selected={activePage === page}
               className={`settings-tab ${activePage === page ? "active" : ""}`}
+              data-testid={`settings-tab-${page.replace("settings-", "")}`}
               onClick={() => onNavigate(page)}
             >
               <SettingsTabIcon icon={icon} className="settings-tab-icon" />

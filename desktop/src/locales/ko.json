@@ -205,6 +205,7 @@
   "details": "자세히",
   "error_details": "오류 자세히",
   "pause_queue": "대기열 일시 정지",
+  "pause": "일시 정지",
   "queue_empty": "대기열에 작업이 없습니다.",
   "refresh": "새로고침",
   "remove": "제거",

@@ -11,6 +11,7 @@ interface TasksPageProps {
   onRetry: (ids: string[]) => Promise<void>;
   onCancel: (ids: string[]) => Promise<void>;
   onPauseTask: (id: string) => Promise<void>;
+  onResumeTask: (id: string) => Promise<void>;
   onStart: () => Promise<void>;
   onPause: () => Promise<void>;
   onReorder: (ids: string[]) => Promise<void>;
@@ -109,6 +110,7 @@ export default function TasksPage({
   onRetry,
   onCancel,
   onPauseTask,
+  onResumeTask,
   onStart,
   onPause,
   onReorder,
@@ -364,7 +366,7 @@ export default function TasksPage({
                       <button
                         type="button"
                         className="task-action"
-                        onClick={() => void onRetry([task.id])}
+                        onClick={() => void onResumeTask(task.id)}
                         data-testid="resume-task"
                       >
                         {t("resume")}
