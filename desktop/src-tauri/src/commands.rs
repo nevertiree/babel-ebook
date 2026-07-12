@@ -430,6 +430,13 @@ pub fn retry_task(id: String, queue: tauri::State<'_, QueueManager>) -> Result<(
     queue.retry(&id)
 }
 
+/// Resume a paused task from its last checkpoint.
+#[allow(dead_code)]
+#[tauri::command]
+pub fn resume_task(id: String, queue: tauri::State<'_, QueueManager>) -> Result<(), String> {
+    queue.resume_task(&id)
+}
+
 /// Start processing the queue.
 #[allow(dead_code)]
 #[tauri::command]

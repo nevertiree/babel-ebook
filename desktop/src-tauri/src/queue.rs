@@ -61,6 +61,8 @@ pub struct StoredTask {
     pub args: TranslateArgs,
     /// Unix timestamp when the task was created.
     pub created_at: u64,
+    /// Unix timestamp when the task started running.
+    pub started_at: Option<u64>,
     /// Unix timestamp when the task finished, failed or was cancelled.
     pub completed_at: Option<u64>,
 }
@@ -79,6 +81,7 @@ impl From<&Task> for StoredTask {
             error: task.error.clone(),
             args: task.args.clone(),
             created_at: task.created_at,
+            started_at: task.started_at,
             completed_at: task.completed_at,
         }
     }
@@ -98,6 +101,7 @@ impl From<StoredTask> for Task {
             error: stored.error,
             args: stored.args,
             created_at: stored.created_at,
+            started_at: stored.started_at,
             completed_at: stored.completed_at,
         }
     }
@@ -232,6 +236,11 @@ impl QueueManager {
                     Run(Box<Task>),
                 }
 
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+
                 let action = {
                     let mut guard = self
                         .inner
@@ -247,6 +256,11 @@ impl QueueManager {
                             .map_or(Action::Wait, |t| {
                                 t.status = TaskStatus::Running;
                                 t.message = "Running".to_string();
+                                // Preserve original start time when resuming from a
+                                // checkpoint so elapsed time reflects the full run.
+                                if t.started_at.is_none() || t.progress_percent == 0 {
+                                    t.started_at = Some(now);
+                                }
                                 Action::Run(Box::new(t.clone()))
                             })
                     } else {
@@ -288,11 +302,6 @@ impl QueueManager {
 
                 let result =
                     run_translation(task.args, progress, Some(cancellation), &worker).await;
-
-                let now = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs();
 
                 // Update the current task id only after releasing any lock held
                 // during the translation above.
@@ -534,6 +543,30 @@ impl QueueManager {
             token.cancel();
         }
         result
+    }
+
+    /// Resume a paused task from its last checkpoint without resetting progress.
+    pub fn resume_task(&self, id: &str) -> Result<(), String> {
+        let mut guard = self
+            .inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let task = guard
+            .tasks
+            .iter_mut()
+            .find(|t| t.id == id)
+            .ok_or_else(|| "task not found".to_string())?;
+        if task.status != TaskStatus::Paused {
+            return Err("only paused tasks can be resumed".to_string());
+        }
+        task.status = TaskStatus::Pending;
+        task.message = String::new();
+        task.error = None;
+        task.completed_at = None;
+        drop(guard);
+        self.persist()?;
+        self.notifier.notify_one();
+        Ok(())
     }
 
     /// Reset a failed, cancelled or paused task to pending.
@@ -983,6 +1016,7 @@ mod tests {
             error: None,
             args: sample_args("a.epub", "a.out.epub"),
             created_at: 1,
+            started_at: None,
             completed_at: Some(2),
         };
         store.save(&[stored]).unwrap();
@@ -1011,6 +1045,7 @@ mod tests {
             error: None,
             args: sample_args("a.epub", "a.out.epub"),
             created_at: 1,
+            started_at: Some(3),
             completed_at: Some(2),
         };
         store.save(&[stored]).unwrap();

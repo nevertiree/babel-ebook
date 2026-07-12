@@ -9,7 +9,7 @@ interface ModelParamsPageProps {
 }
 
 interface FieldMeta {
-  key: "concurrency" | "max_input_tokens" | "max_output_tokens" | "temperature";
+  key: "max_input_tokens" | "max_output_tokens" | "temperature";
   labelKey: string;
   helpKey: string;
   min: number;
@@ -18,7 +18,6 @@ interface FieldMeta {
 }
 
 const FIELDS: FieldMeta[] = [
-  { key: "concurrency", labelKey: "concurrency", helpKey: "concurrency_help", min: 1, max: 10 },
   { key: "max_input_tokens", labelKey: "max_input_tokens", helpKey: "max_input_tokens_help", min: 1 },
   { key: "max_output_tokens", labelKey: "max_output_tokens", helpKey: "max_output_tokens_help", min: 1 },
   { key: "temperature", labelKey: "temperature", helpKey: "temperature_help", min: 0, max: 2, step: "0.1" },
@@ -44,8 +43,8 @@ export default function ModelParamsPage({ form, setForm }: ModelParamsPageProps)
   };
 
   const rows = useMemo(() => {
-    const first = FIELDS.slice(0, 3);
-    const second = FIELDS.slice(3);
+    const first = FIELDS.slice(0, 2);
+    const second = FIELDS.slice(2);
     return [first, second];
   }, []);
 

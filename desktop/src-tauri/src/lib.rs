@@ -100,6 +100,7 @@ pub fn run() {
             commands::reorder_tasks,
             commands::cancel_task,
             commands::retry_task,
+            commands::resume_task,
             commands::start_queue,
             commands::pause_queue,
             commands::pause_task,

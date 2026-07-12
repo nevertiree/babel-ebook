@@ -14,6 +14,7 @@ const settingsTabs: { page: Page; labelKey: string; icon: SettingsTabIconProps["
   { page: "settings-translation", labelKey: "settings_translation", icon: "translation" },
   { page: "settings-prompts", labelKey: "settings_prompts", icon: "prompts" },
   { page: "settings-output", labelKey: "settings_output", icon: "output" },
+  { page: "settings-queue", labelKey: "settings_queue", icon: "queue" },
   { page: "settings-general", labelKey: "settings_general", icon: "general" },
 ];
 
@@ -32,6 +33,7 @@ export default function SettingsLayout({ activePage, onNavigate, children }: Set
               role="tab"
               aria-selected={activePage === page}
               className={`settings-tab ${activePage === page ? "active" : ""}`}
+              data-testid={`settings-tab-${page.replace("settings-", "")}`}
               onClick={() => onNavigate(page)}
             >
               <SettingsTabIcon icon={icon} className="settings-tab-icon" />
