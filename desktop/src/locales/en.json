@@ -303,5 +303,9 @@
   "ocr_converting": "Converting...",
   "ocr_convert_success": "Converted successfully",
   "ocr_send_to_translate": "Send to Translate",
+  "ocr_pipeline_enable": "Translate after OCR",
+  "ocr_translation": "Translation",
+  "ocr_final_output": "Final translated EPUB",
+  "ocr_convert_pipeline": "Convert & Translate",
   "ocr_error_no_files": "Select a PDF and an output path"
 }

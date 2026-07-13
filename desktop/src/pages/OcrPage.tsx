@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { Page, ProviderConfig, TranslateInputs } from "../types";
+import { languages, type Page, type ProviderConfig, type TranslateInputs } from "../types";
 import EmptyStateIcon from "../components/EmptyStateIcon";
 import "./OcrPage.css";
 
@@ -49,6 +49,12 @@ function OcrPage({ inputs, setInputs, onPageChange }: OcrPageProps) {
   const [refineModel, setRefineModel] = useState("qwen-max");
   const [refineRounds, setRefineRounds] = useState(1);
   const [refineWithImage, setRefineWithImage] = useState(false);
+
+  const [pipelineMode, setPipelineMode] = useState(false);
+  const [translateProviderName, setTranslateProviderName] = useState(inputs.active_provider);
+  const [translateModel, setTranslateModel] = useState("deepseek-chat");
+  const [translateTargetLang, setTranslateTargetLang] = useState("zh-CN");
+  const [translateOutputPath, setTranslateOutputPath] = useState("");
 
   const [converting, setConverting] = useState(false);
   const [resultPath, setResultPath] = useState<string | null>(null);
@@ -99,6 +105,15 @@ function OcrPage({ inputs, setInputs, onPageChange }: OcrPageProps) {
     }
   };
 
+  const selectTranslateOutput = async () => {
+    const path = await save({
+      filters: [{ name: "EPUB", extensions: ["epub"] }],
+    });
+    if (path && !Array.isArray(path)) {
+      setTranslateOutputPath(path);
+    }
+  };
+
   const convert = async () => {
     const ocrProv = providerByName(ocrProviderName);
     if (!ocrProv?.api_key) {
@@ -109,6 +124,17 @@ function OcrPage({ inputs, setInputs, onPageChange }: OcrPageProps) {
       setError(t("ocr_error_no_files"));
       return;
     }
+    if (pipelineMode) {
+      const trProv = providerByName(translateProviderName);
+      if (!trProv?.api_key) {
+        setError(t("error_no_provider"));
+        return;
+      }
+      if (!translateOutputPath) {
+        setError(t("ocr_error_no_files"));
+        return;
+      }
+    }
     setConverting(true);
     setError(null);
     setResultPath(null);
@@ -116,7 +142,7 @@ function OcrPage({ inputs, setInputs, onPageChange }: OcrPageProps) {
     try {
       const verifyProv = verifyEnabled ? providerByName(verifyProviderName) : undefined;
       const refineProv = refineEnabled ? providerByName(refineProviderName) : undefined;
-      const args = {
+      const ocrArgs = {
         pdf_path: pdfPath,
         output_path: outputPath,
         title: title.trim() || null,
@@ -138,8 +164,50 @@ function OcrPage({ inputs, setInputs, onPageChange }: OcrPageProps) {
         ocr_refine_model: refineModel.trim() || null,
         ocr_refine_with_image: refineEnabled && refineWithImage,
       };
-      await invoke("enqueue_ocr_task", { args });
-      await invoke("start_queue");
+      if (pipelineMode) {
+        const trProv = providerByName(translateProviderName);
+        const translateArgs = {
+          source: outputPath,
+          output: translateOutputPath,
+          provider: trProv?.provider ?? "deepseek",
+          api_key: trProv?.api_key ?? "",
+          base_url: trProv?.use_custom_base_url ? trProv.base_url || null : null,
+          model: translateModel.trim() || "deepseek-chat",
+          concurrency: 3,
+          max_input_tokens: 4000,
+          max_output_tokens: 2000,
+          temperature: 0.3,
+          source_lang: "en",
+          target_lang: translateTargetLang,
+          dry_run: false,
+          output_mode: "bilingual",
+          style: "default",
+          preserve_classes: false,
+          exclude_selectors: [],
+          translate_attributes: [],
+          translate_body: true,
+          translate_metadata: true,
+          translate_toc: true,
+          translate_alt_text: true,
+          translate_image_captions: true,
+          translate_tables: true,
+          translate_footnotes: true,
+          translate_code: false,
+          output_font: null,
+          system_prompt: null,
+          prompts: { default: "", literary: "", technical: "", academic: "", refine: "" },
+          refine: false,
+          checkpoint_dir: "",
+          resume: null,
+        };
+        await invoke("enqueue_pipeline_task", { ocrArgs, translateArgs });
+        await invoke("start_queue");
+        setConverting(false);
+        onPageChange("tasks");
+      } else {
+        await invoke("enqueue_ocr_task", { args: ocrArgs });
+        await invoke("start_queue");
+      }
     } catch (err) {
       setError(String(err));
       setConverting(false);
@@ -173,6 +241,15 @@ function OcrPage({ inputs, setInputs, onPageChange }: OcrPageProps) {
   return (
     <div className="page ocr-page">
       <h2>{t("ocr_title")}</h2>
+
+      <label className="ocr-checkbox">
+        <input
+          type="checkbox"
+          checked={pipelineMode}
+          onChange={(e) => setPipelineMode(e.target.checked)}
+        />
+        {t("ocr_pipeline_enable")}
+      </label>
 
       <section className="ocr-section">
         <h3>{t("ocr_files")}</h3>
@@ -382,14 +459,71 @@ function OcrPage({ inputs, setInputs, onPageChange }: OcrPageProps) {
         )}
       </section>
 
+      {pipelineMode && (
+        <section className="ocr-section">
+          <h3>{t("ocr_translation")}</h3>
+          <div className="ocr-field">
+            <label>{t("target_lang")}</label>
+            <select
+              className="ocr-select"
+              value={translateTargetLang}
+              onChange={(e) => setTranslateTargetLang(e.target.value)}
+            >
+              {languages.map((lang) => (
+                <option key={lang.code} value={lang.code}>
+                  {lang.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="ocr-field">
+            <label>{t("ocr_provider")}</label>
+            <select
+              className="ocr-select"
+              value={translateProviderName}
+              onChange={(e) => setTranslateProviderName(e.target.value)}
+            >
+              {providers.map((p) => (
+                <option key={p.name} value={p.name}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="ocr-field">
+            <label>{t("ocr_model")}</label>
+            <input
+              type="text"
+              className="ocr-input"
+              value={translateModel}
+              onChange={(e) => setTranslateModel(e.target.value)}
+            />
+          </div>
+          <div className="ocr-field">
+            <label>{t("ocr_final_output")}</label>
+            <div className="ocr-file-row">
+              <span
+                className={`ocr-file-path ${translateOutputPath ? "" : "empty"}`}
+                title={translateOutputPath || undefined}
+              >
+                {translateOutputPath || t("ocr_no_output")}
+              </span>
+              <button type="button" onClick={selectTranslateOutput}>
+                {t("select_file")}
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
+
       <div className="ocr-actions">
         <button
           type="button"
           className="button-primary"
           onClick={convert}
-          disabled={converting || !pdfPath || !outputPath}
+          disabled={converting || !pdfPath || !outputPath || (pipelineMode && !translateOutputPath)}
         >
-          {converting ? t("ocr_converting") : t("ocr_convert")}
+          {converting ? t("ocr_converting") : pipelineMode ? t("ocr_convert_pipeline") : t("ocr_convert")}
         </button>
         {resultPath && (
           <button type="button" className="button-secondary" onClick={sendToTranslate}>

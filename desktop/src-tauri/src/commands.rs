@@ -413,8 +413,11 @@ pub async fn enqueue_pipeline_task(
     translate_args: TranslateArgs,
     queue: tauri::State<'_, QueueManager>,
 ) -> Result<Task, String> {
-    let config = build_config(&translate_args)?;
-    config.validate().map_err(|e| e.to_string())?;
+    // Build the config to catch structural errors (e.g. invalid output_mode) at
+    // enqueue time. Full validation - including source-file existence - is
+    // deferred to stage 2 (run_translation), because the translation source is
+    // the EPUB produced by the OCR stage, which does not exist yet.
+    build_config(&translate_args)?;
     Ok(queue.enqueue_pipeline(ocr_args, translate_args).await)
 }
 

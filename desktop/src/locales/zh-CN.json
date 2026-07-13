@@ -303,5 +303,9 @@
   "ocr_converting": "转换中...",
   "ocr_convert_success": "转换成功",
   "ocr_send_to_translate": "送去翻译",
+  "ocr_pipeline_enable": "OCR 后翻译",
+  "ocr_translation": "翻译",
+  "ocr_final_output": "最终翻译 EPUB",
+  "ocr_convert_pipeline": "转换并翻译",
   "ocr_error_no_files": "请选择 PDF 和输出路径"
 }
