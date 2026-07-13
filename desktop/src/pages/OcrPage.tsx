@@ -11,6 +11,7 @@ import {
   type ProviderConfig,
   type TranslateInputs,
 } from "../types";
+import type { OcrSettings } from "../config";
 import EmptyStateIcon from "../components/EmptyStateIcon";
 import ProviderIcon from "../components/ProviderIcon";
 import ModelSelect from "../components/ModelSelect";
@@ -29,9 +30,10 @@ interface OcrPageProps {
   inputs: TranslateInputs;
   setInputs: (update: Partial<TranslateInputs>) => void;
   onPageChange: (page: Page) => void;
+  ocrSettings: OcrSettings;
 }
 
-function OcrPage({ inputs, setInputs, onPageChange }: OcrPageProps) {
+function OcrPage({ inputs, setInputs, onPageChange, ocrSettings }: OcrPageProps) {
   const { t } = useTranslation();
   const providers = inputs.providers;
   const hasProviders = providers.length > 0;
@@ -46,18 +48,10 @@ function OcrPage({ inputs, setInputs, onPageChange }: OcrPageProps) {
   // expose their own model, mirroring the translate page's single-provider model.
   const [ocrProviderName, setOcrProviderName] = useState(inputs.active_provider);
   const [ocrModel, setOcrModel] = useState("qwen-vl-ocr");
-  const [ocrConcurrency, setOcrConcurrency] = useState(3);
-  const [dpi, setDpi] = useState(200);
 
   const [verifyEnabled, setVerifyEnabled] = useState(false);
-  const [verifyModel, setVerifyModel] = useState("deepseek-chat");
-  const [verifyThreshold, setVerifyThreshold] = useState(0.7);
-  const [verifyMaxAttempts, setVerifyMaxAttempts] = useState(3);
 
   const [refineEnabled, setRefineEnabled] = useState(false);
-  const [refineModel, setRefineModel] = useState("qwen-max");
-  const [refineRounds, setRefineRounds] = useState(1);
-  const [refineWithImage, setRefineWithImage] = useState(false);
 
   // Pipeline mode reuses the shared translation inputs (provider/model/
   // target_lang/output_mode) configured on the translate page, so translation
@@ -132,22 +126,22 @@ function OcrPage({ inputs, setInputs, onPageChange }: OcrPageProps) {
     ocr_api_key: ocrProvider?.api_key ?? "",
     ocr_base_url: ocrProvider?.use_custom_base_url ? ocrProvider.base_url || null : null,
     ocr_model: ocrModel.trim() || null,
-    ocr_concurrency: ocrConcurrency,
+    ocr_concurrency: ocrSettings.concurrency,
     no_verify: !verifyEnabled,
     verify_api_key: verifyEnabled ? ocrProvider?.api_key ?? null : null,
     verify_base_url:
       verifyEnabled && ocrProvider?.use_custom_base_url ? ocrProvider.base_url || null : null,
-    verify_model: verifyModel.trim() || null,
-    dpi,
-    verify_threshold: verifyThreshold,
-    verify_max_attempts: verifyMaxAttempts,
+    verify_model: ocrSettings.verify.model.trim() || null,
+    dpi: ocrSettings.dpi,
+    verify_threshold: ocrSettings.verify.threshold,
+    verify_max_attempts: ocrSettings.verify.maxAttempts,
     verify_scale_factors: [1, 2, 3],
-    ocr_refine_rounds: refineEnabled ? refineRounds : 0,
+    ocr_refine_rounds: refineEnabled ? ocrSettings.refine.rounds : 0,
     ocr_refine_api_key: refineEnabled ? ocrProvider?.api_key ?? null : null,
     ocr_refine_base_url:
       refineEnabled && ocrProvider?.use_custom_base_url ? ocrProvider.base_url || null : null,
-    ocr_refine_model: refineModel.trim() || null,
-    ocr_refine_with_image: refineEnabled && refineWithImage,
+    ocr_refine_model: ocrSettings.refine.model.trim() || null,
+    ocr_refine_with_image: refineEnabled && ocrSettings.refine.withImage,
   });
 
   const buildTranslateArgs = () => ({
@@ -478,36 +472,16 @@ function OcrPage({ inputs, setInputs, onPageChange }: OcrPageProps) {
             {t("ocr_verify_enable")}
           </label>
           {verifyEnabled && (
-            <div className="row">
-              <label>
-                {t("ocr_model")}
-                <input
-                  type="text"
-                  value={verifyModel}
-                  onChange={(e) => setVerifyModel(e.target.value)}
-                />
-              </label>
-              <label>
-                {t("ocr_verify_threshold")}
-                <input
-                  type="number"
-                  step={0.05}
-                  min={0}
-                  max={1}
-                  value={verifyThreshold}
-                  onChange={(e) => setVerifyThreshold(Number(e.target.value) || 0)}
-                />
-              </label>
-              <label>
-                {t("ocr_verify_max_attempts")}
-                <input
-                  type="number"
-                  min={0}
-                  value={verifyMaxAttempts}
-                  onChange={(e) => setVerifyMaxAttempts(Number(e.target.value) || 0)}
-                />
-              </label>
-            </div>
+            <p className="refine-hint">
+              {t("ocr_using_settings_defaults")}{" "}
+              <button
+                type="button"
+                className="text-button"
+                onClick={() => onPageChange("settings-ocr")}
+              >
+                {t("ocr_configure_in_settings")}
+              </button>
+            </p>
           )}
         </div>
 
@@ -521,56 +495,29 @@ function OcrPage({ inputs, setInputs, onPageChange }: OcrPageProps) {
             {t("ocr_refine_enable")}
           </label>
           {refineEnabled && (
-            <div className="row">
-              <label>
-                {t("ocr_refine_rounds")}
-                <input
-                  type="number"
-                  min={1}
-                  value={refineRounds}
-                  onChange={(e) => setRefineRounds(Number(e.target.value) || 1)}
-                />
-              </label>
-              <label>
-                {t("ocr_model")}
-                <input
-                  type="text"
-                  value={refineModel}
-                  onChange={(e) => setRefineModel(e.target.value)}
-                />
-              </label>
-              <label className="checkbox-label">
-                <input
-                  type="checkbox"
-                  checked={refineWithImage}
-                  onChange={(e) => setRefineWithImage(e.target.checked)}
-                />
-                {t("ocr_refine_with_image")}
-              </label>
-            </div>
+            <p className="refine-hint">
+              {t("ocr_using_settings_defaults")}{" "}
+              <button
+                type="button"
+                className="text-button"
+                onClick={() => onPageChange("settings-ocr")}
+              >
+                {t("ocr_configure_in_settings")}
+              </button>
+            </p>
           )}
         </div>
 
-        <div className="row">
-          <label>
-            {t("ocr_concurrency")}
-            <input
-              type="number"
-              min={1}
-              value={ocrConcurrency}
-              onChange={(e) => setOcrConcurrency(Number(e.target.value) || 1)}
-            />
-          </label>
-          <label>
-            {t("ocr_dpi")}
-            <input
-              type="number"
-              min={50}
-              value={dpi}
-              onChange={(e) => setDpi(Number(e.target.value) || 200)}
-            />
-          </label>
-        </div>
+        <p className="refine-hint">
+          {t("ocr_engine_defaults_hint")}{" "}
+          <button
+            type="button"
+            className="text-button"
+            onClick={() => onPageChange("settings-ocr")}
+          >
+            {t("settings_ocr")}
+          </button>
+        </p>
       </section>
 
       <div className="start-row">

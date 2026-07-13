@@ -17,6 +17,7 @@ export interface ExportedSettings {
   app_version: string;
   translation: Partial<FormState>;
   general: GeneralSettings;
+  ocr: OcrSettings;
 }
 
 /**
@@ -30,10 +31,32 @@ export interface GeneralSettings {
   follow_system_language: boolean;
 }
 
+/**
+ * OCR engine defaults stored under the `ocr` key. These are "set once" tuning
+ * knobs (concurrency, DPI, verify/refine defaults); per-job choices (source
+ * PDF, output path, OCR provider+model, verify/refine on/off) stay on the OCR
+ * page, mirroring how the translate page keeps provider/model on the page and
+ * pushes detailed config to settings tabs.
+ */
+export interface OcrSettings {
+  concurrency: number;
+  dpi: number;
+  verify: { model: string; threshold: number; maxAttempts: number };
+  refine: { model: string; rounds: number; withImage: boolean };
+}
+
+export const DEFAULT_OCR_SETTINGS: OcrSettings = {
+  concurrency: 3,
+  dpi: 200,
+  verify: { model: "deepseek-chat", threshold: 0.7, maxAttempts: 3 },
+  refine: { model: "qwen-max", rounds: 1, withImage: false },
+};
+
 interface VersionedSettings {
   version: number;
   translation: Partial<FormState>;
   general: GeneralSettings;
+  ocr?: OcrSettings;
 }
 
 /**
@@ -380,9 +403,29 @@ export async function saveGeneralSettings(general: GeneralSettings): Promise<voi
   await writeSettingsFile({ ...versioned, general });
 }
 
+/** Load OCR engine defaults, falling back to sensible defaults. */
+export async function loadOcrSettings(): Promise<OcrSettings> {
+  const versioned = await readSettingsFile();
+  if (versioned?.ocr) {
+    return { ...DEFAULT_OCR_SETTINGS, ...versioned.ocr };
+  }
+  return DEFAULT_OCR_SETTINGS;
+}
+
+/** Persist OCR engine defaults. */
+export async function saveOcrSettings(ocr: OcrSettings): Promise<void> {
+  const versioned = (await readSettingsFile()) ?? {
+    version: SETTINGS_VERSION,
+    translation: {},
+    general: DEFAULT_GENERAL,
+  };
+  await writeSettingsFile({ ...versioned, ocr });
+}
+
 export async function exportSettings(path: string): Promise<void> {
   const translation = await loadSettings();
   const general = await loadGeneralSettings();
+  const ocr = await loadOcrSettings();
 
   // TODO: wire to build version
   const appVersion =
@@ -394,6 +437,7 @@ export async function exportSettings(path: string): Promise<void> {
     app_version: appVersion,
     translation,
     general,
+    ocr,
   };
 
   await writeTextFile(path, JSON.stringify(payload, null, 2));

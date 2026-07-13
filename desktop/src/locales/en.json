@@ -146,6 +146,7 @@
   "provider_name": "Config Name",
   "settings_general": "General",
   "settings_queue": "Task Queue",
+  "settings_ocr": "OCR",
   "queue_settings_hint": "Queue settings apply to newly queued translation tasks. Concurrency controls how many chapters are translated in parallel within a single task.",
   "source_lang": "Source Language",
   "source_lang_help": "Language of the original text, or Auto detect.",
@@ -308,5 +309,10 @@
   "ocr_translation": "Translation",
   "ocr_final_output": "Final translated EPUB",
   "ocr_convert_pipeline": "Convert & Translate",
+  "ocr_using_settings_defaults": "Using OCR settings defaults.",
+  "ocr_configure_in_settings": "Configure in settings",
+  "ocr_engine_defaults_hint": "Engine defaults (concurrency, DPI, verify/refine):",
+  "ocr_verify_settings_hint": "Model and thresholds used when verification is enabled on the OCR page.",
+  "ocr_refine_settings_hint": "Model and rounds used when refinement is enabled on the OCR page.",
   "ocr_error_no_files": "Select a PDF and an output path"
 }

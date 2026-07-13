@@ -171,6 +171,7 @@ export type Page =
   | "settings-prompts"
   | "settings-queue"
   | "settings-general"
+  | "settings-ocr"
   | "about"
   | "legal";
 

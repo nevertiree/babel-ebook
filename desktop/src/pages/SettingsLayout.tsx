@@ -13,6 +13,7 @@ const settingsTabs: { page: Page; labelKey: string; icon: SettingsTabIconProps["
   { page: "settings-compute", labelKey: "settings_compute", icon: "compute" },
   { page: "settings-model", labelKey: "settings_model", icon: "model" },
   { page: "settings-translation", labelKey: "settings_translation", icon: "translation" },
+  { page: "settings-ocr", labelKey: "settings_ocr", icon: "ocr" },
   { page: "settings-prompts", labelKey: "settings_prompts", icon: "prompts" },
   { page: "settings-output", labelKey: "settings_output", icon: "output" },
   { page: "settings-queue", labelKey: "settings_queue", icon: "queue" },

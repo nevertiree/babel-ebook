@@ -146,6 +146,7 @@
   "provider_name": "配置名称",
   "settings_general": "通用",
   "settings_queue": "任务队列",
+  "settings_ocr": "OCR",
   "queue_settings_hint": "队列设置会应用到新加入的翻译任务。并发数控制单个任务内同时翻译的章节数量。",
   "source_lang": "原始语言",
   "source_lang_help": "原文语言，或选择自动检测。",
@@ -308,5 +309,10 @@
   "ocr_translation": "翻译",
   "ocr_final_output": "最终翻译 EPUB",
   "ocr_convert_pipeline": "转换并翻译",
+  "ocr_using_settings_defaults": "使用 OCR 设置中的默认值。",
+  "ocr_configure_in_settings": "在设置中配置",
+  "ocr_engine_defaults_hint": "引擎默认值（并发、DPI、校验/精炼）：",
+  "ocr_verify_settings_hint": "在 OCR 页启用校验时使用的模型与阈值。",
+  "ocr_refine_settings_hint": "在 OCR 页启用精炼时使用的模型与轮数。",
   "ocr_error_no_files": "请选择 PDF 和输出路径"
 }
