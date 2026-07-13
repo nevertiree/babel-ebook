@@ -304,6 +304,7 @@
   "ocr_convert_success": "转换成功",
   "ocr_send_to_translate": "送去翻译",
   "ocr_pipeline_enable": "OCR 后翻译",
+  "ocr_intermediate": "中间产物",
   "ocr_translation": "翻译",
   "ocr_final_output": "最终翻译 EPUB",
   "ocr_convert_pipeline": "转换并翻译",

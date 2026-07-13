@@ -3,8 +3,17 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { languages, type Page, type ProviderConfig, type TranslateInputs } from "../types";
+import {
+  defaults,
+  outputModes,
+  targetLanguages,
+  type Page,
+  type ProviderConfig,
+  type TranslateInputs,
+} from "../types";
 import EmptyStateIcon from "../components/EmptyStateIcon";
+import ProviderIcon from "../components/ProviderIcon";
+import ModelSelect from "../components/ModelSelect";
 import "./OcrPage.css";
 
 interface OcrProgress {
@@ -33,27 +42,27 @@ function OcrPage({ inputs, setInputs, onPageChange }: OcrPageProps) {
   outputPathRef.current = outputPath;
   const [title, setTitle] = useState("");
 
+  // OCR engine. verify/refine reuse the OCR provider's credentials and only
+  // expose their own model, mirroring the translate page's single-provider model.
   const [ocrProviderName, setOcrProviderName] = useState(inputs.active_provider);
   const [ocrModel, setOcrModel] = useState("qwen-vl-ocr");
   const [ocrConcurrency, setOcrConcurrency] = useState(3);
   const [dpi, setDpi] = useState(200);
 
   const [verifyEnabled, setVerifyEnabled] = useState(false);
-  const [verifyProviderName, setVerifyProviderName] = useState(inputs.active_provider);
   const [verifyModel, setVerifyModel] = useState("deepseek-chat");
   const [verifyThreshold, setVerifyThreshold] = useState(0.7);
   const [verifyMaxAttempts, setVerifyMaxAttempts] = useState(3);
 
   const [refineEnabled, setRefineEnabled] = useState(false);
-  const [refineProviderName, setRefineProviderName] = useState(inputs.active_provider);
   const [refineModel, setRefineModel] = useState("qwen-max");
   const [refineRounds, setRefineRounds] = useState(1);
   const [refineWithImage, setRefineWithImage] = useState(false);
 
+  // Pipeline mode reuses the shared translation inputs (provider/model/
+  // target_lang/output_mode) configured on the translate page, so translation
+  // settings live in one place. Only the final output path is OCR-specific.
   const [pipelineMode, setPipelineMode] = useState(false);
-  const [translateProviderName, setTranslateProviderName] = useState(inputs.active_provider);
-  const [translateModel, setTranslateModel] = useState("deepseek-chat");
-  const [translateTargetLang, setTranslateTargetLang] = useState("zh-CN");
   const [translateOutputPath, setTranslateOutputPath] = useState("");
 
   const [converting, setConverting] = useState(false);
@@ -76,6 +85,8 @@ function OcrPage({ inputs, setInputs, onPageChange }: OcrPageProps) {
 
   const providerByName = (name: string): ProviderConfig | undefined =>
     providers.find((p) => p.name === name);
+  const ocrProvider = providerByName(ocrProviderName);
+  const translateProvider = providerByName(inputs.active_provider);
 
   const selectPdf = async () => {
     const path = await open({
@@ -114,9 +125,68 @@ function OcrPage({ inputs, setInputs, onPageChange }: OcrPageProps) {
     }
   };
 
+  const buildOcrArgs = () => ({
+    pdf_path: pdfPath,
+    output_path: outputPath,
+    title: title.trim() || null,
+    ocr_api_key: ocrProvider?.api_key ?? "",
+    ocr_base_url: ocrProvider?.use_custom_base_url ? ocrProvider.base_url || null : null,
+    ocr_model: ocrModel.trim() || null,
+    ocr_concurrency: ocrConcurrency,
+    no_verify: !verifyEnabled,
+    verify_api_key: verifyEnabled ? ocrProvider?.api_key ?? null : null,
+    verify_base_url:
+      verifyEnabled && ocrProvider?.use_custom_base_url ? ocrProvider.base_url || null : null,
+    verify_model: verifyModel.trim() || null,
+    dpi,
+    verify_threshold: verifyThreshold,
+    verify_max_attempts: verifyMaxAttempts,
+    verify_scale_factors: [1, 2, 3],
+    ocr_refine_rounds: refineEnabled ? refineRounds : 0,
+    ocr_refine_api_key: refineEnabled ? ocrProvider?.api_key ?? null : null,
+    ocr_refine_base_url:
+      refineEnabled && ocrProvider?.use_custom_base_url ? ocrProvider.base_url || null : null,
+    ocr_refine_model: refineModel.trim() || null,
+    ocr_refine_with_image: refineEnabled && refineWithImage,
+  });
+
+  const buildTranslateArgs = () => ({
+    source: outputPath,
+    output: translateOutputPath,
+    provider: translateProvider?.provider ?? "deepseek",
+    api_key: translateProvider?.api_key ?? "",
+    base_url: translateProvider?.use_custom_base_url ? translateProvider.base_url || null : null,
+    model: inputs.model,
+    concurrency: defaults.concurrency,
+    max_input_tokens: defaults.max_input_tokens,
+    max_output_tokens: defaults.max_output_tokens,
+    temperature: defaults.temperature,
+    source_lang: inputs.source_lang,
+    target_lang: inputs.target_lang,
+    dry_run: false,
+    output_mode: inputs.output_mode,
+    style: defaults.style,
+    preserve_classes: defaults.preserve_classes,
+    exclude_selectors: [],
+    translate_attributes: [],
+    translate_body: defaults.translate_body,
+    translate_metadata: defaults.translate_metadata,
+    translate_toc: defaults.translate_toc,
+    translate_alt_text: defaults.translate_alt_text,
+    translate_image_captions: defaults.translate_image_captions,
+    translate_tables: defaults.translate_tables,
+    translate_footnotes: defaults.translate_footnotes,
+    translate_code: defaults.translate_code,
+    output_font: defaults.output_font || null,
+    system_prompt: null,
+    prompts: defaults.prompts,
+    refine: false,
+    checkpoint_dir: "",
+    resume: null,
+  });
+
   const convert = async () => {
-    const ocrProv = providerByName(ocrProviderName);
-    if (!ocrProv?.api_key) {
+    if (!ocrProvider?.api_key) {
       setError(t("error_no_provider"));
       return;
     }
@@ -125,8 +195,7 @@ function OcrPage({ inputs, setInputs, onPageChange }: OcrPageProps) {
       return;
     }
     if (pipelineMode) {
-      const trProv = providerByName(translateProviderName);
-      if (!trProv?.api_key) {
+      if (!translateProvider?.api_key) {
         setError(t("error_no_provider"));
         return;
       }
@@ -140,66 +209,9 @@ function OcrPage({ inputs, setInputs, onPageChange }: OcrPageProps) {
     setResultPath(null);
     setProgress(null);
     try {
-      const verifyProv = verifyEnabled ? providerByName(verifyProviderName) : undefined;
-      const refineProv = refineEnabled ? providerByName(refineProviderName) : undefined;
-      const ocrArgs = {
-        pdf_path: pdfPath,
-        output_path: outputPath,
-        title: title.trim() || null,
-        ocr_api_key: ocrProv.api_key,
-        ocr_base_url: ocrProv.use_custom_base_url ? ocrProv.base_url || null : null,
-        ocr_model: ocrModel.trim() || null,
-        ocr_concurrency: ocrConcurrency,
-        no_verify: !verifyEnabled,
-        verify_api_key: verifyProv?.api_key ?? null,
-        verify_base_url: verifyProv?.use_custom_base_url ? verifyProv.base_url || null : null,
-        verify_model: verifyModel.trim() || null,
-        dpi,
-        verify_threshold: verifyThreshold,
-        verify_max_attempts: verifyMaxAttempts,
-        verify_scale_factors: [1, 2, 3],
-        ocr_refine_rounds: refineEnabled ? refineRounds : 0,
-        ocr_refine_api_key: refineProv?.api_key ?? null,
-        ocr_refine_base_url: refineProv?.use_custom_base_url ? refineProv.base_url || null : null,
-        ocr_refine_model: refineModel.trim() || null,
-        ocr_refine_with_image: refineEnabled && refineWithImage,
-      };
+      const ocrArgs = buildOcrArgs();
       if (pipelineMode) {
-        const trProv = providerByName(translateProviderName);
-        const translateArgs = {
-          source: outputPath,
-          output: translateOutputPath,
-          provider: trProv?.provider ?? "deepseek",
-          api_key: trProv?.api_key ?? "",
-          base_url: trProv?.use_custom_base_url ? trProv.base_url || null : null,
-          model: translateModel.trim() || "deepseek-chat",
-          concurrency: 3,
-          max_input_tokens: 4000,
-          max_output_tokens: 2000,
-          temperature: 0.3,
-          source_lang: "en",
-          target_lang: translateTargetLang,
-          dry_run: false,
-          output_mode: "bilingual",
-          style: "default",
-          preserve_classes: false,
-          exclude_selectors: [],
-          translate_attributes: [],
-          translate_body: true,
-          translate_metadata: true,
-          translate_toc: true,
-          translate_alt_text: true,
-          translate_image_captions: true,
-          translate_tables: true,
-          translate_footnotes: true,
-          translate_code: false,
-          output_font: null,
-          system_prompt: null,
-          prompts: { default: "", literary: "", technical: "", academic: "", refine: "" },
-          refine: false,
-          checkpoint_dir: "",
-          resume: null,
-        };
+        const translateArgs = buildTranslateArgs();
         await invoke("enqueue_pipeline_task", { ocrArgs, translateArgs });
         await invoke("start_queue");
         setConverting(false);
@@ -238,11 +250,14 @@ function OcrPage({ inputs, setInputs, onPageChange }: OcrPageProps) {
     );
   }
 
+  const canStart =
+    !!pdfPath && !!outputPath && (!pipelineMode || !!translateOutputPath) && !converting;
+
   return (
     <div className="page ocr-page">
       <h2>{t("ocr_title")}</h2>
 
-      <label className="ocr-checkbox">
+      <label className="checkbox-label ocr-mode-toggle">
         <input
           type="checkbox"
           checked={pipelineMode}
@@ -251,113 +266,17 @@ function OcrPage({ inputs, setInputs, onPageChange }: OcrPageProps) {
         {t("ocr_pipeline_enable")}
       </label>
 
-      <section className="ocr-section">
-        <h3>{t("ocr_files")}</h3>
-        <div className="ocr-field">
-          <label>{t("ocr_source_pdf")}</label>
-          <div className="ocr-file-row">
-            <span className={`ocr-file-path ${pdfPath ? "" : "empty"}`} title={pdfPath || undefined}>
-              {pdfPath || t("ocr_no_pdf")}
-            </span>
-            <button type="button" onClick={selectPdf}>
-              {t("select_file")}
-            </button>
-          </div>
-        </div>
-        <div className="ocr-field">
-          <label>{t("ocr_output_epub")}</label>
-          <div className="ocr-file-row">
-            <span
-              className={`ocr-file-path ${outputPath ? "" : "empty"}`}
-              title={outputPath || undefined}
-            >
-              {outputPath || t("ocr_no_output")}
-            </span>
-            <button type="button" onClick={selectOutput}>
-              {t("select_file")}
-            </button>
-          </div>
-        </div>
-        <div className="ocr-field">
-          <label>{t("ocr_title_label")}</label>
-          <input
-            type="text"
-            className="ocr-input"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder={t("ocr_title_label")}
-          />
-        </div>
-      </section>
-
-      <section className="ocr-section">
-        <h3>{t("ocr_engine")}</h3>
-        <div className="ocr-field">
-          <label>{t("ocr_provider")}</label>
-          <select
-            className="ocr-select"
-            value={ocrProviderName}
-            onChange={(e) => setOcrProviderName(e.target.value)}
-          >
-            {providers.map((p) => (
-              <option key={p.name} value={p.name}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="ocr-field">
-          <label>{t("ocr_model")}</label>
-          <input
-            type="text"
-            className="ocr-input"
-            value={ocrModel}
-            onChange={(e) => setOcrModel(e.target.value)}
-          />
-        </div>
-        <details className="ocr-collapsible">
-          <summary>{t("ocr_advanced")}</summary>
-          <div className="ocr-inline-row">
-            <label>
-              {t("ocr_concurrency")}
-              <input
-                type="number"
-                min={1}
-                value={ocrConcurrency}
-                onChange={(e) => setOcrConcurrency(Number(e.target.value) || 1)}
-              />
-            </label>
-            <label>
-              {t("ocr_dpi")}
-              <input
-                type="number"
-                min={50}
-                value={dpi}
-                onChange={(e) => setDpi(Number(e.target.value) || 200)}
-              />
-            </label>
-          </div>
-        </details>
-      </section>
-
-      <section className="ocr-section">
-        <h3>{t("ocr_verify")}</h3>
-        <label className="ocr-checkbox">
-          <input
-            type="checkbox"
-            checked={verifyEnabled}
-            onChange={(e) => setVerifyEnabled(e.target.checked)}
-          />
-          {t("ocr_verify_enable")}
-        </label>
-        {verifyEnabled && (
-          <>
-            <div className="ocr-field">
-              <label>{t("ocr_provider")}</label>
+      <section className="quick-settings">
+        <div className="row">
+          <label>
+            {t("ocr_provider")}
+            <div className="provider-select">
+              {ocrProvider && (
+                <ProviderIcon provider={ocrProvider.provider} className="provider-select-icon" />
+              )}
               <select
-                className="ocr-select"
-                value={verifyProviderName}
-                onChange={(e) => setVerifyProviderName(e.target.value)}
+                value={ocrProviderName}
+                onChange={(e) => setOcrProviderName(e.target.value)}
               >
                 {providers.map((p) => (
                   <option key={p.name} value={p.name}>
@@ -366,16 +285,208 @@ function OcrPage({ inputs, setInputs, onPageChange }: OcrPageProps) {
                 ))}
               </select>
             </div>
-            <div className="ocr-field">
-              <label>{t("ocr_model")}</label>
-              <input
-                type="text"
-                className="ocr-input"
-                value={verifyModel}
-                onChange={(e) => setVerifyModel(e.target.value)}
-              />
+          </label>
+
+          <ModelSelect
+            provider={ocrProvider?.provider ?? ""}
+            apiKey={ocrProvider?.api_key ?? ""}
+            baseUrl={ocrProvider?.base_url ?? ""}
+            useCustomBaseUrl={ocrProvider?.use_custom_base_url ?? false}
+            model={ocrModel}
+            onChange={setOcrModel}
+          />
+        </div>
+      </section>
+
+      {pipelineMode && (
+        <section className="quick-settings">
+          <div className="row">
+            <label>
+              {t("provider")}
+              <div className="provider-select">
+                {translateProvider && (
+                  <ProviderIcon
+                    provider={translateProvider.provider}
+                    className="provider-select-icon"
+                  />
+                )}
+                <select
+                  value={inputs.active_provider}
+                  onChange={(e) => setInputs({ active_provider: e.target.value })}
+                >
+                  {providers.map((p) => (
+                    <option key={p.name} value={p.name}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </label>
+
+            <ModelSelect
+              provider={translateProvider?.provider ?? ""}
+              apiKey={translateProvider?.api_key ?? ""}
+              baseUrl={translateProvider?.base_url ?? ""}
+              useCustomBaseUrl={translateProvider?.use_custom_base_url ?? false}
+              model={inputs.model}
+              onChange={(value) => setInputs({ model: value })}
+            />
+
+            <label>
+              {t("target_lang")}
+              <select
+                value={inputs.target_lang}
+                onChange={(e) => setInputs({ target_lang: e.target.value })}
+              >
+                {targetLanguages.map((lang) => (
+                  <option key={lang.code} value={lang.code}>
+                    {t(`target_lang_${lang.code}`)}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label>
+              {t("output_mode")}
+              <select
+                value={inputs.output_mode}
+                onChange={(e) => setInputs({ output_mode: e.target.value })}
+              >
+                {outputModes.map((mode) => (
+                  <option key={mode} value={mode}>
+                    {t(`output_mode_${mode}`)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </section>
+      )}
+
+      <section className="file-section">
+        <div
+          className="file-row file-row-source"
+          role="button"
+          tabIndex={0}
+          onClick={selectPdf}
+          aria-label={t("ocr_source_pdf")}
+        >
+          <div className="file-info">
+            <span className="file-label">{t("ocr_source_pdf")}</span>
+            <span className="file-path" title={pdfPath || undefined}>
+              {pdfPath || t("ocr_no_pdf")}
+            </span>
+          </div>
+          <div className="file-row-actions">
+            {pdfPath && (
+              <button
+                type="button"
+                className="icon-button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setPdfPath("");
+                }}
+                title={t("clear")}
+                aria-label={t("clear")}
+              >
+                ×
+              </button>
+            )}
+            <button type="button" onClick={(e) => { e.stopPropagation(); selectPdf(); }}>
+              {t("select_file")}
+            </button>
+          </div>
+        </div>
+
+        <div className="file-row">
+          <div className="file-info">
+            <span className="file-label">
+              {t("ocr_output_epub")}
+              {pipelineMode && ` (${t("ocr_intermediate")})`}
+            </span>
+            <span className="file-path" title={outputPath || undefined}>
+              {outputPath || t("ocr_no_output")}
+            </span>
+          </div>
+          <div className="file-row-actions">
+            {outputPath && (
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => {
+                  setOutputPath("");
+                  setResultPath(null);
+                }}
+                title={t("clear")}
+                aria-label={t("clear")}
+              >
+                ×
+              </button>
+            )}
+            <button type="button" onClick={selectOutput}>
+              {t("save_as")}
+            </button>
+          </div>
+        </div>
+
+        {pipelineMode && (
+          <div className="file-row">
+            <div className="file-info">
+              <span className="file-label">{t("ocr_final_output")}</span>
+              <span className="file-path" title={translateOutputPath || undefined}>
+                {translateOutputPath || t("ocr_no_output")}
+              </span>
             </div>
-            <div className="ocr-inline-row">
+            <div className="file-row-actions">
+              {translateOutputPath && (
+                <button
+                  type="button"
+                  className="icon-button"
+                  onClick={() => setTranslateOutputPath("")}
+                  title={t("clear")}
+                  aria-label={t("clear")}
+                >
+                  ×
+                </button>
+              )}
+              <button type="button" onClick={selectTranslateOutput}>
+                {t("save_as")}
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
+
+      <section className="advanced-section">
+        <label>
+          {t("ocr_title_label")}
+          <input
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder={t("ocr_title_label")}
+          />
+        </label>
+
+        <div className="refine-option">
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={verifyEnabled}
+              onChange={(e) => setVerifyEnabled(e.target.checked)}
+            />
+            {t("ocr_verify_enable")}
+          </label>
+          {verifyEnabled && (
+            <div className="row">
+              <label>
+                {t("ocr_model")}
+                <input
+                  type="text"
+                  value={verifyModel}
+                  onChange={(e) => setVerifyModel(e.target.value)}
+                />
+              </label>
               <label>
                 {t("ocr_verify_threshold")}
                 <input
@@ -397,23 +508,20 @@ function OcrPage({ inputs, setInputs, onPageChange }: OcrPageProps) {
                 />
               </label>
             </div>
-          </>
-        )}
-      </section>
+          )}
+        </div>
 
-      <section className="ocr-section">
-        <h3>{t("ocr_refine")}</h3>
-        <label className="ocr-checkbox">
-          <input
-            type="checkbox"
-            checked={refineEnabled}
-            onChange={(e) => setRefineEnabled(e.target.checked)}
-          />
-          {t("ocr_refine_enable")}
-        </label>
-        {refineEnabled && (
-          <>
-            <div className="ocr-inline-row" style={{ marginBottom: "0.85rem" }}>
+        <div className="refine-option">
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={refineEnabled}
+              onChange={(e) => setRefineEnabled(e.target.checked)}
+            />
+            {t("ocr_refine_enable")}
+          </label>
+          {refineEnabled && (
+            <div className="row">
               <label>
                 {t("ocr_refine_rounds")}
                 <input
@@ -423,132 +531,88 @@ function OcrPage({ inputs, setInputs, onPageChange }: OcrPageProps) {
                   onChange={(e) => setRefineRounds(Number(e.target.value) || 1)}
                 />
               </label>
+              <label>
+                {t("ocr_model")}
+                <input
+                  type="text"
+                  value={refineModel}
+                  onChange={(e) => setRefineModel(e.target.value)}
+                />
+              </label>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={refineWithImage}
+                  onChange={(e) => setRefineWithImage(e.target.checked)}
+                />
+                {t("ocr_refine_with_image")}
+              </label>
             </div>
-            <div className="ocr-field">
-              <label>{t("ocr_provider")}</label>
-              <select
-                className="ocr-select"
-                value={refineProviderName}
-                onChange={(e) => setRefineProviderName(e.target.value)}
-              >
-                {providers.map((p) => (
-                  <option key={p.name} value={p.name}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="ocr-field">
-              <label>{t("ocr_model")}</label>
-              <input
-                type="text"
-                className="ocr-input"
-                value={refineModel}
-                onChange={(e) => setRefineModel(e.target.value)}
-              />
-            </div>
-            <label className="ocr-checkbox">
-              <input
-                type="checkbox"
-                checked={refineWithImage}
-                onChange={(e) => setRefineWithImage(e.target.checked)}
-              />
-              {t("ocr_refine_with_image")}
-            </label>
-          </>
-        )}
+          )}
+        </div>
+
+        <div className="row">
+          <label>
+            {t("ocr_concurrency")}
+            <input
+              type="number"
+              min={1}
+              value={ocrConcurrency}
+              onChange={(e) => setOcrConcurrency(Number(e.target.value) || 1)}
+            />
+          </label>
+          <label>
+            {t("ocr_dpi")}
+            <input
+              type="number"
+              min={50}
+              value={dpi}
+              onChange={(e) => setDpi(Number(e.target.value) || 200)}
+            />
+          </label>
+        </div>
       </section>
 
-      {pipelineMode && (
-        <section className="ocr-section">
-          <h3>{t("ocr_translation")}</h3>
-          <div className="ocr-field">
-            <label>{t("target_lang")}</label>
-            <select
-              className="ocr-select"
-              value={translateTargetLang}
-              onChange={(e) => setTranslateTargetLang(e.target.value)}
-            >
-              {languages.map((lang) => (
-                <option key={lang.code} value={lang.code}>
-                  {lang.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="ocr-field">
-            <label>{t("ocr_provider")}</label>
-            <select
-              className="ocr-select"
-              value={translateProviderName}
-              onChange={(e) => setTranslateProviderName(e.target.value)}
-            >
-              {providers.map((p) => (
-                <option key={p.name} value={p.name}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="ocr-field">
-            <label>{t("ocr_model")}</label>
-            <input
-              type="text"
-              className="ocr-input"
-              value={translateModel}
-              onChange={(e) => setTranslateModel(e.target.value)}
-            />
-          </div>
-          <div className="ocr-field">
-            <label>{t("ocr_final_output")}</label>
-            <div className="ocr-file-row">
-              <span
-                className={`ocr-file-path ${translateOutputPath ? "" : "empty"}`}
-                title={translateOutputPath || undefined}
-              >
-                {translateOutputPath || t("ocr_no_output")}
-              </span>
-              <button type="button" onClick={selectTranslateOutput}>
-                {t("select_file")}
-              </button>
-            </div>
-          </div>
-        </section>
-      )}
-
-      <div className="ocr-actions">
+      <div className="start-row">
         <button
+          className="start-button"
           type="button"
-          className="button-primary"
           onClick={convert}
-          disabled={converting || !pdfPath || !outputPath || (pipelineMode && !translateOutputPath)}
+          disabled={!canStart}
         >
-          {converting ? t("ocr_converting") : pipelineMode ? t("ocr_convert_pipeline") : t("ocr_convert")}
+          {converting
+            ? t("ocr_converting")
+            : pipelineMode
+            ? t("ocr_convert_pipeline")
+            : t("ocr_convert")}
         </button>
-        {resultPath && (
-          <button type="button" className="button-secondary" onClick={sendToTranslate}>
-            {t("ocr_send_to_translate")}
-          </button>
-        )}
       </div>
 
       {progress && (
-        <div className="ocr-progress">
-          <div className="ocr-progress-label">{progress.message}</div>
-          <div className="ocr-progress-bar">
-            <div
-              className="ocr-progress-fill"
-              style={{ width: `${progress.percent}%` }}
-            />
+        <div className="ocr-progress-block">
+          <div className="progress-header">
+            <span>{progress.message}</span>
+            <span>{progress.percent}%</span>
+          </div>
+          <div className="progress-bar">
+            <div className="progress-fill" style={{ width: `${progress.percent}%` }} />
           </div>
         </div>
       )}
 
       {error && <div className="ocr-error">{error}</div>}
+
       {resultPath && (
-        <div className="ocr-success">
+        <div className="inline-success">
           {t("ocr_convert_success")}
-          <div className="ocr-success-path">{resultPath}</div>
+          <span className="inline-success-path">{resultPath}</span>
+          <button
+            type="button"
+            className="button-secondary"
+            onClick={sendToTranslate}
+          >
+            {t("ocr_send_to_translate")}
+          </button>
         </div>
       )}
     </div>

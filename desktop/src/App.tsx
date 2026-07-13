@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import "./styles/theme.css";
 import "./styles/base.css";
+import "./styles/form.css";
 import type {
   FormState,
   ModelParams,
