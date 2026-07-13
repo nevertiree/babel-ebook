@@ -520,6 +520,8 @@ pub async fn convert_pdf_to_epub(args: PdfToEpubArgs) -> Result<String, String> 
             .map_or_else(|| "Untitled".into(), |s| s.to_string_lossy().into_owned())
     });
 
+    let ocr_api_key = args.ocr_api_key.clone();
+    let ocr_base_url = args.ocr_base_url.clone();
     let ocr_config = babel_ebook::pdf_ocr::QwenOcrConfig {
         api_key: args.ocr_api_key,
         base_url: args.ocr_base_url,
@@ -548,13 +550,37 @@ pub async fn convert_pdf_to_epub(args: PdfToEpubArgs) -> Result<String, String> 
         )))
     };
 
+    let refiner: Option<Box<dyn babel_ebook::pdf_ocr::RefineBackend>> =
+        if args.ocr_refine_rounds == 0 {
+            None
+        } else {
+            Some(Box::new(babel_ebook::pdf_ocr::OpenAiRefineBackend::new(
+                babel_ebook::pdf_ocr::OpenAiRefineConfig {
+                    api_key: args.ocr_refine_api_key.clone().unwrap_or(ocr_api_key),
+                    base_url: args
+                        .ocr_refine_base_url
+                        .clone()
+                        .or(ocr_base_url)
+                        .unwrap_or_else(|| {
+                            "https://dashscope.aliyuncs.com/compatible-mode/v1".to_string()
+                        }),
+                    model: args
+                        .ocr_refine_model
+                        .clone()
+                        .unwrap_or_else(|| "qwen-max".into()),
+                    max_tokens: 4096,
+                    include_image: args.ocr_refine_with_image,
+                },
+            )))
+        };
+
     let config = babel_ebook::pdf_ocr::PdfToEpubConfig {
         dpi: args.dpi,
         verify_threshold: args.verify_threshold,
         verify_max_attempts: args.verify_max_attempts,
         verify_scale_factors: args.verify_scale_factors,
         ocr_concurrency: args.ocr_concurrency,
-        refine_rounds: 0,
+        refine_rounds: args.ocr_refine_rounds,
         ..babel_ebook::pdf_ocr::PdfToEpubConfig::default()
     };
 
@@ -564,7 +590,7 @@ pub async fn convert_pdf_to_epub(args: PdfToEpubArgs) -> Result<String, String> 
         &title,
         &ocr,
         verifier.as_deref(),
-        None::<&dyn babel_ebook::pdf_ocr::RefineBackend>,
+        refiner.as_deref(),
         &config,
     )
     .await

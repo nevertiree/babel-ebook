@@ -124,6 +124,18 @@ pub struct PdfToEpubArgs {
     /// Scale factors for verify retry crops.
     #[serde(default = "default_verify_scale_factors")]
     pub verify_scale_factors: Vec<f32>,
+    /// Number of LLM structural refinement rounds after OCR (0 disables refinement).
+    #[serde(default)]
+    pub ocr_refine_rounds: usize,
+    /// Optional API key for the refinement backend. Defaults to the OCR API key.
+    pub ocr_refine_api_key: Option<String>,
+    /// Optional base URL for the refinement backend. Defaults to the OCR base URL.
+    pub ocr_refine_base_url: Option<String>,
+    /// Optional model name for the refinement backend. Defaults to qwen-max.
+    pub ocr_refine_model: Option<String>,
+    /// Include the page image in the refinement prompt (requires a vision model).
+    #[serde(default)]
+    pub ocr_refine_with_image: bool,
 }
 
 const fn default_dpi() -> u32 {

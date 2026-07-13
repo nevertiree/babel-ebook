@@ -18,6 +18,7 @@ import type {
 } from "./types";
 import { defaults } from "./types";
 import TranslatePage from "./pages/TranslatePage";
+import OcrPage from "./pages/OcrPage";
 import ComputeSettingsPage from "./pages/ComputeSettingsPage";
 import ModelParamsPage from "./pages/ModelParamsPage";
 import TranslationSettingsPage from "./pages/TranslationSettingsPage";
@@ -626,6 +627,14 @@ function App() {
 
   const renderPage = () => {
     switch (page) {
+      case "ocr":
+        return (
+          <OcrPage
+            inputs={translateInputs}
+            setInputs={setInputs}
+            onPageChange={setPage}
+          />
+        );
       case "translate":
         return (
           <TranslatePage
@@ -752,6 +761,16 @@ function App() {
             >
               <NavIcon icon="translate" className="nav-item-icon" />
               <span className="nav-item-label">{t("nav_translate")}</span>
+            </button>
+
+            <button
+              type="button"
+              className={`nav-item ${page === "ocr" ? "active" : ""}`}
+              onClick={() => setPage("ocr")}
+              data-testid="nav-ocr"
+            >
+              <NavIcon icon="ocr" className="nav-item-icon" />
+              <span className="nav-item-label">{t("nav_ocr")}</span>
             </button>
 
             <button

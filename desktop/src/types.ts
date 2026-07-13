@@ -161,6 +161,7 @@ export type TranslateInputs = Pick<
  */
 export type Page =
   | "translate"
+  | "ocr"
   | "tasks"
   | "logs"
   | "settings-compute"
