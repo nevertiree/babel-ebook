@@ -154,6 +154,23 @@ struct PdfToEpubArgs {
     /// Comma-separated scale factors for verify retry crops (e.g. 1,2,3).
     #[arg(long, default_value = "1,2,3")]
     verify_scale_factors: String,
+    /// Number of LLM structural refinement rounds after OCR (0 disables refinement).
+    #[arg(long, default_value_t = 0)]
+    ocr_refine_rounds: usize,
+    /// API key for the refinement backend. Defaults to the OCR API key.
+    #[arg(long)]
+    ocr_refine_api_key: Option<String>,
+    /// Base URL for the refinement backend. Defaults to the OCR base URL.
+    #[arg(long)]
+    ocr_refine_base_url: Option<String>,
+    /// Model name for the refinement backend. Defaults to qwen-max for text-only
+    /// refinement.
+    #[arg(long, default_value = "qwen-max")]
+    ocr_refine_model: String,
+    /// Include the page image in the refinement prompt. Requires a vision-capable
+    /// refinement model.
+    #[arg(long)]
+    ocr_refine_with_image: bool,
     /// UI language (en, es, ja, ko, ru, zh-CN) or "auto" to detect the system locale.
     #[arg(long, default_value = "auto")]
     lang: String,
@@ -320,14 +337,16 @@ async fn run_pdf_to_epub(args: PdfToEpubArgs) -> Result<()> {
     };
     tracing_subscriber::fmt().with_max_level(level).init();
 
-    let ocr_api_key = args.ocr_api_key.ok_or_else(|| {
+    let ocr_api_key = args.ocr_api_key.clone().ok_or_else(|| {
         anyhow::anyhow!("--ocr-api-key is required (or set DASHSCOPE_API_KEY in the environment)")
     })?;
+    let ocr_base_url = args.ocr_base_url.clone();
+    let ocr_model = args.ocr_model.clone();
 
     let ocr = babel_ebook::pdf_ocr::QwenOcrBackend::new(babel_ebook::pdf_ocr::QwenOcrConfig {
-        api_key: ocr_api_key,
-        base_url: Some(args.ocr_base_url),
-        model: args.ocr_model,
+        api_key: ocr_api_key.clone(),
+        base_url: Some(ocr_base_url.clone()),
+        model: ocr_model.clone(),
     });
 
     let verifier: Option<Box<dyn babel_ebook::pdf_ocr::VerifyBackend>> = if args.no_verify {
@@ -351,6 +370,27 @@ async fn run_pdf_to_epub(args: PdfToEpubArgs) -> Result<()> {
         )))
     };
 
+    let refiner: Option<Box<dyn babel_ebook::pdf_ocr::RefineBackend>> =
+        if args.ocr_refine_rounds == 0 {
+            None
+        } else {
+            Some(Box::new(babel_ebook::pdf_ocr::OpenAiRefineBackend::new(
+                babel_ebook::pdf_ocr::OpenAiRefineConfig {
+                    api_key: args
+                        .ocr_refine_api_key
+                        .clone()
+                        .unwrap_or_else(|| ocr_api_key.clone()),
+                    base_url: args
+                        .ocr_refine_base_url
+                        .clone()
+                        .unwrap_or_else(|| ocr_base_url.clone()),
+                    model: args.ocr_refine_model.clone(),
+                    max_tokens: 4096,
+                    include_image: args.ocr_refine_with_image,
+                },
+            )))
+        };
+
     let title = args.title.unwrap_or_else(|| {
         args.pdf
             .file_stem()
@@ -370,6 +410,7 @@ async fn run_pdf_to_epub(args: PdfToEpubArgs) -> Result<()> {
         verify_max_attempts: args.verify_max_attempts,
         verify_scale_factors,
         ocr_concurrency: args.ocr_concurrency,
+        refine_rounds: args.ocr_refine_rounds,
         ..babel_ebook::pdf_ocr::PdfToEpubConfig::default()
     };
 
@@ -379,6 +420,7 @@ async fn run_pdf_to_epub(args: PdfToEpubArgs) -> Result<()> {
         &title,
         &ocr,
         verifier.as_deref(),
+        refiner.as_deref(),
         &config,
     )
     .await

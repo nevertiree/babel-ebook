@@ -494,6 +494,7 @@ pub async fn convert_pdf_to_epub(args: PdfToEpubArgs) -> Result<String, String> 
         verify_max_attempts: args.verify_max_attempts,
         verify_scale_factors: args.verify_scale_factors,
         ocr_concurrency: args.ocr_concurrency,
+        refine_rounds: 0,
         ..babel_ebook::pdf_ocr::PdfToEpubConfig::default()
     };
 
@@ -503,6 +504,7 @@ pub async fn convert_pdf_to_epub(args: PdfToEpubArgs) -> Result<String, String> 
         &title,
         &ocr,
         verifier.as_deref(),
+        None::<&dyn babel_ebook::pdf_ocr::RefineBackend>,
         &config,
     )
     .await

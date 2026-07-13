@@ -10,12 +10,14 @@ pub mod backend;
 pub mod epub;
 pub mod post_process;
 pub mod qwen;
+pub mod refine;
 pub mod render;
 pub mod verify;
 
 pub(crate) use backend::deserialize_bbox_flexible;
 pub use backend::{BlockType, BoundingBox, OcrBackend, OcrPageResult, TextBlock};
 pub use qwen::{QwenOcrBackend, QwenOcrConfig};
+pub use refine::{refine_pages, OpenAiRefineBackend, OpenAiRefineConfig, RefineBackend};
 pub use verify::{OpenAiVerifyBackend, OpenAiVerifyConfig, VerifyBackend};
 
 /// Configuration for the PDF → EPUB conversion pipeline.
@@ -36,6 +38,9 @@ pub struct PdfToEpubConfig {
     pub verify_scale_factors: Vec<f32>,
     /// Number of pages to OCR concurrently.
     pub ocr_concurrency: usize,
+    /// Number of LLM refinement rounds to run after OCR and before EPUB assembly.
+    /// Set to 0 to disable refinement.
+    pub refine_rounds: usize,
 }
 
 impl Default for PdfToEpubConfig {
@@ -48,6 +53,7 @@ impl Default for PdfToEpubConfig {
             verify_max_attempts: 3,
             verify_scale_factors: vec![1.0, 2.0, 3.0],
             ocr_concurrency: 3,
+            refine_rounds: 0,
         }
     }
 }
@@ -67,6 +73,7 @@ pub async fn convert_pdf_to_epub(
     title: &str,
     ocr: &dyn OcrBackend,
     verifier: Option<&dyn VerifyBackend>,
+    refiner: Option<&dyn RefineBackend>,
     config: &PdfToEpubConfig,
 ) -> Result<EpubBook, BabelEbookError> {
     std::fs::create_dir_all(&config.temp_dir).map_err(|e| {
@@ -122,6 +129,10 @@ pub async fn convert_pdf_to_epub(
             .buffered(concurrency)
             .try_collect()
             .await?;
+
+    if let Some(r) = refiner {
+        refine_pages(r, &rendered, &mut pages, config.refine_rounds).await?;
+    }
 
     post_process::clean_pages(&mut pages);
     let image_resources = extract_and_embed_images(&rendered, &mut pages, &config.temp_dir)?;
@@ -244,9 +255,10 @@ pub async fn convert_pdf_to_epub_file(
     title: &str,
     ocr: &dyn OcrBackend,
     verifier: Option<&dyn VerifyBackend>,
+    refiner: Option<&dyn RefineBackend>,
     config: &PdfToEpubConfig,
 ) -> Result<(), BabelEbookError> {
-    let book = convert_pdf_to_epub(pdf_path, title, ocr, verifier, config).await?;
+    let book = convert_pdf_to_epub(pdf_path, title, ocr, verifier, refiner, config).await?;
     crate::epub::write_epub(&book, output_path)
 }
 

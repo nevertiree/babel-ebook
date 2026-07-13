@@ -87,9 +87,11 @@ where
                 _ => Ok(None),
             }
         }
-        Some(serde_json::Value::Array(arr)) if arr.len() == 4 => {
+        // Some backends include a fifth value (e.g. rotation angle); ignore it.
+        Some(serde_json::Value::Array(arr)) if arr.len() == 4 || arr.len() == 5 => {
             let vals: Option<Vec<u32>> = arr
                 .iter()
+                .take(4)
                 .map(|v| v.as_u64().and_then(|n| u32::try_from(n).ok()))
                 .collect();
             Ok(vals.map(|v| BoundingBox {
@@ -131,6 +133,21 @@ mod tests {
     #[test]
     fn deserialize_bbox_array() {
         let json = r#"{"bbox": [10, 20, 30, 40]}"#;
+        let parsed: Wrapper = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            parsed.bbox,
+            Some(BoundingBox {
+                x: 10,
+                y: 20,
+                w: 30,
+                h: 40
+            })
+        );
+    }
+
+    #[test]
+    fn deserialize_bbox_array_with_extra_angle() {
+        let json = r#"{"bbox": [10, 20, 30, 40, 90]}"#;
         let parsed: Wrapper = serde_json::from_str(json).unwrap();
         assert_eq!(
             parsed.bbox,

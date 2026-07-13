@@ -23,14 +23,28 @@ pub fn clean_pages(pages: &mut [OcrPageResult]) {
             if repeated.contains(&normalize_header(&block.text)) {
                 return false;
             }
+            if contains_repeated_header(&block.text, &repeated) {
+                return false;
+            }
             true
         });
     }
 
     group_diagram_labels(pages);
-    merge_adjacent_paragraphs(pages);
-    merge_paragraphs_across_pages(pages);
     rebuild_full_text(pages);
+}
+
+/// Remove blocks that are dominated by a known repeated header, even if the
+/// model merged the header with a few extra characters.
+fn contains_repeated_header(text: &str, repeated: &std::collections::HashSet<String>) -> bool {
+    let normalized = normalize_header(text);
+    for header in repeated {
+        if normalized.starts_with(header) {
+            // Allow only a small amount of extra trailing content.
+            return normalized.len() <= header.len() + 10;
+        }
+    }
+    false
 }
 
 /// Remove blocks that contain fragments of the system prompt or task description.
@@ -121,7 +135,7 @@ fn find_repeated_headers(pages: &[OcrPageResult]) -> std::collections::HashSet<S
         return std::collections::HashSet::new();
     }
 
-    let threshold = page_count / 4;
+    let threshold = page_count / 5;
     let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
 
     for page in pages {
@@ -184,10 +198,15 @@ fn group_diagram_labels(pages: &mut [OcrPageResult]) {
 /// character (Latin, digit, or symbol). This avoids grouping normal short
 /// Chinese phrases that happen to cross a page boundary.
 fn is_diagram_label(block: &TextBlock) -> bool {
-    if !matches!(
+    // Headings and captions should keep their semantic type; don't turn them
+    // into diagram label clusters.
+    if matches!(
         block.block_type,
-        BlockType::Paragraph | BlockType::Other | BlockType::Caption
+        BlockType::Heading | BlockType::Subheading | BlockType::Caption
     ) {
+        return false;
+    }
+    if !matches!(block.block_type, BlockType::Paragraph | BlockType::Other) {
         return false;
     }
     let text = block.text.trim();
@@ -201,11 +220,46 @@ fn is_diagram_label(block: &TextBlock) -> bool {
     if text.ends_with('.') || text.ends_with('!') || text.ends_with('?') {
         return false;
     }
+    // Don't swallow section headers or figure/table captions that the OCR
+    // backend mis-typed as paragraphs.
+    if looks_like_heading(text) || looks_like_caption(text) {
+        return false;
+    }
     // Diagram labels are either non-CJK (e.g. "μ-3σ", "2.15%") or very short
     // pure Chinese fragments (e.g. "监控", "日志", "北斗").
     let has_non_cjk = text.chars().any(|c| !is_cjk_or_fullwidth(c));
     let short_pure_cjk = text.chars().count() <= 6 && text.chars().all(is_cjk_or_fullwidth);
     has_non_cjk || short_pure_cjk
+}
+
+fn looks_like_heading(text: &str) -> bool {
+    let trimmed = text.trim_start();
+    if trimmed.starts_with('#') {
+        return true;
+    }
+    // Numbered headings like "1.", "1.1", "1金融", "1.1金融" or Chinese "第1章".
+    let prefix_len = trimmed
+        .chars()
+        .take_while(|c| c.is_ascii_digit() || *c == '.')
+        .count();
+    if prefix_len > 0 {
+        let rest = trimmed.chars().skip(prefix_len).collect::<String>();
+        if rest.starts_with(' ')
+            || rest.starts_with('\u{3000}')
+            || rest.chars().next().is_some_and(is_cjk_or_fullwidth)
+        {
+            return true;
+        }
+    }
+    trimmed.starts_with('第') && trimmed.chars().nth(1).is_some_and(|c| c.is_ascii_digit())
+}
+
+fn looks_like_caption(text: &str) -> bool {
+    let trimmed = text.trim_start();
+    trimmed.starts_with('图')
+        || trimmed.starts_with('表')
+        || trimmed.starts_with("Fig")
+        || trimmed.starts_with("Table")
 }
 
 fn is_cjk_or_fullwidth(c: char) -> bool {
@@ -232,130 +286,6 @@ fn flush_diagram_run(run: &mut Vec<TextBlock>) -> TextBlock {
         bbox: first.bbox,
         confidence: first.confidence,
     }
-}
-
-/// Merge adjacent paragraph blocks within each page when the first does not
-/// end a sentence and the second looks like a continuation. This fixes vision
-/// models that break a single sentence across multiple output lines.
-fn merge_adjacent_paragraphs(pages: &mut [OcrPageResult]) {
-    for page in pages.iter_mut() {
-        let mut i = 0;
-        while i + 1 < page.blocks.len() {
-            let current = &page.blocks[i];
-            let next = &page.blocks[i + 1];
-
-            let current_chars = current.text.chars().count();
-            let next_chars = next.text.chars().count();
-            let can_merge = current.block_type == BlockType::Paragraph
-                && next.block_type == BlockType::Paragraph
-                && !ends_sentence(&current.text)
-                && starts_with_sentence_fragment(&next.text)
-                && (current_chars > 15 || next_chars > 40);
-
-            if can_merge {
-                let next_text = page.blocks.remove(i + 1).text;
-                page.blocks[i].text.push_str(&next_text);
-            } else {
-                i += 1;
-            }
-        }
-    }
-}
-
-/// Merge a paragraph that ends mid-sentence at the bottom of one page with the
-/// first paragraph of the next page when the continuation looks plausible.
-fn merge_paragraphs_across_pages(pages: &mut [OcrPageResult]) {
-    for i in 0..pages.len().saturating_sub(1) {
-        let (prev, next) = pages.split_at_mut(i + 1);
-        let prev_page = prev.last_mut().expect("prev has at least one page");
-        let next_page = next.first_mut().expect("next has at least one page");
-
-        let Some(last) = prev_page.blocks.last_mut() else {
-            continue;
-        };
-        if last.block_type != BlockType::Paragraph || ends_sentence(&last.text) {
-            continue;
-        }
-
-        let first_idx = next_page
-            .blocks
-            .iter()
-            .position(|b| b.block_type == BlockType::Paragraph);
-        let Some(first_idx) = first_idx else {
-            continue;
-        };
-
-        let first = &next_page.blocks[first_idx];
-        // Only merge if the next paragraph does not itself start a new sentence.
-        if starts_with_sentence_fragment(&first.text) {
-            let first_text = next_page.blocks.remove(first_idx).text;
-            last.text.push_str(&first_text);
-        }
-    }
-}
-
-fn ends_sentence(text: &str) -> bool {
-    let trimmed = text.trim_end();
-    trimmed.ends_with('。')
-        || trimmed.ends_with('！')
-        || trimmed.ends_with('？')
-        || trimmed.ends_with('.')
-        || trimmed.ends_with('!')
-        || trimmed.ends_with('?')
-        || trimmed.ends_with('”')
-        || trimmed.ends_with('"')
-}
-
-/// Heuristic: the text looks like a continuation of the previous sentence
-/// rather than the start of a new one.
-fn starts_with_sentence_fragment(text: &str) -> bool {
-    let trimmed = text.trim_start();
-    let Some(first_char) = trimmed.chars().next() else {
-        return false;
-    };
-    // Starts with lowercase Latin or a number.
-    if first_char.is_ascii_lowercase() || first_char.is_ascii_digit() {
-        return true;
-    }
-    // Starts with punctuation that implies continuation.
-    let continuations = ["，", "、", "；", ",", ";", " "];
-    if continuations.iter().any(|c| trimmed.starts_with(*c)) {
-        return true;
-    }
-    // Chinese text: treat as a continuation unless it starts with a strong
-    // sentence or list marker.
-    if (0x4E00..=0x9FFF).contains(&(first_char as u32)) {
-        let new_sentence_markers = [
-            "首先",
-            "其次",
-            "再次",
-            "最后",
-            "此外",
-            "同时",
-            "因此",
-            "所以",
-            "但是",
-            "然而",
-            "综上",
-            "总之",
-            "例如",
-            "比如",
-            "一方面",
-            "另一方面",
-            "第一",
-            "第二",
-            "第三",
-            "第",
-            "一是",
-            "二是",
-            "三是",
-            "其一",
-            "其二",
-            "其三",
-        ];
-        return !new_sentence_markers.iter().any(|m| trimmed.starts_with(m));
-    }
-    false
 }
 
 fn rebuild_full_text(pages: &mut [OcrPageResult]) {
@@ -492,28 +422,5 @@ mod tests {
         assert_eq!(pages[0].blocks[0].block_type, BlockType::Other);
         assert!(pages[0].blocks[0].text.contains("μ-3σ"));
         assert!(pages[0].blocks[0].text.contains("μ+3σ"));
-    }
-
-    #[test]
-    fn merges_paragraphs_across_pages() {
-        let mut pages = vec![
-            OcrPageResult {
-                page_number: 1,
-                blocks: vec![block("该算法通过数据", BlockType::Paragraph)],
-                full_text: String::new(),
-            },
-            OcrPageResult {
-                page_number: 2,
-                blocks: vec![block("预处理、计算基线、实时检测", BlockType::Paragraph)],
-                full_text: String::new(),
-            },
-        ];
-        clean_pages(&mut pages);
-        assert_eq!(pages[0].blocks.len(), 1);
-        assert_eq!(pages[1].blocks.len(), 0);
-        assert_eq!(
-            pages[0].blocks[0].text,
-            "该算法通过数据预处理、计算基线、实时检测"
-        );
     }
 }

@@ -167,11 +167,21 @@ fn parse_ocr_json(content: &str) -> Result<OcrPageResult, BabelEbookError> {
     let blocks: Vec<TextBlock> = if let Ok(raw) = serde_json::from_str::<RawOcrResponse>(&cleaned) {
         raw.blocks
             .into_iter()
-            .map(|b| TextBlock {
-                text: b.text,
-                confidence: b.confidence.clamp(0.0, 1.0),
-                bbox: b.bbox,
-                block_type: b.block_type,
+            .map(|b| {
+                let inferred = infer_json_block_type(&b.text, b.bbox);
+                // If the model supplied a structural type, trust it; otherwise use
+                // our inference. Paragraphs that look like headings/captions are
+                // upgraded so sections and figure/table labels are not lost.
+                let block_type = match b.block_type {
+                    Some(BlockType::Paragraph) | None => inferred,
+                    Some(ty) => ty,
+                };
+                TextBlock {
+                    text: b.text,
+                    confidence: b.confidence.clamp(0.0, 1.0),
+                    bbox: b.bbox,
+                    block_type,
+                }
             })
             .collect()
     } else {
@@ -324,6 +334,60 @@ fn infer_plain_text_block_type(text: &str) -> BlockType {
     BlockType::Paragraph
 }
 
+/// Infer block type for structured JSON responses that may omit the
+/// `block_type` field.
+///
+/// Falls back to the same heuristics used for plain-text OCR, but also treats
+/// multi-line diagram label clusters and math-heavy fragments as `Other` so
+/// they can be cropped and embedded as images when a bounding box is present.
+fn infer_json_block_type(text: &str, bbox: Option<BoundingBox>) -> BlockType {
+    let base = infer_plain_text_block_type(text);
+    if base != BlockType::Paragraph {
+        return base;
+    }
+
+    // Without geometry we cannot safely embed anything.
+    let Some(_) = bbox else {
+        return BlockType::Paragraph;
+    };
+
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return BlockType::Paragraph;
+    }
+
+    // Captions should stay as text even if the model forgot the block type.
+    if trimmed.starts_with('图') || trimmed.starts_with('表') || trimmed.starts_with("Fig") {
+        return BlockType::Caption;
+    }
+
+    // Diagrams/figures usually have no sentence terminator and consist of short
+    // labels, percentages, Greek letters, or math symbols.
+    let lines: Vec<&str> = trimmed
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
+    let has_math_or_symbol = trimmed.chars().any(|c| {
+        matches!(
+            c,
+            'μ' | 'σ' | 'δ' | 'α' | 'β' | 'γ' | 'θ' | 'λ' | 'π' | 'ω' | '∞' | '∑' | '∫'
+        ) || c == '%'
+    });
+    let avg_line_len = trimmed.len() / lines.len().max(1);
+    let no_sentence_end = !trimmed
+        .chars()
+        .last()
+        .is_some_and(|c| matches!(c, '。' | '！' | '？' | '.' | '!' | '?' | '"' | '”'));
+    let short_label_cluster = lines.len() >= 3 && avg_line_len <= 20;
+
+    if no_sentence_end && (has_math_or_symbol || short_label_cluster) {
+        return BlockType::Other;
+    }
+
+    BlockType::Paragraph
+}
+
 #[derive(Debug, Deserialize)]
 struct ChatCompletionResponse {
     choices: Vec<Choice>,
@@ -356,7 +420,7 @@ struct RawTextBlock {
     )]
     bbox: Option<BoundingBox>,
     #[serde(default)]
-    block_type: BlockType,
+    block_type: Option<BlockType>,
 }
 
 fn encode_base64(input: &[u8]) -> String {

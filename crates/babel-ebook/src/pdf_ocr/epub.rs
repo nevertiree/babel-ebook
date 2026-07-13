@@ -19,10 +19,15 @@ pub fn build_epub(title: &str, pages: &[OcrPageResult]) -> EpubBook {
 
     for page in pages {
         let mut pending_cells: Vec<&TextBlock> = Vec::new();
+        let blocks = &page.blocks;
+        let mut i = 0;
 
-        for block in &page.blocks {
+        while i < blocks.len() {
+            let block = &blocks[i];
+
             if block.block_type == BlockType::TableCell {
                 pending_cells.push(block);
+                i += 1;
                 continue;
             }
 
@@ -32,9 +37,14 @@ pub fn build_epub(title: &str, pages: &[OcrPageResult]) -> EpubBook {
             }
 
             if block.block_type == BlockType::Heading {
-                if is_top_level_heading(&block.text) {
+                let (heading, rest) = split_first_line(&block.text);
+                if is_top_level_heading(heading) {
                     // Close the previous chapter and start a new one.
-                    if !current_body.is_empty() || current_title.is_some() {
+                    // Content before the first real heading is kept as a preamble
+                    // for that chapter instead of becoming a bare "Chapter" entry.
+                    let has_previous_chapter = current_title.is_some() || !chapters.is_empty();
+                    if has_previous_chapter && (!current_body.is_empty() || current_title.is_some())
+                    {
                         chapters.push(finish_chapter(
                             current_title.as_deref(),
                             &current_body,
@@ -42,15 +52,31 @@ pub fn build_epub(title: &str, pages: &[OcrPageResult]) -> EpubBook {
                         ));
                         current_body.clear();
                     }
-                    current_title = Some(block.text.clone());
+                    current_title = Some(heading.to_string());
+                    current_body.push(format!("<h1>{}</h1>", html_escape(heading)));
                 } else {
                     // Subheading stays inside the current chapter.
-                    current_body.push(block_to_html_subheading(&block.text));
+                    current_body.push(format!("<h2>{}</h2>", html_escape(heading)));
                 }
+                if !rest.is_empty() {
+                    current_body.extend(text_to_paragraphs(rest));
+                }
+                i += 1;
+                continue;
+            }
+
+            // Pair an image block with a following caption block when possible.
+            if block.block_type == BlockType::Image {
+                let next_caption = blocks
+                    .get(i + 1)
+                    .filter(|b| b.block_type == BlockType::Caption);
+                current_body.push(image_block_to_html(block, next_caption));
+                i += 1 + usize::from(next_caption.is_some());
                 continue;
             }
 
             current_body.push(block_to_html(block));
+            i += 1;
         }
 
         if !pending_cells.is_empty() {
@@ -227,9 +253,23 @@ fn is_top_level_heading(text: &str) -> bool {
     !after_digits.starts_with('.')
 }
 
-fn block_to_html_subheading(text: &str) -> String {
-    let escaped = html_escape(text);
-    format!("<h2>{escaped}</h2>")
+fn image_block_to_html(block: &TextBlock, caption: Option<&TextBlock>) -> String {
+    let src = html_escape(&block.text);
+    let caption_html = caption.map_or_else(
+        || "<figcaption>图</figcaption>".to_string(),
+        |c| {
+            let (first, rest) = split_first_line(&c.text);
+            let mut html = format!("<figcaption>{}</figcaption>", html_escape(first));
+            if !rest.is_empty() {
+                for paragraph in text_to_paragraphs(rest) {
+                    html.push('\n');
+                    html.push_str(&paragraph);
+                }
+            }
+            html
+        },
+    );
+    format!("<figure><img src=\"{src}\" alt=\"figure\"/>{caption_html}</figure>")
 }
 
 fn block_to_html(block: &TextBlock) -> String {
@@ -237,14 +277,19 @@ fn block_to_html(block: &TextBlock) -> String {
     match block.block_type {
         BlockType::Heading => format!("<h1>{escaped}</h1>"),
         BlockType::Subheading => format!("<h2>{escaped}</h2>"),
-        BlockType::Caption => format!("<figcaption>{escaped}</figcaption>"),
-        BlockType::TableCell => format!("<td>{escaped}</td>"),
-        BlockType::Image => {
-            let src = html_escape(&block.text);
-            format!(
-                "<figure><img src=\"{src}\" alt=\"figure\"/><figcaption>图</figcaption></figure>"
-            )
+        BlockType::Caption => {
+            let (caption, rest) = split_first_line(&block.text);
+            let mut html = format!("<figcaption>{}</figcaption>", html_escape(caption));
+            if !rest.is_empty() {
+                for paragraph in text_to_paragraphs(rest) {
+                    html.push('\n');
+                    html.push_str(&paragraph);
+                }
+            }
+            html
         }
+        BlockType::TableCell => format!("<td>{escaped}</td>"),
+        BlockType::Image => image_block_to_html(block, None),
         BlockType::Other => {
             // Diagram labels and similar fragments are grouped with newlines;
             // render them in a figure/pre block to preserve layout.
@@ -259,13 +304,10 @@ fn block_to_html(block: &TextBlock) -> String {
             if let Some(table_html) = render_markdown_table(&block.text) {
                 return table_html;
             }
-            // Preserve line breaks as separate paragraphs.
-            escaped
-                .lines()
-                .filter(|l| !l.trim().is_empty())
-                .map(|l| format!("<p>{l}</p>"))
-                .collect::<Vec<_>>()
-                .join("\n")
+            // Within a single OCR paragraph block, single newlines are usually
+            // just line-wraps; blank lines separate real paragraphs. Collapse
+            // line-wraps into spaces and emit one <p> per logical paragraph.
+            text_to_paragraphs(&escaped).join("\n")
         }
     }
 }
@@ -396,6 +438,16 @@ figure {
   margin: 1em 0;
   padding: 0;
 }
+figure img {
+  max-width: 100%;
+  height: auto;
+  border: 1px solid #ccc;
+}
+figcaption {
+  text-align: center;
+  font-size: 0.9em;
+  color: #555;
+}
 figure pre {
   border: 1px solid #ccc;
   background-color: #f8f8f8;
@@ -416,6 +468,44 @@ fn html_escape(text: &str) -> String {
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&apos;")
+}
+
+/// Split a block's text into its first non-empty line and the remainder.
+///
+/// Some OCR backends merge a heading or caption with the following paragraph;
+/// this lets us keep the structural line as a heading and render the rest as
+/// body text.
+fn split_first_line(text: &str) -> (&str, &str) {
+    let trimmed = text.trim_start();
+    trimmed.find('\n').map_or_else(
+        || (trimmed.trim(), ""),
+        |idx| {
+            let first = trimmed[..idx].trim();
+            let rest = trimmed[idx + 1..].trim_start();
+            (first, rest)
+        },
+    )
+}
+
+/// Convert a multi-line text fragment into a sequence of `<p>` elements.
+///
+/// Blank lines separate logical paragraphs; single newlines inside a paragraph
+/// are treated as line-wraps and collapsed into spaces. Multiple consecutive
+/// spaces are also collapsed.
+fn text_to_paragraphs(text: &str) -> Vec<String> {
+    text.split("\n\n")
+        .map(|part| {
+            let joined = part
+                .split('\n')
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>()
+                .join(" ");
+            joined.split_whitespace().collect::<Vec<_>>().join(" ")
+        })
+        .filter(|p| !p.is_empty())
+        .map(|p| format!("<p>{}</p>", html_escape(&p)))
+        .collect()
 }
 
 #[cfg(test)]
