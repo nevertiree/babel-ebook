@@ -97,6 +97,7 @@ pub fn run() {
             commands::get_app_version,
             commands::get_default_prompts,
             commands::enqueue_task,
+            commands::enqueue_ocr_task,
             commands::remove_task,
             commands::reorder_tasks,
             commands::cancel_task,

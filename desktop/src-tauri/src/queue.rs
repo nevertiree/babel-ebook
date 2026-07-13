@@ -6,16 +6,16 @@
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use babel_ebook::{CancellationToken, ProgressEvent, TranslationWorker};
+use babel_ebook::{pdf_ocr::OcrProgressEvent, CancellationToken, ProgressEvent, TranslationWorker};
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager, Runtime};
 use tauri_plugin_store::Store;
 use tokio::sync::{mpsc, Mutex, Notify};
 
-use crate::args::TranslateArgs;
-use crate::commands::run_translation;
+use crate::args::{PdfToEpubArgs, TranslateArgs};
+use crate::commands::{run_ocr, run_translation};
 use crate::error::AppError;
-use crate::task::{Task, TaskStatus};
+use crate::task::{Task, TaskKind, TaskStatus};
 
 /// Snapshot of the queue exposed to the frontend.
 #[derive(Debug, Clone, Serialize)]
@@ -58,8 +58,8 @@ pub struct StoredTask {
     pub message: String,
     /// Error message when the task failed.
     pub error: Option<String>,
-    /// Translation arguments captured at enqueue time.
-    pub args: TranslateArgs,
+    /// Job arguments captured at enqueue time.
+    pub kind: TaskKind,
     /// Unix timestamp when the task was created.
     pub created_at: u64,
     /// Unix timestamp when the task started running.
@@ -80,7 +80,7 @@ impl From<&Task> for StoredTask {
             chapters_completed: task.chapters_completed,
             message: task.message.clone(),
             error: task.error.clone(),
-            args: task.args.clone(),
+            kind: task.kind.clone(),
             created_at: task.created_at,
             started_at: task.started_at,
             completed_at: task.completed_at,
@@ -100,7 +100,7 @@ impl From<StoredTask> for Task {
             chapters_completed: stored.chapters_completed,
             message: stored.message,
             error: stored.error,
-            args: stored.args,
+            kind: stored.kind,
             created_at: stored.created_at,
             started_at: stored.started_at,
             completed_at: stored.completed_at,
@@ -346,41 +346,82 @@ impl QueueManager {
                 // Decouple progress handling from the synchronous callback so that
                 // queue state can be updated through an async tokio mutex without
                 // blocking the worker loop.
-                let (progress_tx, mut progress_rx) = mpsc::unbounded_channel::<ProgressEvent>();
-                let progress: Option<Box<dyn babel_ebook::ProgressCallback + Send + Sync>> =
-                    window.clone().map(|_| {
-                        Box::new(TaskProgressCallback {
-                            sender: progress_tx,
-                        })
-                            as Box<dyn babel_ebook::ProgressCallback + Send + Sync>
-                    });
-
-                let progress_forwarder = {
-                    let window = window.clone();
-                    let task_id = task_id.clone();
-                    tauri::async_runtime::spawn(async move {
-                        while let Some(event) = progress_rx.recv().await {
-                            queue.update_task_progress(&task_id, &event).await;
-                            if let Some(w) = window.as_ref() {
-                                let payload = TaskProgressPayload {
-                                    task_id: task_id.clone(),
-                                    event: event.clone(),
-                                };
-                                if let Err(err) = w.emit("task_progress", &payload) {
-                                    tracing::warn!("failed to emit task_progress event: {err}");
+                let (result, forwarder) = match task.kind.clone() {
+                    TaskKind::Translation(args) => {
+                        let (progress_tx, mut progress_rx) =
+                            mpsc::unbounded_channel::<ProgressEvent>();
+                        let progress: Option<Box<dyn babel_ebook::ProgressCallback + Send + Sync>> =
+                            window.clone().map(|_| {
+                                Box::new(TaskProgressCallback {
+                                    sender: progress_tx,
+                                })
+                                    as Box<dyn babel_ebook::ProgressCallback + Send + Sync>
+                            });
+                        let forwarder = {
+                            let window = window.clone();
+                            let task_id = task_id.clone();
+                            tauri::async_runtime::spawn(async move {
+                                while let Some(event) = progress_rx.recv().await {
+                                    queue.update_task_progress(&task_id, &event).await;
+                                    if let Some(w) = window.as_ref() {
+                                        let payload = TaskProgressPayload {
+                                            task_id: task_id.clone(),
+                                            event: event.clone(),
+                                        };
+                                        if let Err(err) = w.emit("task_progress", &payload) {
+                                            tracing::warn!(
+                                                "failed to emit task_progress event: {err}"
+                                            );
+                                        }
+                                        if let Err(err) = w.emit("translation_progress", &event) {
+                                            tracing::warn!(
+                                                "failed to emit translation_progress event: {err}"
+                                            );
+                                        }
+                                    }
                                 }
-                                if let Err(err) = w.emit("translation_progress", &event) {
-                                    tracing::warn!(
-                                        "failed to emit translation_progress event: {err}"
-                                    );
+                            })
+                        };
+                        let r = run_translation(args, progress, Some(cancellation), &worker).await;
+                        (r, forwarder)
+                    }
+                    TaskKind::Ocr(args) => {
+                        let (ocr_tx, mut ocr_rx) = mpsc::unbounded_channel::<OcrProgressEvent>();
+                        let ocr_progress: Option<
+                            Box<dyn babel_ebook::pdf_ocr::OcrProgressCallback + Send + Sync>,
+                        > = window.clone().map(|_| {
+                            Box::new(OcrTaskProgressCallback { sender: ocr_tx })
+                                as Box<dyn babel_ebook::pdf_ocr::OcrProgressCallback + Send + Sync>
+                        });
+                        let forwarder = {
+                            let window = window.clone();
+                            let task_id = task_id.clone();
+                            tauri::async_runtime::spawn(async move {
+                                while let Some(event) = ocr_rx.recv().await {
+                                    queue.update_ocr_task_progress(&task_id, &event).await;
+                                    if let Some(w) = window.as_ref() {
+                                        if let Err(err) = w.emit("queue_state_changed", ()) {
+                                            tracing::warn!(
+                                                "failed to emit queue_state_changed event: {err}"
+                                            );
+                                        }
+                                        let payload = OcrTaskProgressPayload {
+                                            task_id: task_id.clone(),
+                                            event: event.clone(),
+                                        };
+                                        if let Err(err) = w.emit("ocr_progress", &payload) {
+                                            tracing::warn!(
+                                                "failed to emit ocr_progress event: {err}"
+                                            );
+                                        }
+                                    }
                                 }
-                            }
-                        }
-                    })
+                            })
+                        };
+                        let r = run_ocr(args, ocr_progress).await;
+                        (r, forwarder)
+                    }
                 };
-
-                let result =
-                    run_translation(task.args, progress, Some(cancellation), &worker).await;
 
                 let finish_action = self.finish_task(&task_id, result, now).await;
                 match finish_action {
@@ -396,7 +437,7 @@ impl QueueManager {
                         }
                     }
                 }
-                progress_forwarder.await.ok();
+                let _ = forwarder.await;
                 if let Some(w) = window {
                     let _ = w.emit("queue_state_changed", ());
                 }
@@ -415,6 +456,15 @@ impl QueueManager {
     /// This is called from the async progress forwarder so that `get_queue_state`
     /// always returns an up-to-date snapshot. Progress updates are intentionally
     /// not persisted to avoid writing to disk on every chunk.
+    async fn update_ocr_task_progress(&self, task_id: &str, event: &OcrProgressEvent) {
+        let mut guard = self.inner.lock().await;
+        let Some(task) = guard.tasks.iter_mut().find(|t| t.id == task_id) else {
+            return;
+        };
+        task.progress_percent = event.percent;
+        task.message.clone_from(&event.message);
+    }
+
     async fn update_task_progress(&self, task_id: &str, event: &ProgressEvent) {
         let mut guard = self.inner.lock().await;
         let Some(task) = guard.tasks.iter_mut().find(|t| t.id == task_id) else {
@@ -460,7 +510,16 @@ impl QueueManager {
 
     /// Add a new pending translation task to the queue.
     pub async fn enqueue(&self, args: TranslateArgs) -> Task {
-        let task = Task::new(args);
+        self.enqueue_kind(TaskKind::Translation(args)).await
+    }
+
+    /// Add a PDF -> EPUB OCR job to the queue.
+    pub async fn enqueue_ocr(&self, args: PdfToEpubArgs) -> Task {
+        self.enqueue_kind(TaskKind::Ocr(args)).await
+    }
+
+    async fn enqueue_kind(&self, kind: TaskKind) -> Task {
+        let task = Task::new(kind);
         let mut guard = self.inner.lock().await;
         guard.tasks.push(task.clone());
         drop(guard);
@@ -681,6 +740,22 @@ fn compute_progress_percent_raw(chapter_total: Option<u32>, completed: u32, in_f
     }
     let percent = ((f64::from(completed) + in_flight) / f64::from(total)) * 100.0;
     percent.clamp(0.0, 100.0) as u32
+}
+
+#[derive(Clone, Serialize)]
+struct OcrTaskProgressPayload {
+    task_id: String,
+    event: OcrProgressEvent,
+}
+
+struct OcrTaskProgressCallback {
+    sender: mpsc::UnboundedSender<OcrProgressEvent>,
+}
+
+impl babel_ebook::pdf_ocr::OcrProgressCallback for OcrTaskProgressCallback {
+    fn on_ocr_progress(&self, event: OcrProgressEvent) {
+        let _ = self.sender.send(event);
+    }
 }
 
 struct TaskProgressCallback {
@@ -1028,8 +1103,13 @@ mod tests {
         assert_eq!(state.tasks[0].status, TaskStatus::Pending);
         assert_eq!(state.tasks[0].source_path, "a.epub");
         assert_eq!(state.tasks[0].output_path, "a.out.epub");
-        assert_eq!(state.tasks[0].args.source, args.source);
-        assert_eq!(state.tasks[0].args.output, args.output);
+        match &state.tasks[0].kind {
+            TaskKind::Translation(a) => {
+                assert_eq!(a.source, args.source);
+                assert_eq!(a.output, args.output);
+            }
+            TaskKind::Ocr(_) => panic!("expected a translation task"),
+        }
     }
 
     #[tokio::test]
@@ -1045,7 +1125,7 @@ mod tests {
             chapters_completed: Some(4),
             message: "Running".to_string(),
             error: None,
-            args: sample_args("a.epub", "a.out.epub"),
+            kind: TaskKind::Translation(sample_args("a.epub", "a.out.epub")),
             created_at: 1,
             started_at: None,
             completed_at: Some(2),
@@ -1074,7 +1154,7 @@ mod tests {
             chapters_completed: Some(5),
             message: "Done".to_string(),
             error: None,
-            args: sample_args("a.epub", "a.out.epub"),
+            kind: TaskKind::Translation(sample_args("a.epub", "a.out.epub")),
             created_at: 1,
             started_at: Some(3),
             completed_at: Some(2),
@@ -1185,7 +1265,7 @@ mod tests {
 
     #[test]
     fn stored_task_does_not_include_runtime_fields() {
-        let task = Task::new(sample_args("a.epub", "a.out.epub"));
+        let task = Task::new(TaskKind::Translation(sample_args("a.epub", "a.out.epub")));
         let stored = StoredTask::from(&task);
         // CancellationToken is a runtime-only field on Task and must never be
         // serialised into the persisted representation.

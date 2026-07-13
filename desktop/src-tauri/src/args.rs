@@ -85,7 +85,7 @@ pub struct TestConnectionArgs {
 }
 
 /// Arguments passed from the frontend to convert a scanned PDF to EPUB.
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(rename_all = "snake_case")]
 pub struct PdfToEpubArgs {
     /// Path to the source PDF file.

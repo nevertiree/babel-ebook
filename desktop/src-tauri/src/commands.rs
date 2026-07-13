@@ -395,6 +395,16 @@ pub async fn enqueue_task(
     Ok(queue.enqueue(args).await)
 }
 
+/// Add a PDF -> EPUB OCR job to the queue.
+#[allow(dead_code)]
+#[tauri::command]
+pub async fn enqueue_ocr_task(
+    args: PdfToEpubArgs,
+    queue: tauri::State<'_, QueueManager>,
+) -> Result<Task, String> {
+    Ok(queue.enqueue_ocr(args).await)
+}
+
 /// Remove a pending or finished task from the queue.
 #[allow(dead_code)]
 #[tauri::command]
@@ -523,6 +533,19 @@ pub async fn convert_pdf_to_epub(
     args: PdfToEpubArgs,
     window: tauri::Window,
 ) -> Result<String, String> {
+    let progress: Option<Box<dyn babel_ebook::pdf_ocr::OcrProgressCallback + Send + Sync>> =
+        Some(Box::new(OcrWindowProgress(window)));
+    run_ocr(args, progress).await
+}
+
+/// Run a PDF -> EPUB OCR conversion, forwarding progress through `progress`.
+///
+/// Shared by the direct `convert_pdf_to_epub` command and the queue worker so
+/// both paths build the OCR backends identically. Test-safe (no Tauri types).
+pub async fn run_ocr(
+    args: PdfToEpubArgs,
+    progress: Option<Box<dyn babel_ebook::pdf_ocr::OcrProgressCallback + Send + Sync>>,
+) -> Result<String, String> {
     let pdf_path = std::path::PathBuf::from(&args.pdf_path);
     let output_path = std::path::PathBuf::from(&args.output_path);
 
@@ -596,7 +619,9 @@ pub async fn convert_pdf_to_epub(
         ..babel_ebook::pdf_ocr::PdfToEpubConfig::default()
     };
 
-    let progress: &dyn babel_ebook::pdf_ocr::OcrProgressCallback = &OcrWindowProgress(window);
+    let progress_ref: Option<&dyn babel_ebook::pdf_ocr::OcrProgressCallback> = progress
+        .as_ref()
+        .map(|p| p.as_ref() as &dyn babel_ebook::pdf_ocr::OcrProgressCallback);
     babel_ebook::pdf_ocr::convert_pdf_to_epub_file(
         &pdf_path,
         &output_path,
@@ -605,7 +630,7 @@ pub async fn convert_pdf_to_epub(
         verifier.as_deref(),
         refiner.as_deref(),
         &config,
-        Some(progress),
+        progress_ref,
     )
     .await
     .map_err(|e| e.to_string())?;

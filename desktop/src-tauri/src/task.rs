@@ -1,8 +1,35 @@
 //! Task data model for the translation queue.
 
-use crate::args::TranslateArgs;
+use crate::args::{PdfToEpubArgs, TranslateArgs};
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+/// The kind of job a queued task runs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum TaskKind {
+    /// Translate a source book into a target language.
+    Translation(TranslateArgs),
+    /// Convert a scanned PDF to an EPUB via OCR (+ optional verify/refine).
+    Ocr(PdfToEpubArgs),
+}
+
+impl TaskKind {
+    /// Path of the source file consumed by the task.
+    pub fn source_path(&self) -> String {
+        match self {
+            Self::Translation(a) => a.source.clone(),
+            Self::Ocr(a) => a.pdf_path.clone(),
+        }
+    }
+
+    /// Path where the task writes its output.
+    pub fn output_path(&self) -> String {
+        match self {
+            Self::Translation(a) => a.output.clone(),
+            Self::Ocr(a) => a.output_path.clone(),
+        }
+    }
+}
 
 /// Lifecycle status of a queued translation task.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -33,16 +60,18 @@ pub struct Task {
     pub chapters_completed: Option<u32>,
     pub message: String,
     pub error: Option<String>,
+    /// Full job arguments. Skipped during serialization so provider secrets and
+    /// large argument structs are never sent to the frontend.
     #[serde(skip)]
-    pub args: TranslateArgs,
+    pub kind: TaskKind,
     pub created_at: u64,
     pub started_at: Option<u64>,
     pub completed_at: Option<u64>,
 }
 
 impl Task {
-    /// Create a new pending task from the translation arguments captured at enqueue time.
-    pub fn new(args: TranslateArgs) -> Self {
+    /// Create a new pending task from the job arguments captured at enqueue time.
+    pub fn new(kind: TaskKind) -> Self {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .inspect_err(|err| tracing::warn!("system time is before Unix epoch: {err}"))
@@ -50,15 +79,15 @@ impl Task {
             .as_secs();
         Self {
             id: uuid::Uuid::new_v4().to_string(),
-            source_path: args.source.clone(),
-            output_path: args.output.clone(),
+            source_path: kind.source_path(),
+            output_path: kind.output_path(),
             status: TaskStatus::Pending,
             progress_percent: 0,
             chapter_total: None,
             chapters_completed: None,
             message: String::new(),
             error: None,
-            args,
+            kind,
             created_at: now,
             started_at: None,
             completed_at: None,
@@ -110,7 +139,7 @@ mod tests {
 
     #[test]
     fn task_new_starts_pending_with_uuid() {
-        let task = Task::new(sample_args());
+        let task = Task::new(TaskKind::Translation(sample_args()));
         assert_eq!(task.status, TaskStatus::Pending);
         assert!(!task.id.is_empty());
         assert_eq!(task.source_path, "input.epub");
