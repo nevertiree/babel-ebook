@@ -1,17 +1,56 @@
 //! Core orchestration for the babel-ebook pipeline.
 
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
+use std::thread;
+use std::time::Duration;
+
 use serde::Serialize;
+use tokio::sync::Notify;
 
 use crate::cache::TranslationCache;
 use crate::checkpoint::CheckpointStore;
 use crate::chunking::count_tokens;
 use crate::config::Config;
-use crate::epub::{should_translate_doc, write_epub};
+use crate::epub::should_translate_doc;
 use crate::html::translate_text;
 use crate::input_formats::read_input_book;
-use crate::pipeline::run_ordered_pipeline;
+use crate::pipeline::{run_ordered_pipeline, PipelineContext};
 use crate::t;
 use crate::translator::Translator;
+
+/// Cooperative cancellation signal for long-running translations.
+#[derive(Clone, Debug, Default)]
+pub struct CancellationToken {
+    cancelled: Arc<AtomicBool>,
+    notify: Arc<Notify>,
+}
+
+impl CancellationToken {
+    /// Request cancellation and wake any tasks waiting on [`Self::cancelled`].
+    pub fn cancel(&self) {
+        self.cancelled.store(true, Ordering::SeqCst);
+        self.notify.notify_waiters();
+    }
+
+    /// Return whether cancellation has been requested.
+    #[must_use]
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::SeqCst)
+    }
+
+    /// Wait until cancellation has been requested.
+    ///
+    /// Returns immediately if the token is already cancelled.
+    pub async fn cancelled(&self) {
+        if self.is_cancelled() {
+            return;
+        }
+        self.notify.notified().await;
+    }
+}
 
 /// Progress events emitted during `translate_epub`.
 #[derive(Debug, Clone, Serialize)]
@@ -34,6 +73,28 @@ pub enum ProgressEvent {
         index: usize,
         /// Href of the chapter document.
         href: String,
+    },
+    /// A chunk of text inside a chapter has started translation.
+    ChunkStarted {
+        /// Index of the chapter in the EPUB spine.
+        index: usize,
+        /// Href of the chapter document.
+        href: String,
+        /// 0-based index of this chunk within the current text block.
+        chunk_index: usize,
+        /// Total number of chunks in the current text block.
+        chunk_total: usize,
+    },
+    /// A chunk of text inside a chapter has finished translation.
+    ChunkFinished {
+        /// Index of the chapter in the EPUB spine.
+        index: usize,
+        /// Href of the chapter document.
+        href: String,
+        /// 0-based index of this chunk within the current text block.
+        chunk_index: usize,
+        /// Total number of chunks in the current text block.
+        chunk_total: usize,
     },
     /// A chapter failed to translate.
     Failed {
@@ -60,6 +121,9 @@ pub trait ProgressCallback: Send + Sync {
 /// Unified error type for the babel-ebook crate.
 #[derive(Debug, thiserror::Error)]
 pub enum BabelEbookError {
+    /// Translation was cancelled by the caller.
+    Cancelled,
+
     /// An API request failed after exhausting retries.
     ApiError(String),
 
@@ -76,6 +140,7 @@ pub enum BabelEbookError {
 impl std::fmt::Display for BabelEbookError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Cancelled => write!(f, "translation cancelled"),
             Self::ApiError(msg) => write!(f, "{}", t!("err_api", msg = msg.as_str())),
             Self::ProviderNotFound(provider) => {
                 write!(
@@ -112,11 +177,26 @@ pub async fn translate_epub(
     cache: Option<&TranslationCache>,
     progress: Option<&dyn ProgressCallback>,
 ) -> Result<(), BabelEbookError> {
+    translate_epub_with_cancellation(config, translator, cache, progress, None).await
+}
+
+/// Translate an EPUB with an optional cooperative cancellation signal.
+#[allow(clippy::future_not_send)]
+#[allow(clippy::too_many_lines)]
+pub async fn translate_epub_with_cancellation(
+    config: &Config,
+    translator: &dyn Translator,
+    cache: Option<&TranslationCache>,
+    progress: Option<&dyn ProgressCallback>,
+    cancellation: Option<&CancellationToken>,
+) -> Result<(), BabelEbookError> {
     tracing::info!(
         source = %config.source.display(),
         output = %config.output.display(),
         "starting EPUB translation"
     );
+
+    ensure_not_cancelled(cancellation)?;
 
     let owned_cache = cache.map_or_else(
         || TranslationCache::new(config.cache_dir.clone()),
@@ -125,6 +205,8 @@ pub async fn translate_epub(
     let cache = &owned_cache;
 
     let mut book = read_input_book(&config.source)?;
+    ensure_not_cancelled(cancellation)?;
+
     let source_hash = CheckpointStore::source_hash(&config.source)?;
     let translatable_indices = translatable_chapters(&book, &config.skip_doc_patterns)?;
     tracing::info!(
@@ -149,26 +231,37 @@ pub async fn translate_epub(
         (None, None)
     } else {
         let store = CheckpointStore::new(config.checkpoint_dir.clone())?;
-        let id = config
-            .resume_job_id
-            .clone()
-            .unwrap_or_else(|| CheckpointStore::generate_job_id(&config.source));
+        let id = config.resume_job_id.clone().unwrap_or_else(|| {
+            CheckpointStore::generate_job_id(
+                &config.source,
+                &config.target_lang,
+                config.output_mode,
+                &config.provider,
+                &config.model,
+            )
+        });
         (Some(store), Some(id))
     };
 
-    let pipeline_result = run_ordered_pipeline(
-        &mut book,
-        translatable_indices.clone(),
+    let context = PipelineContext {
         translator,
         config,
         cache,
+        progress,
+        cancellation,
+    };
+    let pipeline_result = run_ordered_pipeline(
+        &mut book,
+        translatable_indices.clone(),
+        &context,
         checkpoint_store.as_ref(),
         job_id.as_deref(),
         &source_hash,
-        progress,
     )
     .await?;
     let failures = pipeline_result.failures;
+
+    ensure_not_cancelled(cancellation)?;
 
     if config.translation_scope.toc {
         let failed_hrefs: std::collections::HashSet<&str> =
@@ -179,8 +272,20 @@ pub async fn translate_epub(
                 if failed_hrefs.contains(href.as_str()) {
                     continue;
                 }
-                match translate_title(&title, translator, config, cache, &href).await {
+                match translate_title(
+                    *index,
+                    &title,
+                    translator,
+                    &config.translation_options(),
+                    cache,
+                    &href,
+                    progress,
+                    cancellation,
+                )
+                .await
+                {
                     Ok(translated) => {
+                        ensure_not_cancelled(cancellation)?;
                         book.chapters[*index].title = Some(translated);
                     }
                     Err(err) => {
@@ -196,29 +301,59 @@ pub async fn translate_epub(
         }
     }
 
+    ensure_not_cancelled(cancellation)?;
+
     tracing::info!(output = %config.output.display(), "writing translated EPUB");
-    write_epub(&book, &config.output)?;
+    book.write(&config.output)?;
     tracing::info!(output = %config.output.display(), "EPUB written successfully");
     emit_progress(progress, ProgressEvent::Completed);
 
-    if !failures.is_empty() {
-        let documents = failures
-            .iter()
-            .map(|(href, _)| href.as_str())
-            .collect::<Vec<_>>()
-            .join(", ");
-        let msg = t!("log_failed_documents", documents = documents);
-        tracing::warn!("{msg}");
+    report_failures(&failures, translatable_indices.len())
+}
+
+fn report_failures(
+    failures: &[(String, BabelEbookError)],
+    total_chapters: usize,
+) -> Result<(), BabelEbookError> {
+    if failures.is_empty() {
+        return Ok(());
+    }
+    let documents = failures
+        .iter()
+        .map(|(href, _)| href.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let msg = t!("log_failed_documents", documents = documents);
+    tracing::warn!("{msg}");
+
+    // If every translatable chapter failed, treat the whole translation as
+    // failed so callers (e.g. the desktop queue) can surface a failed status
+    // and offer a retry. Partial failures still write the best-effort EPUB.
+    if failures.len() == total_chapters {
+        return Err(BabelEbookError::ApiError(
+            t!("log_failed_documents", documents = documents).to_string(),
+        ));
     }
 
     Ok(())
 }
 
-fn run_dry_run(
+fn ensure_not_cancelled(cancellation: Option<&CancellationToken>) -> Result<(), BabelEbookError> {
+    if cancellation.is_some_and(CancellationToken::is_cancelled) {
+        return Err(BabelEbookError::Cancelled);
+    }
+    Ok(())
+}
+
+/// Run a dry-run translation that estimates source tokens without calling the LLM.
+///
+/// Emits `Started` and `Completed` progress events and returns the estimated
+/// token count together with the number of translatable documents.
+pub fn run_dry_run(
     book: &crate::epub::EpubBook,
     indices: &[usize],
     progress: Option<&dyn ProgressCallback>,
-) {
+) -> (usize, usize) {
     // `run_dry_run` receives an already-loaded book; the caller uses
     // `read_input_book` before invoking it.
     emit_progress(
@@ -227,6 +362,13 @@ fn run_dry_run(
             total: indices.len(),
         },
     );
+    // E2E-only: allow tests to keep the task in the running state long enough
+    // to exercise per-task pause/resume/cancel controls.
+    if let Ok(raw) = std::env::var("BABEL_EBOOK_E2E_SLOW_DRY_RUN_MS") {
+        if let Ok(ms) = raw.parse::<u64>() {
+            thread::sleep(Duration::from_millis(ms));
+        }
+    }
     let (total, count) = estimate_source_tokens(book, indices);
     let msg = t!(
         "log_estimated_tokens",
@@ -235,17 +377,35 @@ fn run_dry_run(
     );
     tracing::info!("{msg}");
     emit_progress(progress, ProgressEvent::Completed);
+    (total, count)
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn translate_title(
+    index: usize,
     title: &str,
     translator: &dyn Translator,
-    config: &Config,
+    options: &crate::config::TranslationOptions,
     cache: &TranslationCache,
     href: &str,
+    _progress: Option<&dyn ProgressCallback>,
+    cancellation: Option<&CancellationToken>,
 ) -> Result<String, BabelEbookError> {
     let prompt_key = format!("toc:{href}");
-    translate_text(title, translator, config, cache, &prompt_key).await
+    // Do not emit chunk progress for title translation; the chapter is already
+    // marked finished and extra chunk events would make the progress bar jump
+    // backwards.
+    translate_text(
+        title,
+        translator,
+        options,
+        cache,
+        index,
+        &prompt_key,
+        None,
+        cancellation,
+    )
+    .await
 }
 
 fn emit_progress(progress: Option<&dyn ProgressCallback>, event: ProgressEvent) {

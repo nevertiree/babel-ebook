@@ -10,10 +10,27 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use crate::cache::TranslationCache;
 use crate::checkpoint::{ChapterCheckpoint, ChapterStatus, Checkpoint, CheckpointStore};
 use crate::config::Config;
-use crate::core::{BabelEbookError, ProgressCallback, ProgressEvent};
+use crate::core::{BabelEbookError, CancellationToken, ProgressCallback, ProgressEvent};
 use crate::epub::{Chapter, EpubBook};
 use crate::html::process_document;
 use crate::translator::Translator;
+
+/// Dependencies shared across pipeline stages.
+///
+/// Bundling these references reduces the argument surface of
+/// `run_ordered_pipeline` and makes the data flow explicit.
+pub struct PipelineContext<'a> {
+    /// Translator used to convert text.
+    pub translator: &'a dyn Translator,
+    /// Runtime configuration.
+    pub config: &'a Config,
+    /// Translation cache.
+    pub cache: &'a TranslationCache,
+    /// Optional progress callback.
+    pub progress: Option<&'a dyn ProgressCallback>,
+    /// Optional cooperative cancellation token.
+    pub cancellation: Option<&'a CancellationToken>,
+}
 
 /// Result of running the ordered pipeline.
 pub struct PipelineResult {
@@ -33,16 +50,14 @@ pub struct PipelineResult {
 /// Callers that need a `Send` future should run the work on a local runtime.
 #[allow(clippy::future_not_send)]
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_lines)]
 pub async fn run_ordered_pipeline(
     book: &mut EpubBook,
     indices: Vec<usize>,
-    translator: &dyn Translator,
-    config: &Config,
-    cache: &TranslationCache,
+    context: &PipelineContext<'_>,
     checkpoint_store: Option<&CheckpointStore>,
     job_id: Option<&str>,
     source_hash: &str,
-    progress: Option<&dyn ProgressCallback>,
 ) -> Result<PipelineResult, BabelEbookError> {
     if indices.is_empty() {
         return Ok(PipelineResult {
@@ -51,43 +66,64 @@ pub async fn run_ordered_pipeline(
         });
     }
 
-    let job_id = resolve_job_id(checkpoint_store, job_id, &config.source);
-    let checkpoint = build_checkpoint(book, &indices, checkpoint_store, &job_id, source_hash);
-    let completed = restore_completed_chapters(book, &indices, &checkpoint, progress);
+    let job_id = resolve_job_id(checkpoint_store, job_id, context.config);
+    let mut checkpoint = build_checkpoint(book, &indices, checkpoint_store, &job_id, source_hash);
+    checkpoint.source_path = context.config.source.to_string_lossy().into_owned();
+    let completed = restore_completed_chapters(book, &indices, &checkpoint, context.progress);
     let pending_indices: Vec<usize> = indices
         .into_iter()
         .filter(|i| !completed.contains(i))
         .collect();
 
-    let checkpoint = Arc::new(std::sync::Mutex::new(checkpoint));
-    let semaphore = Arc::new(Semaphore::new(config.concurrency.max(1)));
+    let checkpoint = Arc::new(tokio::sync::Mutex::new(checkpoint));
+    let semaphore = Arc::new(Semaphore::new(context.config.concurrency.max(1)));
     let mut futures = FuturesUnordered::new();
 
     for &index in &pending_indices {
+        ensure_not_cancelled(context.cancellation)?;
+
         let href = book.chapters[index].href.clone();
-        let content = book.chapters[index].content.clone();
+        let chapter_content = book.chapters[index].content.clone();
+        let options = context.config.translation_options();
         let semaphore = Arc::clone(&semaphore);
         let checkpoint = Arc::clone(&checkpoint);
         let store = checkpoint_store.cloned();
         let job_id = job_id.clone();
         futures.push(async move {
-            emit_progress(
-                progress,
-                ProgressEvent::ChapterStarted {
-                    index,
-                    href: href.clone(),
-                },
-            );
             let result = match acquire_permit(semaphore).await {
                 Ok(permit) => {
-                    let output = process_document(&content, translator, config, cache, &href).await;
+                    emit_progress(
+                        context.progress,
+                        ProgressEvent::ChapterStarted {
+                            index,
+                            href: href.clone(),
+                        },
+                    );
+                    let output = if context
+                        .cancellation
+                        .is_some_and(CancellationToken::is_cancelled)
+                    {
+                        Err(BabelEbookError::Cancelled)
+                    } else {
+                        process_document(
+                            &chapter_content,
+                            context.translator,
+                            &options,
+                            context.cache,
+                            index,
+                            &href,
+                            context.progress,
+                            context.cancellation,
+                        )
+                        .await
+                    };
                     drop(permit);
                     output
                 }
                 Err(err) => Err(err),
             };
 
-            update_checkpoint_entry(&checkpoint, index, &result, store.as_ref(), &job_id)?;
+            update_checkpoint_entry(&checkpoint, index, &result, store.as_ref(), &job_id).await;
 
             Ok::<(usize, Result<Vec<u8>, BabelEbookError>), BabelEbookError>((index, result))
         });
@@ -95,17 +131,22 @@ pub async fn run_ordered_pipeline(
 
     let mut results = Vec::with_capacity(pending_indices.len());
     while let Some(item) = futures.next().await {
-        results.push(item?);
+        let (index, result) = item?;
+        if matches!(result, Err(BabelEbookError::Cancelled)) {
+            return Err(BabelEbookError::Cancelled);
+        }
+        results.push((index, result));
+        ensure_not_cancelled(context.cancellation)?;
     }
     results.sort_by_key(|(index, _)| *index);
 
     let mut failures = Vec::new();
     for (index, result) in results {
         match result {
-            Ok(content) => {
-                book.chapters[index].content = content;
+            Ok(chapter_content) => {
+                book.chapters[index].content = chapter_content;
                 emit_progress(
-                    progress,
+                    context.progress,
                     ProgressEvent::ChapterFinished {
                         index,
                         href: book.chapters[index].href.clone(),
@@ -115,7 +156,7 @@ pub async fn run_ordered_pipeline(
             Err(err) => {
                 let href = book.chapters[index].href.clone();
                 emit_progress(
-                    progress,
+                    context.progress,
                     ProgressEvent::Failed {
                         index,
                         href: href.clone(),
@@ -128,10 +169,13 @@ pub async fn run_ordered_pipeline(
     }
 
     if let Some(store) = checkpoint_store {
-        let cp = checkpoint
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        store.save(&cp)?;
+        let cp_to_save = {
+            let cp = checkpoint.lock().await;
+            cp.clone()
+        };
+        if let Err(err) = store.save_async(&cp_to_save).await {
+            tracing::warn!(job_id, error = %err, "failed to save final checkpoint");
+        }
     }
 
     Ok(PipelineResult {
@@ -140,14 +184,29 @@ pub async fn run_ordered_pipeline(
     })
 }
 
+fn ensure_not_cancelled(cancellation: Option<&CancellationToken>) -> Result<(), BabelEbookError> {
+    if cancellation.is_some_and(CancellationToken::is_cancelled) {
+        return Err(BabelEbookError::Cancelled);
+    }
+    Ok(())
+}
+
 fn resolve_job_id(
     checkpoint_store: Option<&CheckpointStore>,
     job_id: Option<&str>,
-    source: &std::path::Path,
+    config: &Config,
 ) -> String {
     if checkpoint_store.is_some() {
         job_id.map_or_else(
-            || CheckpointStore::generate_job_id(source),
+            || {
+                CheckpointStore::generate_job_id(
+                    &config.source,
+                    &config.target_lang,
+                    config.output_mode,
+                    &config.provider,
+                    &config.model,
+                )
+            },
             ToString::to_string,
         )
     } else {
@@ -174,6 +233,7 @@ fn build_checkpoint(
             Checkpoint {
                 job_id: job_id.to_string(),
                 source_hash: source_hash.to_string(),
+                source_path: String::new(),
                 chapters: Vec::new(),
             }
         } else {
@@ -183,6 +243,7 @@ fn build_checkpoint(
         Checkpoint {
             job_id: job_id.to_string(),
             source_hash: source_hash.to_string(),
+            source_path: String::new(),
             chapters: Vec::new(),
         }
     };
@@ -244,17 +305,15 @@ fn restore_completed_chapters(
     completed
 }
 
-fn update_checkpoint_entry(
-    checkpoint: &Arc<std::sync::Mutex<Checkpoint>>,
+async fn update_checkpoint_entry(
+    checkpoint: &Arc<tokio::sync::Mutex<Checkpoint>>,
     index: usize,
     result: &Result<Vec<u8>, BabelEbookError>,
     store: Option<&CheckpointStore>,
     job_id: &str,
-) -> Result<(), BabelEbookError> {
+) {
     let cp_to_save = {
-        let mut cp = checkpoint
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut cp = checkpoint.lock().await;
         if let Some(entry) = cp.chapters.iter_mut().find(|c| c.index == index) {
             match result {
                 Ok(content) => {
@@ -272,12 +331,10 @@ fn update_checkpoint_entry(
     };
 
     if let Some(store) = store {
-        if let Err(err) = store.save(&cp_to_save) {
+        if let Err(err) = store.save_async(&cp_to_save).await {
             tracing::warn!(job_id, error = %err, "failed to save checkpoint");
-            return Err(err);
         }
     }
-    Ok(())
 }
 
 async fn acquire_permit(
@@ -299,7 +356,10 @@ fn emit_progress(progress: Option<&dyn ProgressCallback>, event: ProgressEvent) 
 mod tests {
     use std::collections::HashMap;
     use std::path::PathBuf;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
     use std::thread;
+    use std::time::Duration;
 
     use super::*;
     use crate::config::{Config, OutputMode, PromptTemplates, TranslationScope, TranslationStyle};
@@ -393,12 +453,19 @@ mod tests {
         let mut book = make_book(vec!["alpha", "beta", "gamma"]);
         let mut config = make_config();
         config.checkpoint_dir = dir.path().join("checkpoints");
-        let job_id = CheckpointStore::generate_job_id(&config.source);
+        let job_id = CheckpointStore::generate_job_id(
+            &config.source,
+            &config.target_lang,
+            config.output_mode,
+            &config.provider,
+            &config.model,
+        );
         // Pre-populate checkpoint: chapter 0 completed.
         store
             .save(&Checkpoint {
                 job_id: job_id.clone(),
                 source_hash: "hash".into(),
+                source_path: config.source.to_string_lossy().into_owned(),
                 chapters: vec![
                     ChapterCheckpoint {
                         index: 0,
@@ -426,16 +493,20 @@ mod tests {
             .unwrap();
 
         let cache = TranslationCache::new(config.cache_dir.clone());
+        let context = PipelineContext {
+            translator: &DummyTranslator,
+            config: &config,
+            cache: &cache,
+            progress: None,
+            cancellation: None,
+        };
         let result = run_ordered_pipeline(
             &mut book,
             vec![0, 1, 2],
-            &DummyTranslator,
-            &config,
-            &cache,
+            &context,
             Some(&store),
             Some(&job_id),
             "hash",
-            None,
         )
         .await
         .unwrap();
@@ -443,6 +514,29 @@ mod tests {
         assert!(String::from_utf8_lossy(&book.chapters[0].content).contains("DONE"));
         assert!(String::from_utf8_lossy(&book.chapters[1].content).contains("[beta]"));
         assert!(String::from_utf8_lossy(&book.chapters[2].content).contains("[gamma]"));
+    }
+
+    #[tokio::test]
+    async fn pipeline_stops_before_scheduling_when_cancelled() {
+        let mut book = make_book(vec!["alpha", "beta"]);
+        let config = make_config();
+        let cache = TranslationCache::new(config.cache_dir.clone());
+        let cancellation = CancellationToken::default();
+        cancellation.cancel();
+
+        let context = PipelineContext {
+            translator: &DummyTranslator,
+            config: &config,
+            cache: &cache,
+            progress: None,
+            cancellation: Some(&cancellation),
+        };
+        let result = run_ordered_pipeline(&mut book, vec![0, 1], &context, None, None, "").await;
+        let Err(err) = result else {
+            panic!("expected cancelled pipeline");
+        };
+
+        assert!(matches!(err, BabelEbookError::Cancelled));
     }
 
     #[test]
@@ -457,19 +551,17 @@ mod tests {
                 let mut book = make_book(vec!["alpha", "bravo", "charlie"]);
                 let config = make_config();
                 let cache = TranslationCache::new(config.cache_dir.clone());
-                let result = run_ordered_pipeline(
-                    &mut book,
-                    vec![0, 1, 2],
-                    &DummyTranslator,
-                    &config,
-                    &cache,
-                    None,
-                    None,
-                    "",
-                    None,
-                )
-                .await
-                .unwrap();
+                let context = PipelineContext {
+                    translator: &DummyTranslator,
+                    config: &config,
+                    cache: &cache,
+                    progress: None,
+                    cancellation: None,
+                };
+                let result =
+                    run_ordered_pipeline(&mut book, vec![0, 1, 2], &context, None, None, "")
+                        .await
+                        .unwrap();
                 assert!(result.failures.is_empty());
 
                 let texts: Vec<String> = book
@@ -483,5 +575,185 @@ mod tests {
             });
         });
         handle.join().expect("test thread panicked");
+    }
+
+    #[test]
+    fn pipeline_respects_concurrency() {
+        struct CountingTranslator {
+            active: Arc<AtomicUsize>,
+            max_active: Arc<AtomicUsize>,
+        }
+
+        #[async_trait]
+        impl Translator for CountingTranslator {
+            fn name(&self) -> String {
+                "counting".into()
+            }
+
+            fn max_output_tokens(&self) -> usize {
+                1000
+            }
+
+            async fn translate(
+                &self,
+                text: &str,
+                _ctx: &TranslateContext<'_>,
+            ) -> Result<String, BabelEbookError> {
+                let active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
+                let mut max = self.max_active.load(Ordering::SeqCst);
+                while max < active {
+                    match self.max_active.compare_exchange_weak(
+                        max,
+                        active,
+                        Ordering::SeqCst,
+                        Ordering::SeqCst,
+                    ) {
+                        Ok(_) => break,
+                        Err(current) => max = current,
+                    }
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                self.active.fetch_sub(1, Ordering::SeqCst);
+                Ok(format!("[{}]", text.trim()))
+            }
+        }
+
+        let handle = thread::spawn(|| {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("build current-thread runtime");
+
+            rt.block_on(async {
+                let mut book = make_book(vec!["alpha", "bravo", "charlie", "delta", "echo"]);
+                let mut config = make_config();
+                config.concurrency = 2;
+                let active = Arc::new(AtomicUsize::new(0));
+                let max_active = Arc::new(AtomicUsize::new(0));
+                let translator = CountingTranslator {
+                    active: Arc::clone(&active),
+                    max_active: Arc::clone(&max_active),
+                };
+                let cache = TranslationCache::new(config.cache_dir.clone());
+                let context = PipelineContext {
+                    translator: &translator,
+                    config: &config,
+                    cache: &cache,
+                    progress: None,
+                    cancellation: None,
+                };
+                let result =
+                    run_ordered_pipeline(&mut book, vec![0, 1, 2, 3, 4], &context, None, None, "")
+                        .await
+                        .unwrap();
+                assert!(result.failures.is_empty());
+                // The exact observed concurrency depends on the Tokio scheduler; the
+                // important invariant is that it never exceeds the configured limit.
+                assert!(
+                    max_active.load(Ordering::SeqCst) <= 2,
+                    "concurrency exceeded limit: {}",
+                    max_active.load(Ordering::SeqCst)
+                );
+            });
+        });
+        handle.join().expect("test thread panicked");
+    }
+
+    #[tokio::test]
+    async fn concurrent_chapters_complete_without_deadlock() {
+        struct SlowTranslator;
+
+        #[async_trait]
+        impl Translator for SlowTranslator {
+            fn name(&self) -> String {
+                "slow".into()
+            }
+
+            fn max_output_tokens(&self) -> usize {
+                1000
+            }
+
+            async fn translate(
+                &self,
+                text: &str,
+                _ctx: &TranslateContext<'_>,
+            ) -> Result<String, BabelEbookError> {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                Ok(format!("[{}]", text.trim()))
+            }
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let store = CheckpointStore::new(dir.path().to_path_buf()).unwrap();
+        let mut book = make_book(vec!["alpha", "bravo", "charlie", "delta", "echo"]);
+        let mut config = make_config();
+        config.concurrency = 3;
+        config.checkpoint_dir = dir.path().join("checkpoints");
+        let cache = TranslationCache::new(config.cache_dir.clone());
+
+        let context = PipelineContext {
+            translator: &SlowTranslator,
+            config: &config,
+            cache: &cache,
+            progress: None,
+            cancellation: None,
+        };
+        let result = run_ordered_pipeline(
+            &mut book,
+            vec![0, 1, 2, 3, 4],
+            &context,
+            Some(&store),
+            None,
+            "hash",
+        )
+        .await
+        .unwrap();
+
+        assert!(result.failures.is_empty());
+        let expected = ["alpha", "bravo", "charlie", "delta", "echo"];
+        for (i, chapter) in book.chapters.iter().enumerate() {
+            let text = String::from_utf8_lossy(&chapter.content);
+            assert!(text.contains(&format!("[{}]", expected[i])));
+        }
+    }
+
+    #[tokio::test]
+    async fn checkpoint_file_updated_after_chapters_complete() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = CheckpointStore::new(dir.path().to_path_buf()).unwrap();
+        let mut book = make_book(vec!["alpha", "beta", "gamma"]);
+        let mut config = make_config();
+        config.checkpoint_dir = dir.path().join("checkpoints");
+        let cache = TranslationCache::new(config.cache_dir.clone());
+
+        let context = PipelineContext {
+            translator: &DummyTranslator,
+            config: &config,
+            cache: &cache,
+            progress: None,
+            cancellation: None,
+        };
+        let result = run_ordered_pipeline(
+            &mut book,
+            vec![0, 1, 2],
+            &context,
+            Some(&store),
+            None,
+            "hash",
+        )
+        .await
+        .unwrap();
+
+        assert!(result.failures.is_empty());
+
+        let job_id = resolve_job_id(Some(&store), None, &config);
+        let checkpoint = store
+            .load(&job_id)
+            .expect("checkpoint should exist on disk");
+        assert_eq!(checkpoint.chapters.len(), 3);
+        for entry in &checkpoint.chapters {
+            assert_eq!(entry.status, ChapterStatus::Completed);
+            assert!(entry.content.is_some());
+        }
     }
 }

@@ -1,28 +1,58 @@
 //! Text chunking utilities based on token counts.
 
-/// Return the number of tokens in `text` using the `cl100k_base` tokenizer.
+use std::sync::OnceLock;
+
+use tiktoken_rs::CoreBPE;
+
+/// Return the cached tokenizer, or `None` if it could not be loaded.
 ///
-/// # Panics
+/// The tokenizer is loaded at most once per process. If loading fails, all
+/// token operations fall back to a coarse character/whitespace estimate so
+/// that translation can continue instead of panicking.
+fn get_bpe() -> Option<&'static CoreBPE> {
+    static BPE: OnceLock<Option<CoreBPE>> = OnceLock::new();
+    BPE.get_or_init(|| {
+        tiktoken_rs::cl100k_base()
+            .inspect_err(|err| tracing::warn!(error = %err, "failed to load cl100k_base tokenizer; using fallback estimates"))
+            .ok()
+    })
+    .as_ref()
+}
+
+/// Estimate the number of tokens in `text`.
 ///
-/// Panics if the `cl100k_base` tokenizer cannot be loaded.
+/// Uses the cached `cl100k_base` tokenizer when available; otherwise falls
+/// back to a coarse heuristic (one token per four characters on average).
 #[must_use]
 pub fn count_tokens(text: &str) -> usize {
-    tiktoken_rs::cl100k_base()
-        .expect("cl100k_base tokenizer should be available")
-        .encode_ordinary(text)
-        .len()
+    get_bpe().map_or_else(
+        || text.chars().count().div_ceil(4),
+        |bpe| bpe.encode_ordinary(text).len(),
+    )
 }
 
 /// Split `text` into chunks of at most `max_tokens` tokens.
 ///
 /// This is used as a fallback when a single sentence exceeds the limit.
 fn split_by_tokens(text: &str, max_tokens: usize) -> Vec<String> {
-    let bpe = tiktoken_rs::cl100k_base().expect("cl100k_base tokenizer should be available");
-    let tokens = bpe.encode_ordinary(text);
-    tokens
-        .chunks(max_tokens)
-        .map(|chunk| bpe.decode(chunk.to_vec()).unwrap_or_default())
-        .collect()
+    get_bpe().map_or_else(
+        || {
+            // Roughly four characters per token when the tokenizer is unavailable.
+            let max_chars = max_tokens.saturating_mul(4).max(1);
+            text.chars()
+                .collect::<Vec<_>>()
+                .chunks(max_chars)
+                .map(|chunk| chunk.iter().collect())
+                .collect()
+        },
+        |bpe| {
+            let tokens = bpe.encode_ordinary(text);
+            tokens
+                .chunks(max_tokens)
+                .map(|chunk| bpe.decode(chunk.to_vec()).unwrap_or_default())
+                .collect()
+        },
+    )
 }
 
 /// Split `text` into chunks not exceeding `max_tokens`, keeping sentence

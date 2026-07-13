@@ -7,7 +7,7 @@ interface LegalPageProps {
 
 export default function LegalPage({ onBack }: LegalPageProps) {
   const { t } = useTranslation();
-  const [text, setText] = useState<string>("");
+  const [paragraphs, setParagraphs] = useState<string[]>([]);
   const [error, setError] = useState<string>("");
 
   useEffect(() => {
@@ -20,7 +20,14 @@ export default function LegalPage({ onBack }: LegalPageProps) {
         return res.text();
       })
       .then((data) => {
-        if (!cancelled) setText(data);
+        if (!cancelled) {
+          // Split by blank lines, trim, and drop empty chunks.
+          const chunks = data
+            .split(/\n\s*\n/)
+            .map((p) => p.trim())
+            .filter((p) => p.length > 0);
+          setParagraphs(chunks);
+        }
       })
       .catch((err) => {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err));
@@ -33,7 +40,7 @@ export default function LegalPage({ onBack }: LegalPageProps) {
   return (
     <div className="page settings-page legal-page">
       <div className="legal-header">
-        <button type="button" className="btn-secondary" onClick={onBack}>
+        <button type="button" className="button-secondary" onClick={onBack}>
           {t("legal_back")}
         </button>
         <h2>{t("legal_title")}</h2>
@@ -41,9 +48,13 @@ export default function LegalPage({ onBack }: LegalPageProps) {
 
       {error ? (
         <p className="legal-error">{t("legal_load_error", { error })}</p>
+      ) : paragraphs.length === 0 ? (
+        <p className="hint">{t("legal_loading")}</p>
       ) : (
         <article className="legal-document">
-          <pre>{text || t("legal_loading")}</pre>
+          {paragraphs.map((p, index) => (
+            <p key={index}>{p}</p>
+          ))}
         </article>
       )}
     </div>

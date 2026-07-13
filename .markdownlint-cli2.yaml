@@ -2,6 +2,8 @@ ignores:
   # Internal implementation plans contain long code blocks and command lists;
   # specs and user-facing docs are linted instead.
   - "docs/superpowers/plans/*.md"
+  # Internal architecture review report; kept for reference but not linted.
+  - "docs/architecture-review-v0.3.3.md"
 
 config:
   MD013:

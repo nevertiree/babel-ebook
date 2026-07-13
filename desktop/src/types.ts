@@ -3,7 +3,8 @@ export type TaskStatus =
   | "running"
   | "completed"
   | "failed"
-  | "cancelled";
+  | "cancelled"
+  | "paused";
 
 export interface Task {
   id: string;
@@ -14,8 +15,11 @@ export interface Task {
   message: string;
   error?: string;
   created_at: number;
+  started_at?: number;
   completed_at?: number;
   chapter_total?: number;
+  chapter_progress?: Record<number, { chunk_total: number; chunks_done: number }>;
+  chapters_completed?: number;
 }
 
 export interface QueueState {
@@ -27,8 +31,9 @@ export interface QueueState {
 /**
  * A single provider/API configuration.
  *
- * API keys are stored in the OS keyring keyed by `provider`; this struct only
- * keeps the non-secret parts in Tauri Store.
+ * API keys are stored in the OS credential store (keyring / Credential Manager)
+ * and are never written to `settings.json`. The `api_key` field here lives only
+ * in memory while the app is running.
  */
 export interface ProviderConfig {
   name: string;
@@ -51,6 +56,10 @@ export interface PromptTemplates {
 
 /**
  * Shared form state used across the desktop application.
+ *
+ * This is the canonical serializable shape persisted to disk. To reduce
+ * coupling and re-renders, individual settings pages receive focused slices
+ * (see below) instead of the full object.
  */
 export interface FormState {
   source: string;
@@ -65,7 +74,6 @@ export interface FormState {
   preserve_classes: boolean;
   exclude_selectors: string;
   translate_attributes: string;
-  remember_api_key: boolean;
   translate_body: boolean;
   translate_metadata: boolean;
   translate_toc: boolean;
@@ -94,6 +102,60 @@ export interface FormState {
   temperature: number;
 }
 
+/** Model / inference parameters shown on the Model settings page. */
+export type ModelParams = Pick<
+  FormState,
+  "model" | "max_input_tokens" | "max_output_tokens" | "temperature"
+>;
+
+/** Translation language, mode, style and element scope settings. */
+export type TranslationSettingsState = Pick<
+  FormState,
+  | "source_lang"
+  | "target_lang"
+  | "output_mode"
+  | "style"
+  | "preserve_classes"
+  | "exclude_selectors"
+  | "translate_attributes"
+  | "translate_body"
+  | "translate_metadata"
+  | "translate_toc"
+  | "translate_alt_text"
+  | "translate_image_captions"
+  | "translate_tables"
+  | "translate_footnotes"
+  | "translate_code"
+>;
+
+/** System prompt and per-style prompt templates. */
+export type PromptSettingsState = Pick<FormState, "system_prompt" | "prompts">;
+
+/** Output formatting and checkpoint directory settings. */
+export type OutputSettingsState = Pick<
+  FormState,
+  "output_font" | "output_filename_template" | "checkpoint_dir"
+>;
+
+/** Queue / concurrency settings. */
+export type QueueSettingsState = Pick<FormState, "concurrency">;
+
+/** Main translation inputs shown on the translate page. */
+export type TranslateInputs = Pick<
+  FormState,
+  | "source"
+  | "output"
+  | "source_lang"
+  | "target_lang"
+  | "output_mode"
+  | "providers"
+  | "active_provider"
+  | "model"
+  | "checkpoint_dir"
+  | "resume"
+  | "refine"
+>;
+
 /**
  * Available application pages.
  */
@@ -106,6 +168,7 @@ export type Page =
   | "settings-translation"
   | "settings-output"
   | "settings-prompts"
+  | "settings-queue"
   | "settings-general"
   | "about"
   | "legal";
@@ -125,6 +188,7 @@ export interface CheckpointInfo {
   job_id: string;
   source_hash: string;
   source_path: string;
+  matches_current_source: boolean;
   completed: number;
   total: number;
   failed: number;
@@ -182,7 +246,6 @@ export const defaults: FormState = {
   preserve_classes: false,
   exclude_selectors: "",
   translate_attributes: "",
-  remember_api_key: true,
   translate_body: true,
   translate_metadata: true,
   translate_toc: true,

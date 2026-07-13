@@ -198,4 +198,23 @@ mod tests {
             assert_eq!(translator.name(), "ollama:llama3");
         });
     }
+
+    #[test]
+    fn registry_ollama_uses_provider_config_model() {
+        with_env_vars(&["OLLAMA_API_KEY", "LLM_API_KEY", "OPENAI_API_KEY"], || {
+            let config = test_config(None);
+            let provider_config = ProviderConfig {
+                name: "ollama".into(),
+                api_key: None,
+                base_url: None,
+                default_model: "llama3.2:latest".into(),
+                max_tokens: 2000,
+                temperature: 0.3,
+                extra: None,
+            };
+            let translator = get_translator("ollama", Some(&provider_config), &config, false)
+                .expect("ollama provider exists");
+            assert_eq!(translator.name(), "ollama:llama3.2:latest");
+        });
+    }
 }

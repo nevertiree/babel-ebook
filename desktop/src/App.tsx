@@ -1,22 +1,40 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 import { confirm } from "@tauri-apps/plugin-dialog";
-import "./App.css";
-import type { FormState, LogEntry, Page, ProgressState, ProviderConfig, QueueState, Task, ValidationResult } from "./types";
-import { defaults, recommendedModels, targetLanguages } from "./types";
+import "./styles/theme.css";
+import "./styles/base.css";
+import type {
+  FormState,
+  ModelParams,
+  OutputSettingsState,
+  Page,
+  ProviderConfig,
+  PromptSettingsState,
+  QueueSettingsState,
+  TranslateInputs,
+  TranslationSettingsState,
+  ValidationResult,
+} from "./types";
+import { defaults } from "./types";
 import TranslatePage from "./pages/TranslatePage";
 import ComputeSettingsPage from "./pages/ComputeSettingsPage";
 import ModelParamsPage from "./pages/ModelParamsPage";
 import TranslationSettingsPage from "./pages/TranslationSettingsPage";
 import PromptsPage from "./pages/PromptsPage";
 import OutputSettingsPage from "./pages/OutputSettingsPage";
+import QueueSettingsPage from "./pages/QueueSettingsPage";
 import GeneralSettingsPage from "./pages/GeneralSettingsPage";
 import AboutPage from "./pages/AboutPage";
 import LegalPage from "./pages/LegalPage";
 import LogsPage from "./pages/LogsPage";
 import TasksPage from "./pages/TasksPage";
+import SettingsLayout from "./pages/SettingsLayout";
+import ToastContainer from "./components/ToastContainer";
+import type { Toast } from "./components/ToastContainer";
+import NavIcon from "./components/NavIcon";
+import { useQueue } from "./hooks/useQueue";
+import { useLogState } from "./hooks/useLogState";
 import {
   loadGeneralSettings,
   loadSettings,
@@ -25,6 +43,7 @@ import {
   saveSettings,
   type GeneralSettings,
 } from "./config";
+import { generateId } from "./utils";
 
 interface E2EArgs {
   source?: string;
@@ -35,35 +54,11 @@ interface E2EArgs {
   ui_language?: string;
 }
 
-type ProgressPayload =
-  | { Started: { total: number } }
-  | { ChapterStarted: { index: number; href: string } }
-  | { ChapterFinished: { index: number; href: string } }
-  | { Failed: { index: number; href: string; error: string } }
-  | "Completed";
-
-const settingsPages: { page: Page; labelKey: string }[] = [
-  { page: "settings-compute", labelKey: "settings_compute" },
-  { page: "settings-model", labelKey: "settings_model" },
-  { page: "settings-translation", labelKey: "settings_translation" },
-  { page: "settings-prompts", labelKey: "settings_prompts" },
-  { page: "settings-output", labelKey: "settings_output" },
-  { page: "settings-general", labelKey: "settings_general" },
-];
-
-function generateId() {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-}
-
-function initialGeneralFromLocalStorage(): GeneralSettings {
-  const ui_language = localStorage.getItem("ui_language");
-  return {
-    ui_language:
-      ui_language && targetLanguages.some((l) => l.code === ui_language) ? ui_language : "en",
-    theme: "dark",
-    follow_system_language: localStorage.getItem("follow_system_language") !== "false",
-  };
-}
+const DEFAULT_GENERAL: GeneralSettings = {
+  ui_language: "en",
+  theme: "dark",
+  follow_system_language: true,
+};
 
 function activeProvider(form: FormState): ProviderConfig | undefined {
   return form.providers.find((p) => p.name === form.active_provider);
@@ -99,40 +94,6 @@ function ensureProvider(form: FormState, providerType: string): FormState {
     ],
     active_provider: name,
   };
-}
-
-function applyProgressToTask(task: Task, payload: ProgressPayload): Task {
-  if (typeof payload === "string" && payload === "Completed") {
-    return { ...task, progress_percent: 100 };
-  }
-  if (typeof payload === "object" && "Started" in payload) {
-    return {
-      ...task,
-      progress_percent: 0,
-      status: "running",
-      chapter_total: payload.Started.total,
-    };
-  }
-  if (typeof payload === "object" && "ChapterStarted" in payload) {
-    const total = task.chapter_total ?? 0;
-    const percent =
-      total > 0
-        ? Math.round(((payload.ChapterStarted.index + 1) / total) * 100)
-        : task.progress_percent;
-    return { ...task, progress_percent: Math.min(99, percent), status: "running" };
-  }
-  if (typeof payload === "object" && "ChapterFinished" in payload) {
-    const total = task.chapter_total ?? 0;
-    const percent =
-      total > 0
-        ? Math.round(((payload.ChapterFinished.index + 1) / total) * 100)
-        : task.progress_percent;
-    return { ...task, progress_percent: Math.min(99, percent), status: "running" };
-  }
-  if (typeof payload === "object" && "Failed" in payload) {
-    return { ...task, message: payload.Failed.error };
-  }
-  return task;
 }
 
 function parseCommaList(value: string) {
@@ -171,6 +132,43 @@ function buildTranslateArgs(form: FormState): object {
   };
 }
 
+/**
+ * Apply E2E-injected values to a form state and return the merged form plus the
+ * injected output path, if any. Keeping this logic isolated makes the settings
+ * loading effect easier to follow and test.
+ */
+function applyE2EOverrides(
+  form: FormState,
+  e2e: E2EArgs
+): { form: FormState; injectedOutput: string | null } {
+  let merged = form;
+  let injectedOutput: string | null = null;
+
+  if (e2e.api_key) {
+    merged = {
+      ...merged,
+      providers: merged.providers.map((p) =>
+        p.name === merged.active_provider ? { ...p, api_key: e2e.api_key ?? "" } : p
+      ),
+    };
+  }
+  if (e2e.source) {
+    merged = { ...merged, source: e2e.source };
+  }
+  if (e2e.output) {
+    merged = { ...merged, output: e2e.output };
+    injectedOutput = e2e.output;
+  }
+  if (e2e.checkpoint_dir) {
+    merged = { ...merged, checkpoint_dir: e2e.checkpoint_dir };
+  }
+  if (e2e.dry_run !== undefined) {
+    merged = { ...merged, dry_run: e2e.dry_run };
+  }
+
+  return { form: merged, injectedOutput };
+}
+
 function App() {
   const { t, i18n } = useTranslation();
   const [form, setForm] = useState<FormState>(() => ({
@@ -178,23 +176,219 @@ function App() {
     target_lang: defaults.target_lang,
   }));
   const [page, setPage] = useState<Page>("translate");
-  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [toasts, setToasts] = useState<Toast[]>([]);
 
-  const [progress, setProgress] = useState<ProgressState>({
-    percent: 0,
-    message: "",
-  });
-  const [general, setGeneral] = useState<GeneralSettings>(initialGeneralFromLocalStorage);
+  const [general, setGeneral] = useState<GeneralSettings>(DEFAULT_GENERAL);
   const [detectedLocale, setDetectedLocale] = useState<string>("en");
-  const [queue, setQueue] = useState<QueueState>({
-    tasks: [],
-    running: false,
-  });
 
-  const completedRef = useRef(0);
-  const totalRef = useRef(0);
+  const {
+    queue,
+    currentTask,
+    runningTaskCount,
+    refreshQueue,
+    removeTask,
+    retryTask,
+    cancelTask,
+    reorderTasks,
+    pauseTask,
+    resumeTask,
+    startQueue,
+    pauseQueue,
+  } = useQueue();
+  const { logs, clearLogs, appendError } = useLogState();
+
+  // Focused slices derived from the serializable FormState. Passing slices to
+  // settings pages instead of the whole FormState reduces coupling and, together
+  // with memo(), prevents re-renders when unrelated fields change.
+  const modelParams: ModelParams = useMemo(
+    () => ({
+      model: form.model,
+      max_input_tokens: form.max_input_tokens,
+      max_output_tokens: form.max_output_tokens,
+      temperature: form.temperature,
+    }),
+    [form.model, form.max_input_tokens, form.max_output_tokens, form.temperature]
+  );
+
+  const translationSettings: TranslationSettingsState = useMemo(
+    () => ({
+      source_lang: form.source_lang,
+      target_lang: form.target_lang,
+      output_mode: form.output_mode,
+      style: form.style,
+      preserve_classes: form.preserve_classes,
+      exclude_selectors: form.exclude_selectors,
+      translate_attributes: form.translate_attributes,
+      translate_body: form.translate_body,
+      translate_metadata: form.translate_metadata,
+      translate_toc: form.translate_toc,
+      translate_alt_text: form.translate_alt_text,
+      translate_image_captions: form.translate_image_captions,
+      translate_tables: form.translate_tables,
+      translate_footnotes: form.translate_footnotes,
+      translate_code: form.translate_code,
+    }),
+    [
+      form.source_lang,
+      form.target_lang,
+      form.output_mode,
+      form.style,
+      form.preserve_classes,
+      form.exclude_selectors,
+      form.translate_attributes,
+      form.translate_body,
+      form.translate_metadata,
+      form.translate_toc,
+      form.translate_alt_text,
+      form.translate_image_captions,
+      form.translate_tables,
+      form.translate_footnotes,
+      form.translate_code,
+    ]
+  );
+
+  const promptSettings: PromptSettingsState = useMemo(
+    () => ({ system_prompt: form.system_prompt, prompts: form.prompts }),
+    [form.system_prompt, form.prompts]
+  );
+
+  const outputSettings: OutputSettingsState = useMemo(
+    () => ({
+      output_font: form.output_font,
+      output_filename_template: form.output_filename_template,
+      checkpoint_dir: form.checkpoint_dir,
+    }),
+    [form.output_font, form.output_filename_template, form.checkpoint_dir]
+  );
+
+  const queueSettings: QueueSettingsState = useMemo(
+    () => ({ concurrency: form.concurrency }),
+    [form.concurrency]
+  );
+
+  const translateInputs: TranslateInputs = useMemo(
+    () => ({
+      source: form.source,
+      output: form.output,
+      source_lang: form.source_lang,
+      target_lang: form.target_lang,
+      output_mode: form.output_mode,
+      providers: form.providers,
+      active_provider: form.active_provider,
+      model: form.model,
+      checkpoint_dir: form.checkpoint_dir,
+      resume: form.resume,
+      refine: form.refine,
+    }),
+    [
+      form.source,
+      form.output,
+      form.source_lang,
+      form.target_lang,
+      form.output_mode,
+      form.providers,
+      form.active_provider,
+      form.model,
+      form.checkpoint_dir,
+      form.resume,
+      form.refine,
+    ]
+  );
+
+  const setModelParams = useCallback(
+    (update: Partial<ModelParams>) => setForm((prev) => ({ ...prev, ...update })),
+    []
+  );
+  const setTranslationSettings = useCallback(
+    (update: Partial<TranslationSettingsState>) => setForm((prev) => ({ ...prev, ...update })),
+    []
+  );
+  const setPromptSettings = useCallback(
+    (update: Partial<PromptSettingsState>) => setForm((prev) => ({ ...prev, ...update })),
+    []
+  );
+  const setOutputSettings = useCallback(
+    (update: Partial<OutputSettingsState>) => setForm((prev) => ({ ...prev, ...update })),
+    []
+  );
+  const setQueueSettings = useCallback(
+    (update: Partial<QueueSettingsState>) => setForm((prev) => ({ ...prev, ...update })),
+    []
+  );
+  const setInputs = useCallback(
+    (update: Partial<TranslateInputs>) => setForm((prev) => ({ ...prev, ...update })),
+    []
+  );
+
+  const [sidebarWidth, setSidebarWidth] = useState(180);
+  const isResizing = useRef(false);
+  const startX = useRef(0);
+  const startWidth = useRef(0);
+
+  const beginResize = (e: React.MouseEvent) => {
+    isResizing.current = true;
+    startX.current = e.clientX;
+    startWidth.current = sidebarWidth;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing.current) return;
+      const delta = e.clientX - startX.current;
+      const next = Math.max(140, Math.min(320, startWidth.current + delta));
+      setSidebarWidth(next);
+    };
+    const handleMouseUp = () => {
+      if (!isResizing.current) return;
+      isResizing.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [sidebarWidth]);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      switch (e.key) {
+        case "1":
+          e.preventDefault();
+          setPage("translate");
+          break;
+        case "2":
+          e.preventDefault();
+          setPage("logs");
+          break;
+        case "3":
+          e.preventDefault();
+          setPage("tasks");
+          break;
+        case "4":
+          e.preventDefault();
+          setPage("settings-compute");
+          break;
+        case "5":
+          e.preventDefault();
+          setPage("about");
+          break;
+        default:
+          break;
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
   const e2eOutputRef = useRef<string | null>(null);
   const generalLoadedRef = useRef(false);
+  const initialLanguageAppliedRef = useRef(false);
 
   // Load persisted settings on mount, optionally overridden by E2E env args.
   useEffect(() => {
@@ -223,29 +417,10 @@ function App() {
           merged = { ...merged, active_provider: merged.providers[0].name };
         }
 
-        // If E2E injects an API key, apply it to the active provider.
-        if (e2e.api_key) {
-          merged = {
-            ...merged,
-            providers: merged.providers.map((p) =>
-              p.name === merged.active_provider ? { ...p, api_key: e2e.api_key ?? "" } : p
-            ),
-          };
-        }
-
-        // If E2E injects source/output/checkpoint paths, apply them to the form.
-        if (e2e.source) {
-          merged = { ...merged, source: e2e.source };
-        }
-        if (e2e.output) {
-          merged = { ...merged, output: e2e.output };
-          e2eOutputRef.current = e2e.output;
-        }
-        if (e2e.checkpoint_dir) {
-          merged = { ...merged, checkpoint_dir: e2e.checkpoint_dir };
-        }
-        if (e2e.dry_run !== undefined) {
-          merged = { ...merged, dry_run: e2e.dry_run };
+        const e2eResult = applyE2EOverrides(merged, e2e);
+        merged = e2eResult.form;
+        if (e2eResult.injectedOutput) {
+          e2eOutputRef.current = e2eResult.injectedOutput;
         }
 
         // If no target language was saved, default to the UI language.
@@ -255,13 +430,21 @@ function App() {
 
         setForm(merged);
 
+        // Apply UI language after settings are loaded so we use the persisted
+        // preference rather than the hard-coded default. When following the
+        // system language, resolve the system locale first.
         if (e2e.ui_language) {
-          void i18n.changeLanguage(e2e.ui_language);
-        } else if (!generalSettings.follow_system_language) {
-          void i18n.changeLanguage(generalSettings.ui_language);
+          await i18n.changeLanguage(e2e.ui_language);
+        } else if (generalSettings.follow_system_language) {
+          const locale = await invoke<string>("get_system_locale");
+          setDetectedLocale(locale);
+          await i18n.changeLanguage(locale);
+        } else {
+          await i18n.changeLanguage(generalSettings.ui_language);
         }
+        initialLanguageAppliedRef.current = true;
       } catch (err) {
-        console.error("[E2E] settings initialization failed:", err);
+        console.error("[settings] initialization failed:", err);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -323,62 +506,27 @@ function App() {
     document.documentElement.setAttribute("data-theme", general.theme);
   }, [general.theme]);
 
-  // System language detection.
+  // Keep the UI language in sync with general settings. When following the
+  // system language, re-resolve the locale whenever the toggle is turned on.
+  // Skip the initial mount because the settings-loading effect above already
+  // applied the persisted (or E2E-injected) language.
   useEffect(() => {
-    void invoke<string>("get_system_locale").then((locale) => {
-      setDetectedLocale(locale);
-      if (general.follow_system_language) {
-        void i18n.changeLanguage(locale);
-      }
-    });
-  }, [general.follow_system_language, i18n]);
-
-  useEffect(() => {
-    if (!general.follow_system_language) {
-      void i18n.changeLanguage(general.ui_language);
-    }
-  }, [general.ui_language, general.follow_system_language, i18n]);
-
-  useEffect(() => {
-    void (async () => {
-      const initial = await invoke<QueueState>("get_queue_state").catch(() => ({
-        tasks: [],
-        running: false,
-      }));
-      setQueue(initial);
-    })();
-  }, []);
-
-  useEffect(() => {
-    const unlistenProgress = listen<{ task_id: string; event: ProgressPayload }>(
-      "task_progress",
-      (event) => {
-        const { task_id, event: progressEvent } = event.payload;
-        setQueue((prev) => {
-          const tasks = prev.tasks.map((t) => {
-            if (t.id !== task_id) return t;
-            return applyProgressToTask(t, progressEvent);
-          });
-          return { ...prev, tasks };
+    if (!initialLanguageAppliedRef.current) return;
+    if (general.follow_system_language) {
+      void invoke<string>("get_system_locale")
+        .then((locale) => {
+          setDetectedLocale(locale);
+          return i18n.changeLanguage(locale);
+        })
+        .catch((err) => {
+          console.error("[locale] failed to apply system language:", err);
         });
-      }
-    );
-
-    const unlistenChanged = listen<unknown>("queue_state_changed", () => {
-      void (async () => {
-        const state = await invoke<QueueState>("get_queue_state").catch(() => ({
-          tasks: [],
-          running: false,
-        }));
-        setQueue(state);
-      })();
-    });
-
-    return () => {
-      void unlistenProgress.then((f) => f());
-      void unlistenChanged.then((f) => f());
-    };
-  }, []);
+    } else {
+      void i18n.changeLanguage(general.ui_language).catch((err) => {
+        console.error("[locale] failed to apply UI language:", err);
+      });
+    }
+  }, [general.follow_system_language, general.ui_language, i18n]);
 
   const validation: ValidationResult = useMemo(() => {
     const errors: ValidationResult["errors"] = {};
@@ -404,110 +552,6 @@ function App() {
     return { valid: Object.keys(errors).length === 0, errors, reason };
   }, [form, t]);
 
-  useEffect(() => {
-    const unlisten = listen<ProgressPayload>("translation_progress", (event) => {
-      const payload = event.payload;
-
-      setLogs((prev) => {
-        if (typeof payload === "string" && payload === "Completed") {
-          return [...prev, { id: generateId(), timestamp: Date.now(), kind: "success", message: t("completed") }];
-        }
-        if (typeof payload === "object" && "Started" in payload) {
-          totalRef.current = payload.Started.total;
-          completedRef.current = 0;
-          return [
-            ...prev,
-            {
-              id: generateId(), timestamp: Date.now(),
-              kind: "info",
-              message: t("log_started", { total: payload.Started.total }),
-            },
-          ];
-        }
-        if (typeof payload === "object" && "ChapterStarted" in payload) {
-          return [
-            ...prev,
-            {
-              id: generateId(), timestamp: Date.now(),
-              kind: "chapter",
-              message: t("log_chapter_started", { href: payload.ChapterStarted.href }),
-            },
-          ];
-        }
-        if (typeof payload === "object" && "ChapterFinished" in payload) {
-          return [
-            ...prev,
-            {
-              id: generateId(), timestamp: Date.now(),
-              kind: "chapter",
-              message: t("log_chapter_finished", {
-                href: payload.ChapterFinished.href,
-                current: completedRef.current,
-                total: totalRef.current,
-              }),
-            },
-          ];
-        }
-        if (typeof payload === "object" && "Failed" in payload) {
-          return [
-            ...prev,
-            {
-              id: generateId(), timestamp: Date.now(),
-              kind: "error",
-              message: t("log_chapter_failed", {
-                href: payload.Failed.href,
-                error: payload.Failed.error,
-              }),
-              details: payload.Failed.error,
-            },
-          ];
-        }
-        return prev;
-      });
-
-      setProgress((prev) => {
-        if (typeof payload === "string" && payload === "Completed") {
-          return { percent: 100, message: t("completed") };
-        }
-        if (typeof payload === "object" && "Started" in payload) {
-          totalRef.current = payload.Started.total;
-          completedRef.current = 0;
-          return { percent: 0, message: t("started") };
-        }
-        if (typeof payload === "object" && "ChapterStarted" in payload) {
-          return {
-            ...prev,
-            message: `${t("started")}: ${payload.ChapterStarted.href}`,
-          };
-        }
-        if (typeof payload === "object" && "ChapterFinished" in payload) {
-          completedRef.current += 1;
-          const percent =
-            totalRef.current > 0
-              ? Math.min(
-                  100,
-                  Math.round((completedRef.current / totalRef.current) * 100)
-                )
-              : prev.percent;
-          return {
-            percent,
-            message: `${t("completed")}: ${payload.ChapterFinished.href}`,
-          };
-        }
-        if (typeof payload === "object" && "Failed" in payload) {
-          return {
-            ...prev,
-            message: `${t("error")}: ${payload.Failed.error}`,
-          };
-        }
-        return prev;
-      });
-    });
-    return () => {
-      void unlisten.then((f) => f());
-    };
-  }, [t]);
-
   async function handleStart() {
     if (!validation.valid) return;
 
@@ -529,13 +573,21 @@ function App() {
       const args = buildTranslateArgs(form);
       await invoke("enqueue_task", { args });
       await invoke("start_queue");
-      setPage("tasks");
+      await refreshQueue();
     } catch (err) {
-      const message = `${t("error")}: ${err}`;
-      setLogs((prev) => [
-        ...prev,
-        { id: generateId(), timestamp: Date.now(), kind: "error", message },
-      ]);
+      appendError(`${t("error")}: ${err}`);
+    }
+  }
+
+  async function handleDryRun() {
+    if (!validation.valid) return;
+    try {
+      const args = { ...buildTranslateArgs(form), dry_run: true };
+      await invoke("enqueue_task", { args });
+      await invoke("start_queue");
+      await refreshQueue();
+    } catch (err) {
+      appendError(`${t("error")}: ${err}`);
     }
   }
 
@@ -543,11 +595,9 @@ function App() {
     setForm((prev) => {
       const next = { ...prev, [key]: value } as FormState;
       if (key === "active_provider") {
-        const active = next.providers.find((p) => p.name === value);
-        const providerType = active?.provider ?? (value as string);
-        const models = recommendedModels[providerType] ?? [];
-        if (models.length > 0 && !models.some((m) => m.value === next.model)) {
-          next.model = models[0].value;
+        const activeStillExists = next.providers.some((p) => p.name === value);
+        if (!activeStillExists && next.providers.length > 0) {
+          next.active_provider = next.providers[0].name;
         }
       }
       return next;
@@ -565,61 +615,29 @@ function App() {
     });
   };
 
-  const clearLogs = () => setLogs([]);
-
-  const refreshQueue = async () => {
-    const state = await invoke<QueueState>("get_queue_state").catch(() => ({
-      tasks: [],
-      running: false,
-    }));
-    setQueue(state);
+  const showToast = (message: string, kind: Toast["kind"] = "info") => {
+    const id = generateId();
+    setToasts((prev) => [...prev, { id, message, kind }]);
   };
 
-  const enqueueTask = async (args: object) => {
-    await invoke("enqueue_task", { args });
-    await refreshQueue();
+  const dismissToast = (id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
   };
-
-  const removeTask = async (id: string) => {
-    await invoke("remove_task", { id });
-    await refreshQueue();
-  };
-
-  const retryTask = async (id: string) => {
-    await invoke("retry_task", { id });
-    await refreshQueue();
-  };
-
-  const cancelTask = async (id: string) => {
-    await invoke("cancel_task", { id });
-    await refreshQueue();
-  };
-
-  const startQueue = async () => {
-    await invoke("start_queue");
-    await refreshQueue();
-  };
-
-  const pauseQueue = async () => {
-    await invoke("pause_queue");
-    await refreshQueue();
-  };
-
-  // enqueueTask is reserved for the upcoming task-creation flow.
-  void enqueueTask;
 
   const renderPage = () => {
     switch (page) {
       case "translate":
         return (
           <TranslatePage
-            form={form}
-            setForm={updateForm}
+            inputs={translateInputs}
+            setInputs={setInputs}
             onStart={handleStart}
-            progress={progress}
+            onDryRun={handleDryRun}
+            currentTask={currentTask}
             validation={validation}
             onPageChange={setPage}
-            activeProvider={activeProvider(form)}
+            logs={logs}
+            onClearLogs={clearLogs}
           />
         );
       case "logs":
@@ -631,51 +649,79 @@ function App() {
             onRemove={removeTask}
             onRetry={retryTask}
             onCancel={cancelTask}
+            onPauseTask={pauseTask}
+            onResumeTask={resumeTask}
             onStart={startQueue}
             onPause={pauseQueue}
+            onReorder={reorderTasks}
+            onNavigate={setPage}
           />
         );
       case "settings-compute":
-        return (
-          <ComputeSettingsPage
-            providers={form.providers}
-            activeProvider={form.active_provider}
-            onChangeProviders={updateProviders}
-            onChangeActiveProvider={(provider) => updateForm("active_provider", provider)}
-          />
-        );
       case "settings-model":
-        return <ModelParamsPage form={form} setForm={updateForm} />;
       case "settings-translation":
-        return <TranslationSettingsPage form={form} setForm={updateForm} />;
       case "settings-prompts":
-        return <PromptsPage form={form} setForm={updateForm} />;
       case "settings-output":
-        return <OutputSettingsPage form={form} setForm={updateForm} />;
+      case "settings-queue":
       case "settings-general":
         return (
-          <GeneralSettingsPage
-            general={general}
-            setGeneral={setGeneral}
-            detectedLocale={detectedLocale}
-            onImport={async (settings) => {
-              const merged = { ...form, ...settings.translation } as FormState;
-              if (
-                !merged.active_provider ||
-                !merged.providers.some((p) => p.name === merged.active_provider)
-              ) {
-                merged.active_provider = merged.providers[0]?.name ?? "";
-              }
-              const general = {
-                ...settings.general,
-                theme: normalizeTheme(settings.general.theme),
-              };
-              setForm(merged);
-              setGeneral(general);
-              await saveSettings(merged);
-              await saveGeneralSettings(general);
-            }}
-          />
+          <SettingsLayout activePage={page} onNavigate={setPage}>
+            {page === "settings-compute" && (
+              <ComputeSettingsPage
+                providers={form.providers}
+                activeProvider={form.active_provider}
+                onChangeProviders={updateProviders}
+                onChangeActiveProvider={(provider) => updateForm("active_provider", provider)}
+              />
+            )}
+            {page === "settings-model" && (
+              <ModelParamsPage modelParams={modelParams} setModelParams={setModelParams} />
+            )}
+            {page === "settings-translation" && (
+              <TranslationSettingsPage
+                settings={translationSettings}
+                setSettings={setTranslationSettings}
+              />
+            )}
+            {page === "settings-prompts" && (
+              <PromptsPage promptSettings={promptSettings} setPromptSettings={setPromptSettings} />
+            )}
+            {page === "settings-output" && (
+              <OutputSettingsPage
+                outputSettings={outputSettings}
+                setOutputSettings={setOutputSettings}
+                targetLang={form.target_lang}
+              />
+            )}
+            {page === "settings-queue" && (
+              <QueueSettingsPage queueSettings={queueSettings} setQueueSettings={setQueueSettings} />
+            )}
+            {page === "settings-general" && (
+              <GeneralSettingsPage
+                general={general}
+                setGeneral={setGeneral}
+                detectedLocale={detectedLocale}
+                onToast={showToast}
+                onImport={async (settings) => {
+                  const merged = { ...form, ...settings.translation } as FormState;
+                  if (
+                    !merged.active_provider ||
+                    !merged.providers.some((p) => p.name === merged.active_provider)
+                  ) {
+                    merged.active_provider = merged.providers[0]?.name ?? "";
+                  }
+                  const general = {
+                    ...settings.general,
+                    theme: normalizeTheme(settings.general.theme),
+                  };
+                  setForm(merged);
+                  setGeneral(general);
+                  await saveSettings(merged);
+                  await saveGeneralSettings(general);
+                }}
+              />
+            )}
+          </SettingsLayout>
         );
       case "about":
         return <AboutPage onOpenLegal={() => setPage("legal")} />;
@@ -688,61 +734,83 @@ function App() {
 
   return (
     <div className="app-shell" data-theme={general.theme}>
-      <aside className="sidebar">
+      <aside
+        className="sidebar"
+        style={{ width: sidebarWidth, minWidth: sidebarWidth }}
+      >
         <div className="brand">
           <h1>{t("app_title")}</h1>
         </div>
 
         <nav>
-          <button
-            type="button"
-            className={`nav-item ${page === "translate" ? "active" : ""}`}
-            onClick={() => setPage("translate")}
-          >
-            {t("nav_translate")}
-          </button>
+          <div className="nav-group-top">
+            <button
+              type="button"
+              className={`nav-item ${page === "translate" ? "active" : ""}`}
+              onClick={() => setPage("translate")}
+              data-testid="nav-translate"
+            >
+              <NavIcon icon="translate" className="nav-item-icon" />
+              <span className="nav-item-label">{t("nav_translate")}</span>
+            </button>
 
-          <button
-            type="button"
-            className={`nav-item ${page === "logs" ? "active" : ""}`}
-            onClick={() => setPage("logs")}
-          >
-            {t("nav_logs")}
-          </button>
+            <button
+              type="button"
+              className={`nav-item ${page === "tasks" ? "active" : ""}`}
+              onClick={() => setPage("tasks")}
+              data-testid="nav-tasks"
+            >
+              <NavIcon icon="tasks" className="nav-item-icon" />
+              <span className="nav-item-label">{t("nav_tasks")}</span>
+              {runningTaskCount > 0 && (
+                <span className="nav-badge" aria-label={t("task_status_running")}>
+                  {runningTaskCount}
+                </span>
+              )}
+            </button>
 
-          <button
-            type="button"
-            className={`nav-item ${page === "tasks" ? "active" : ""}`}
-            onClick={() => setPage("tasks")}
-          >
-            {t("nav_tasks")}
-          </button>
-
-          <div className="nav-group">
-            <span className="nav-group-label">{t("nav_settings")}</span>
-            {settingsPages.map(({ page: p, labelKey }) => (
-              <button
-                key={p}
-                type="button"
-                className={`nav-item ${page === p ? "active" : ""}`}
-                onClick={() => setPage(p)}
-              >
-                {t(labelKey)}
-              </button>
-            ))}
+            <button
+              type="button"
+              className={`nav-item ${page === "logs" ? "active" : ""}`}
+              onClick={() => setPage("logs")}
+              data-testid="nav-logs"
+            >
+              <NavIcon icon="logs" className="nav-item-icon" />
+              <span className="nav-item-label">{t("nav_logs")}</span>
+            </button>
           </div>
 
-          <button
-            type="button"
-            className={`nav-item ${page === "about" ? "active" : ""}`}
-            onClick={() => setPage("about")}
-          >
-            {t("nav_about")}
-          </button>
+          <div className="nav-group-bottom">
+            <button
+              type="button"
+              className={`nav-item ${page.startsWith("settings-") ? "active" : ""}`}
+              onClick={() => setPage("settings-compute")}
+              data-testid="nav-settings"
+            >
+              <NavIcon icon="settings" className="nav-item-icon" />
+              <span className="nav-item-label">{t("nav_settings")}</span>
+            </button>
+
+            <button
+              type="button"
+              className={`nav-item ${page === "about" ? "active" : ""}`}
+              onClick={() => setPage("about")}
+            >
+              <NavIcon icon="about" className="nav-item-icon" />
+              <span className="nav-item-label">{t("nav_about")}</span>
+            </button>
+          </div>
         </nav>
+
+        <div
+          className="sidebar-resizer"
+          onMouseDown={beginResize}
+          title="Drag to resize sidebar"
+        />
       </aside>
 
       <main className="main-content">{renderPage()}</main>
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 }

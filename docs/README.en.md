@@ -32,10 +32,10 @@ Read this in other languages: [简体中文](README.md)
 </p>
 
 <p align="center">
-  <a href="https://github.com/nevertiree/babel-ebook/releases/latest/download/BabelEbook_0.1.0_x64-setup.exe">
+  <a href="https://github.com/nevertiree/babel-ebook/releases/download/v0.4.0/BabelEbook_0.4.0_x64-setup.exe">
     <img alt="Download for Windows" src="https://img.shields.io/badge/Windows-Download-blue?logo=windows&logoColor=white">
   </a>
-  <a href="https://github.com/nevertiree/babel-ebook/releases/latest/download/BabelEbook_0.1.0_amd64.AppImage">
+  <a href="https://github.com/nevertiree/babel-ebook/releases/download/v0.4.0/BabelEbook_0.4.0_amd64.AppImage">
     <img alt="Download for Linux" src="https://img.shields.io/badge/Linux-Download-orange?logo=linux&logoColor=white">
   </a>
 </p>
@@ -56,7 +56,7 @@ Read this in other languages: [简体中文](README.md)
 
 ## Screenshots
 
-| Main window | Compute settings | Translation options |
+| Main window | Providers | Translation options |
 |-------------|------------------|---------------------|
 | ![Main window](assets/screenshots/01-translate.png) | ![Compute settings](assets/screenshots/02-settings-compute.png) | ![Translation options](assets/screenshots/03-settings-translation.png) |
 
@@ -117,7 +117,7 @@ It currently supports DeepSeek, OpenAI, Anthropic, and locally hosted Ollama.
 Using DeepSeek as an example:
 
 1. Visit the [DeepSeek platform](https://platform.deepseek.com/), sign up, and create an API key.
-2. Open BabelEbook and go to **Settings** → **Compute**.
+2. Open BabelEbook and go to **Settings** → **Providers**.
 3. Select Provider `DeepSeek` and enter your API key.
 4. Click **Test Connection** to verify the connection.
 
@@ -134,7 +134,7 @@ Using DeepSeek as an example:
 
 | Setting | Description |
 |---------|-------------|
-| Provider / API | Select the LLM vendor and enter the API key. |
+| Providers | Select the LLM vendor and enter the API key. |
 | Target Language | Target translation language, e.g. `zh-CN`, `en`, `ja`, etc. |
 | Output Mode | `bilingual` (source + target), `translation_only` (target only), `interleaved` (alternating paragraphs). |
 | Concurrency | Number of chapters translated in parallel. Higher is faster but costs more. |

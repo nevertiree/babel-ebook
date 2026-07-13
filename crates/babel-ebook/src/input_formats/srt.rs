@@ -4,6 +4,7 @@ use std::path::Path;
 
 use crate::core::BabelEbookError;
 use crate::epub::{Chapter, EpubBook, EpubMetadata};
+use crate::escape::html_escape;
 use crate::input_formats::html_or_xhtml;
 
 /// A single SRT subtitle entry.
@@ -103,13 +104,6 @@ fn srt_to_html(entries: &[SrtEntry]) -> String {
         .collect::<Vec<_>>()
         .join("\n");
     html_or_xhtml(&body, "Untitled")
-}
-
-fn html_escape(text: &str) -> String {
-    text.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
 }
 
 #[cfg(test)]

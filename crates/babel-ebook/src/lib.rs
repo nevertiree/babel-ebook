@@ -17,20 +17,23 @@ pub mod chunking;
 pub mod config;
 pub mod core;
 pub mod epub;
+pub mod escape;
 pub mod html;
 pub mod input_formats;
 pub mod pdf_ocr;
 pub mod pipeline;
 pub mod translator;
+pub mod worker;
 
 pub use cache::TranslationCache;
 pub use config::{
-    provider_env_var, Config, GlossaryEntry, OutputMode, ProviderConfig, TranslationScope,
-    TranslationStyle, KNOWN_PROVIDERS,
+    provider_env_var, Config, GlossaryEntry, OutputMode, ProviderConfig, TranslationOptions,
+    TranslationScope, TranslationStyle, KNOWN_PROVIDERS,
 };
 pub use core::{
-    estimate_source_tokens, translatable_chapters, translate_epub, BabelEbookError,
-    ProgressCallback, ProgressEvent,
+    estimate_source_tokens, run_dry_run, translatable_chapters, translate_epub,
+    translate_epub_with_cancellation, BabelEbookError, CancellationToken, ProgressCallback,
+    ProgressEvent,
 };
 pub use epub::{
     read_epub, should_translate_doc, write_epub, Chapter, EpubBook, EpubMetadata, Resource,
@@ -38,6 +41,7 @@ pub use epub::{
 pub use html::{process_document, translate_text};
 pub use input_formats::{read_input_book, supported_extensions};
 pub use translator::{get_translator, TranslateContext, Translator};
+pub use worker::{TranslationJob, TranslationJobHandle, TranslationWorker, WorkerError};
 
 // Load translations from `crates/babel-ebook/locales`. The `i18n!` macro also
 // provides the `t!` translation macro and `set_locale` helper.

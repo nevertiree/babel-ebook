@@ -61,7 +61,6 @@ const TRANSLATION_KEYS: Array<keyof FormState> = [
   "max_output_tokens",
   "temperature",
   "dry_run",
-  "remember_api_key",
   "translate_body",
   "translate_metadata",
   "translate_toc",
@@ -97,7 +96,6 @@ const OLD_FLAT_KEYS: string[] = [
   "max_output_tokens",
   "temperature",
   "dry_run",
-  "remember_api_key",
 ];
 
 const DEFAULT_GENERAL: GeneralSettings = {
@@ -105,6 +103,24 @@ const DEFAULT_GENERAL: GeneralSettings = {
   theme: "dark" as ThemeId,
   follow_system_language: true,
 };
+
+async function loadProviderApiKey(name: string): Promise<string> {
+  return (await invoke<string | null>("load_api_key", { name }).catch(() => null)) ?? "";
+}
+
+async function storeProviderApiKey(name: string, apiKey: string): Promise<boolean> {
+  if (apiKey.trim().length === 0) {
+    await invoke("delete_api_key", { name }).catch(() => null);
+    return true;
+  }
+  try {
+    await invoke("store_api_key", { name, apiKey });
+    return true;
+  } catch (err) {
+    console.error(`[keyring] failed to store API key for ${name}:`, err);
+    return false;
+  }
+}
 
 export function normalizeTheme(value: unknown): ThemeId {
   return themes.includes(value as ThemeId) ? (value as ThemeId) : DEFAULT_GENERAL.theme;
@@ -144,42 +160,7 @@ async function writeSettingsFile(payload: VersionedSettings): Promise<void> {
   await writeTextFile(path, JSON.stringify(payload, null, 2));
 }
 
-/**
- * Strip secrets from provider configs before writing to disk.
- */
-function providersForStorage(providers: ProviderConfig[]): Omit<ProviderConfig, "api_key">[] {
-  return providers.map((p) => ({
-    name: p.name,
-    provider: p.provider,
-    base_url: p.base_url,
-    use_custom_base_url: p.use_custom_base_url,
-  }));
-}
 
-/**
- * Persist each provider's API key to the OS keyring.
- */
-async function saveApiKeys(providers: ProviderConfig[]): Promise<void> {
-  for (const p of providers) {
-    if (p.api_key) {
-      await invoke("store_api_key", { provider: p.provider, apiKey: p.api_key });
-    } else {
-      await invoke("delete_api_key", { provider: p.provider }).catch(() => undefined);
-    }
-  }
-}
-
-/**
- * Load API keys from the OS keyring and inject them into provider configs.
- */
-async function hydrateApiKeys(providers: ProviderConfig[]): Promise<ProviderConfig[]> {
-  const hydrated: ProviderConfig[] = [];
-  for (const p of providers) {
-    const apiKey = await invoke<string | null>("load_api_key", { provider: p.provider }).catch(() => null);
-    hydrated.push({ ...p, api_key: apiKey ?? "" });
-  }
-  return hydrated;
-}
 
 /**
  * Migrate legacy flat settings to the provider-array layout.
@@ -205,7 +186,8 @@ async function migrateFromFlatSettings(versioned: VersionedSettings): Promise<Pa
 
   const oldProvider = typeof raw.provider === "string" ? raw.provider : "deepseek";
   const oldBaseUrl = typeof raw.base_url === "string" ? raw.base_url : "";
-  const oldApiKey = await invoke<string | null>("load_api_key", { provider: oldProvider }).catch(() => null);
+  // Legacy API keys remain in the OS keyring; the normal load path will populate
+  // the in-memory api_key from the keyring using the provider config name.
 
   const used = new Set<string>();
   const makeUniqueName = (p: ProviderConfig) => {
@@ -224,7 +206,7 @@ async function migrateFromFlatSettings(versioned: VersionedSettings): Promise<Pa
     {
       name: makeUniqueName({ provider: oldProvider } as ProviderConfig),
       provider: oldProvider,
-      api_key: oldApiKey ?? "",
+      api_key: "",
       base_url: oldBaseUrl,
       use_custom_base_url: oldBaseUrl.trim().length > 0,
     },
@@ -232,6 +214,22 @@ async function migrateFromFlatSettings(versioned: VersionedSettings): Promise<Pa
   migrated.active_provider = oldProvider;
 
   return migrated;
+}
+
+function normalizeProvider(p: unknown): ProviderConfig {
+  const raw = p as Record<string, unknown>;
+  return {
+    name: typeof raw.name === "string" && raw.name.trim().length > 0 ? raw.name : "Provider",
+    provider: typeof raw.provider === "string" && raw.provider.trim().length > 0 ? raw.provider : "deepseek",
+    api_key: typeof raw.api_key === "string" ? raw.api_key : "",
+    base_url: typeof raw.base_url === "string" ? raw.base_url : "",
+    use_custom_base_url: typeof raw.use_custom_base_url === "boolean" ? raw.use_custom_base_url : false,
+  };
+}
+
+function normalizeProviders(providers: unknown): ProviderConfig[] {
+  if (!Array.isArray(providers)) return [];
+  return providers.map(normalizeProvider);
 }
 
 /**
@@ -242,9 +240,6 @@ export async function loadSettings(): Promise<Partial<FormState>> {
 
   if (versioned?.version === SETTINGS_VERSION) {
     const translation = versioned.translation ?? {};
-    if (Array.isArray(translation.providers)) {
-      translation.providers = await hydrateApiKeys(translation.providers);
-    }
     const docs = await documentDir();
     if (!translation.checkpoint_dir || typeof translation.checkpoint_dir !== "string" || translation.checkpoint_dir.trim().length === 0) {
       translation.checkpoint_dir = await join(docs, DEFAULT_CHECKPOINT_DIR);
@@ -255,6 +250,35 @@ export async function loadSettings(): Promise<Partial<FormState>> {
     if (typeof translation.resume !== "string") {
       translation.resume = "";
     }
+    translation.providers = normalizeProviders(translation.providers);
+
+    // One-time migration: any plaintext API keys left in settings.json are moved
+    // to the OS keyring and then cleared from the persisted file. If the keyring
+    // is unreachable, leave the plaintext key in place so the next load can retry.
+    let needsRewrite = false;
+    translation.providers = await Promise.all(
+      translation.providers.map(async (p) => {
+        const rawKey = p.api_key;
+        if (rawKey.trim().length > 0) {
+          const stored = await storeProviderApiKey(p.name, rawKey);
+          if (stored) {
+            needsRewrite = true;
+          }
+          return { ...p, api_key: rawKey };
+        }
+        const keyringKey = await loadProviderApiKey(p.name);
+        return { ...p, api_key: keyringKey };
+      })
+    );
+
+    if (needsRewrite) {
+      await writeSettingsFile({
+        version: SETTINGS_VERSION,
+        translation,
+        general: versioned.general,
+      });
+    }
+
     return translation;
   }
 
@@ -270,6 +294,13 @@ export async function loadSettings(): Promise<Partial<FormState>> {
   if (migrated.resume === undefined) {
     migrated.resume = "";
   }
+  migrated.providers = normalizeProviders(migrated.providers);
+  migrated.providers = await Promise.all(
+    migrated.providers.map(async (p) => ({
+      ...p,
+      api_key: await loadProviderApiKey(p.name),
+    }))
+  );
   await writeSettingsFile({
     version: SETTINGS_VERSION,
     translation: migrated,
@@ -290,10 +321,18 @@ export async function saveSettings(form: FormState): Promise<void> {
 
   const translation: Partial<FormState> = {};
   for (const key of TRANSLATION_KEYS) {
-    if (key === "providers") {
-      translation.providers = providersForStorage(form.providers) as ProviderConfig[];
-    } else {
-      (translation[key] as FormState[typeof key]) = form[key];
+    (translation[key] as FormState[typeof key]) = form[key];
+  }
+
+  // Persist API keys in the OS keyring, never in settings.json.
+  if (translation.providers) {
+    translation.providers = (translation.providers as ProviderConfig[]).map((p) => ({
+      ...p,
+      api_key: "",
+    }));
+
+    for (const p of form.providers) {
+      await storeProviderApiKey(p.name, p.api_key);
     }
   }
 
@@ -302,7 +341,6 @@ export async function saveSettings(form: FormState): Promise<void> {
     translation,
     general: versioned?.general ?? DEFAULT_GENERAL,
   });
-  await saveApiKeys(form.providers);
 }
 
 /**

@@ -29,10 +29,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/nevertiree/babel-ebook/releases/latest/download/BabelEbook_0.1.0_x64-setup.exe">
+  <a href="https://github.com/nevertiree/babel-ebook/releases/download/v0.4.0/BabelEbook_0.4.0_x64-setup.exe">
     <img alt="Download for Windows" src="https://img.shields.io/badge/Windows-Download-blue?logo=windows&logoColor=white">
   </a>
-  <a href="https://github.com/nevertiree/babel-ebook/releases/latest/download/BabelEbook_0.1.0_amd64.AppImage">
+  <a href="https://github.com/nevertiree/babel-ebook/releases/download/v0.4.0/BabelEbook_0.4.0_amd64.AppImage">
     <img alt="Download for Linux" src="https://img.shields.io/badge/Linux-Download-orange?logo=linux&logoColor=white">
   </a>
 </p>
@@ -53,7 +53,7 @@
 
 ## 界面截图
 
-| 主界面 | 算力设置 | 翻译选项 |
+| 主界面 | 供应商设置 | 翻译选项 |
 |--------|----------|----------|
 | ![主界面](assets/screenshots/01-translate.png) | ![算力设置](assets/screenshots/02-settings-compute.png) | ![翻译选项](assets/screenshots/03-settings-translation.png) |
 
@@ -111,7 +111,7 @@ BabelEbook 需要调用第三方大语言模型 API。目前支持 DeepSeek、Op
 以 DeepSeek 为例：
 
 1. 访问 [DeepSeek 开放平台](https://platform.deepseek.com/) 注册并创建 API Key。
-2. 打开 BabelEbook，进入 **Settings（设置）** → **Provider / API**。
+2. 打开 BabelEbook，进入 **Settings（设置）** → **Providers（供应商）**。
 3. 选择 Provider 为 `DeepSeek`，填入你的 API Key。
 4. 点击 **Test Connection** 验证连接是否正常。
 
@@ -128,7 +128,7 @@ BabelEbook 需要调用第三方大语言模型 API。目前支持 DeepSeek、Op
 
 | 设置项 | 说明 |
 |--------|------|
-| Provider / API | 选择 LLM 供应商并填写 API Key。 |
+| Providers / 供应商 | 选择 LLM 供应商并填写 API Key。 |
 | Target Language | 翻译目标语言，如 `zh-CN`、`en`、`ja` 等。 |
 | Output Mode | `bilingual`（双语对照）、`translation_only`（仅译文）、`interleaved`（交错排列）。 |
 | Concurrency | 同时翻译的章节数，数值越高速度越快，但 API 费用也越高。 |

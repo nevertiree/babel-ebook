@@ -590,3 +590,157 @@ async fn refine_pass_runs_second_pass() {
         content
     );
 }
+
+#[tokio::test]
+async fn resume_ignores_checkpoint_when_source_hash_mismatches() {
+    let temp_dir = TempDir::new().expect("create temp dir");
+    let checkpoint_dir = temp_dir.path().join("checkpoints");
+    let cache_dir = temp_dir.path().join("cache");
+
+    let source = create_epub(
+        temp_dir.path(),
+        &[("ch01.xhtml".into(), None, "<p>Original text</p>".into())],
+    );
+
+    let output1 = temp_dir.path().join("output1.epub");
+    let config1 = test_config(
+        source.clone(),
+        output1.clone(),
+        cache_dir.clone(),
+        checkpoint_dir.clone(),
+    );
+    translate_epub(&config1, &FakeTranslator, None, None)
+        .await
+        .expect("first run should succeed");
+
+    let job_id = find_job_id(&checkpoint_dir);
+    let store = CheckpointStore::new(checkpoint_dir.clone()).unwrap();
+    let first_cp = store
+        .load(&job_id)
+        .expect("checkpoint exists after first run");
+    assert!(!first_cp.source_hash.is_empty());
+
+    // Create a modified source with different content, using a different path so
+    // the original file is not held open by the first translation.
+    let modified_source = create_epub(
+        temp_dir.path(),
+        &[("ch01.xhtml".into(), None, "<p>Modified text</p>".into())],
+    );
+
+    let output2 = temp_dir.path().join("output2.epub");
+    let mut config2 = test_config(
+        modified_source,
+        output2.clone(),
+        cache_dir,
+        checkpoint_dir.clone(),
+    );
+    config2.resume_job_id = Some(job_id.clone());
+
+    translate_epub(&config2, &FakeTranslator, None, None)
+        .await
+        .expect("second run should succeed");
+
+    let second_cp = store
+        .load(&job_id)
+        .expect("checkpoint exists after second run");
+    assert_ne!(
+        first_cp.source_hash, second_cp.source_hash,
+        "checkpoint should be updated with the new source hash"
+    );
+
+    let content = read_chapter_content(&output2, "ch01");
+    assert!(
+        content.contains("<p lang=\"zh-CN\">[ZH] Modified text</p>"),
+        "modified chapter should be translated from scratch: {}",
+        content
+    );
+}
+
+#[tokio::test]
+async fn resume_treats_corrupted_checkpoint_as_fresh() {
+    let temp_dir = TempDir::new().expect("create temp dir");
+    let checkpoint_dir = temp_dir.path().join("checkpoints");
+    let cache_dir = temp_dir.path().join("cache");
+
+    let source = create_epub(
+        temp_dir.path(),
+        &[("ch01.xhtml".into(), None, "<p>Hello world</p>".into())],
+    );
+
+    let job_id = CheckpointStore::generate_job_id(
+        &source,
+        "zh-CN",
+        babel_ebook::config::OutputMode::Bilingual,
+        "deepseek",
+        "deepseek-chat",
+    );
+
+    // Write a corrupted checkpoint file before the translation starts.
+    std::fs::create_dir_all(&checkpoint_dir).expect("create checkpoint dir");
+    std::fs::write(
+        checkpoint_dir.join(format!("{job_id}.json")),
+        "this is not json",
+    )
+    .expect("write corrupted checkpoint");
+
+    let output = temp_dir.path().join("output.epub");
+    let mut config = test_config(source, output.clone(), cache_dir, checkpoint_dir);
+    config.resume_job_id = Some(job_id);
+
+    translate_epub(&config, &FakeTranslator, None, None)
+        .await
+        .expect("translation should succeed despite corrupted checkpoint");
+
+    let content = read_chapter_content(&output, "ch01");
+    assert!(
+        content.contains("<p lang=\"zh-CN\">[ZH] Hello world</p>"),
+        "chapter should be translated as a fresh job: {}",
+        content
+    );
+}
+
+#[tokio::test]
+async fn resume_with_refine_skips_already_completed_chapters() {
+    let temp_dir = TempDir::new().expect("create temp dir");
+    let checkpoint_dir = temp_dir.path().join("checkpoints");
+    let cache_dir = temp_dir.path().join("cache");
+
+    let source = create_epub(
+        temp_dir.path(),
+        &[("ch01.xhtml".into(), None, "<p>Hello world</p>".into())],
+    );
+
+    let output1 = temp_dir.path().join("output1.epub");
+    let config1 = test_config(
+        source.clone(),
+        output1.clone(),
+        cache_dir.clone(),
+        checkpoint_dir.clone(),
+    );
+    translate_epub(&config1, &FakeTranslator, None, None)
+        .await
+        .expect("first run should succeed");
+
+    let job_id = find_job_id(&checkpoint_dir);
+
+    let output2 = temp_dir.path().join("output2.epub");
+    let mut config2 = test_config(source, output2.clone(), cache_dir, checkpoint_dir);
+    config2.resume_job_id = Some(job_id);
+    config2.refine = true;
+
+    translate_epub(&config2, &FakeTranslator, None, None)
+        .await
+        .expect("refine resume should succeed");
+
+    let content = read_chapter_content(&output2, "ch01");
+    assert!(
+        content.contains("<p lang=\"zh-CN\">[ZH] Hello world</p>"),
+        "completed chapter should be restored without a second refine pass: {}",
+        content
+    );
+    assert!(
+        !content.contains("[ZH] [ZH]"),
+        "refine pass should not re-run an already completed chapter: {}",
+        content
+    );
+}

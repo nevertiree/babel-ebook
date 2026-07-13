@@ -1,25 +1,19 @@
 //! `DeepSeek` / OpenAI-compatible translator provider.
 
 use crate::core::BabelEbookError;
-use crate::translator::{TranslateContext, Translator};
-use anyhow::anyhow;
-use async_openai::config::OpenAIConfig;
-use async_openai::types::{
-    ChatCompletionRequestMessage, ChatCompletionRequestSystemMessage,
-    ChatCompletionRequestSystemMessageContent, ChatCompletionRequestUserMessage,
-    ChatCompletionRequestUserMessageContent, CreateChatCompletionRequest,
+use crate::translator::http_common::{
+    openai_compatible_health_check, openai_compatible_list_models, openai_compatible_translate,
 };
-use async_openai::Client;
+use crate::translator::{TranslateContext, Translator};
+use async_openai::config::OpenAIConfig;
 use async_trait::async_trait;
-use std::time::Duration;
 
 const DEFAULT_BASE_URL: &str = "https://api.deepseek.com";
 const DEFAULT_MODEL: &str = "deepseek-chat";
-const MAX_RETRIES: u32 = 3;
 
 /// Translator using the `DeepSeek` API.
 pub struct DeepSeekTranslator {
-    client: Client<OpenAIConfig>,
+    client: async_openai::Client<OpenAIConfig>,
     model: String,
     max_tokens: usize,
     temperature: f32,
@@ -40,61 +34,15 @@ impl DeepSeekTranslator {
             .with_api_key(api_key)
             .with_api_base(base_url);
         Self {
-            client: Client::with_config(config),
+            client: async_openai::Client::with_config(config),
             model,
             max_tokens,
             temperature,
         }
     }
 
-    async fn try_translate(
-        &self,
-        text: &str,
-        system_prompt: &str,
-        max_tokens: u32,
-    ) -> Result<String, BabelEbookError> {
-        let request = CreateChatCompletionRequest {
-            model: self.model.clone(),
-            messages: vec![
-                ChatCompletionRequestMessage::System(ChatCompletionRequestSystemMessage {
-                    content: ChatCompletionRequestSystemMessageContent::Text(
-                        system_prompt.to_string(),
-                    ),
-                    name: None,
-                }),
-                ChatCompletionRequestMessage::User(ChatCompletionRequestUserMessage {
-                    content: ChatCompletionRequestUserMessageContent::Text(text.to_string()),
-                    name: None,
-                }),
-            ],
-            max_tokens: Some(max_tokens),
-            temperature: Some(self.temperature),
-            ..Default::default()
-        };
-
-        let response = self
-            .client
-            .chat()
-            .create(request)
-            .await
-            .map_err(|e| BabelEbookError::Anyhow(e.into()))?;
-
-        let content = response
-            .choices
-            .into_iter()
-            .next()
-            .and_then(|choice| choice.message.content)
-            .unwrap_or_default()
-            .trim()
-            .to_string();
-
-        if content.is_empty() {
-            return Err(BabelEbookError::Anyhow(anyhow!(
-                "DeepSeek API returned empty content"
-            )));
-        }
-
-        Ok(content)
+    fn config(&self) -> &OpenAIConfig {
+        self.client.config()
     }
 }
 
@@ -109,28 +57,11 @@ impl Translator for DeepSeekTranslator {
     }
 
     async fn health_check(&self) -> Result<(), BabelEbookError> {
-        // DeepSeek's /models endpoint omits the `created` field that async-openai's
-        // model list deserializer expects, so perform a lightweight HTTP check
-        // instead of parsing the response body.
-        use async_openai::config::Config;
-        let config = self.client.config();
-        let url = config.url("/models");
-        let client = reqwest::Client::new();
-        let response = client
-            .get(&url)
-            .headers(config.headers())
-            .timeout(Duration::from_secs(10))
-            .send()
-            .await
-            .map_err(|e| BabelEbookError::ApiError(e.to_string()))?;
+        openai_compatible_health_check(self.config(), "DeepSeek").await
+    }
 
-        let status = response.status();
-        if status.is_success() {
-            Ok(())
-        } else {
-            let body = response.text().await.unwrap_or_default();
-            Err(BabelEbookError::ApiError(format!("HTTP {status}: {body}")))
-        }
+    async fn list_models(&self) -> Result<Vec<String>, BabelEbookError> {
+        openai_compatible_list_models(self.config(), "DeepSeek").await
     }
 
     async fn translate(
@@ -145,27 +76,68 @@ impl Translator for DeepSeekTranslator {
             ))
         })?;
 
-        let mut last_error = None;
+        openai_compatible_translate(
+            &self.client,
+            &self.model,
+            context.system_prompt,
+            text,
+            max_tokens,
+            self.temperature,
+            "DeepSeek",
+        )
+        .await
+    }
+}
 
-        for attempt in 0..=MAX_RETRIES {
-            match self
-                .try_translate(text, context.system_prompt, max_tokens)
-                .await
-            {
-                Ok(translation) => return Ok(translation),
-                Err(e) => {
-                    last_error = Some(e);
-                    if attempt == MAX_RETRIES {
-                        break;
-                    }
-                    tokio::time::sleep(Duration::from_secs(2_u64.pow(attempt))).await;
-                }
-            }
-        }
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-        let last_error = last_error.expect("loop always assigns an error before exiting");
-        Err(BabelEbookError::ApiError(format!(
-            "DeepSeek API failed after {MAX_RETRIES} retries: {last_error}"
-        )))
+    #[test]
+    fn new_uses_defaults() {
+        let translator = DeepSeekTranslator::new("fake-key".into(), None, None, 2000, 0.3);
+        assert_eq!(translator.name(), "deepseek:deepseek-chat");
+        assert_eq!(translator.max_output_tokens(), 2000);
+    }
+
+    #[tokio::test]
+    async fn list_models_returns_api_error_for_unreachable_endpoint() {
+        let translator = DeepSeekTranslator::new(
+            "fake-key".to_string(),
+            None,
+            Some("http://localhost:0".to_string()),
+            2000,
+            0.3,
+        );
+        let err = translator.list_models().await.unwrap_err();
+        assert!(matches!(err, BabelEbookError::ApiError(_)));
+    }
+
+    #[tokio::test]
+    async fn max_tokens_exceeds_u32_max_fails_fast() {
+        let oversized: usize = u32::MAX as usize + 1;
+        let translator = DeepSeekTranslator::new("fake-key".into(), None, None, oversized, 0.3);
+        let context = TranslateContext {
+            system_prompt: "translate to {target_lang}",
+            target_lang: "zh-CN",
+        };
+        let err = translator
+            .translate("hello", &context)
+            .await
+            .expect_err("max_tokens > u32::MAX should fail immediately");
+
+        assert!(
+            matches!(err, BabelEbookError::Configuration(_)),
+            "expected configuration error, got {err}"
+        );
+        let msg = err.to_string();
+        assert!(
+            msg.contains("max_tokens") && msg.contains("u32::MAX"),
+            "error message should describe the configuration problem: {msg}"
+        );
+        assert!(
+            !matches!(err, BabelEbookError::ApiError(_)),
+            "configuration error must not be wrapped as an API failure"
+        );
     }
 }
