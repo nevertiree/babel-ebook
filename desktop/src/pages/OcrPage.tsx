@@ -1,7 +1,7 @@
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { Page, ProviderConfig, TranslateInputs } from "../types";
 import EmptyStateIcon from "../components/EmptyStateIcon";
@@ -29,6 +29,8 @@ function OcrPage({ inputs, setInputs, onPageChange }: OcrPageProps) {
 
   const [pdfPath, setPdfPath] = useState("");
   const [outputPath, setOutputPath] = useState("");
+  const outputPathRef = useRef(outputPath);
+  outputPathRef.current = outputPath;
   const [title, setTitle] = useState("");
 
   const [ocrProviderName, setOcrProviderName] = useState(inputs.active_provider);
@@ -56,6 +58,10 @@ function OcrPage({ inputs, setInputs, onPageChange }: OcrPageProps) {
   useEffect(() => {
     const unlisten = listen<OcrProgress>("ocr_progress", (e) => {
       setProgress(e.payload);
+      if (e.payload.stage === "done") {
+        setConverting(false);
+        setResultPath(outputPathRef.current);
+      }
     });
     return () => {
       void unlisten.then((fn) => fn());
@@ -132,11 +138,10 @@ function OcrPage({ inputs, setInputs, onPageChange }: OcrPageProps) {
         ocr_refine_model: refineModel.trim() || null,
         ocr_refine_with_image: refineEnabled && refineWithImage,
       };
-      const out = await invoke<string>("convert_pdf_to_epub", { args });
-      setResultPath(out);
+      await invoke("enqueue_ocr_task", { args });
+      await invoke("start_queue");
     } catch (err) {
       setError(String(err));
-    } finally {
       setConverting(false);
     }
   };
