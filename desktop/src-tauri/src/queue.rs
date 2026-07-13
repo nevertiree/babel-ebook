@@ -346,7 +346,7 @@ impl QueueManager {
                 // Decouple progress handling from the synchronous callback so that
                 // queue state can be updated through an async tokio mutex without
                 // blocking the worker loop.
-                let (result, forwarder) = match task.kind.clone() {
+                let (result, forwarders) = match task.kind.clone() {
                     TaskKind::Translation(args) => {
                         let (progress_tx, mut progress_rx) =
                             mpsc::unbounded_channel::<ProgressEvent>();
@@ -383,7 +383,7 @@ impl QueueManager {
                             })
                         };
                         let r = run_translation(args, progress, Some(cancellation), &worker).await;
-                        (r, forwarder)
+                        (r, vec![forwarder])
                     }
                     TaskKind::Ocr(args) => {
                         let (ocr_tx, mut ocr_rx) = mpsc::unbounded_channel::<OcrProgressEvent>();
@@ -419,7 +419,80 @@ impl QueueManager {
                             })
                         };
                         let r = run_ocr(args, ocr_progress).await;
-                        (r, forwarder)
+                        (r, vec![forwarder])
+                    }
+                    TaskKind::OcrThenTranslate(ocr_args, mut translate_args) => {
+                        // Stage 1: OCR (mapped to the 0-50% slice of overall progress).
+                        let ocr_output = ocr_args.output_path.clone();
+                        let (ocr_tx, mut ocr_rx) = mpsc::unbounded_channel::<OcrProgressEvent>();
+                        let ocr_progress: Option<
+                            Box<dyn babel_ebook::pdf_ocr::OcrProgressCallback + Send + Sync>,
+                        > = window.clone().map(|_| {
+                            Box::new(OcrTaskProgressCallback { sender: ocr_tx })
+                                as Box<dyn babel_ebook::pdf_ocr::OcrProgressCallback + Send + Sync>
+                        });
+                        let ocr_forwarder = {
+                            let window = window.clone();
+                            let task_id = task_id.clone();
+                            let queue = queue.clone();
+                            tauri::async_runtime::spawn(async move {
+                                while let Some(event) = ocr_rx.recv().await {
+                                    queue.update_ocr_task_progress(&task_id, &event).await;
+                                    queue.remap_task_progress(&task_id, 0, 0.5).await;
+                                    if let Some(w) = window.as_ref() {
+                                        let _ = w.emit("queue_state_changed", ());
+                                        let payload = OcrTaskProgressPayload {
+                                            task_id: task_id.clone(),
+                                            event: event.clone(),
+                                        };
+                                        let _ = w.emit("ocr_progress", &payload);
+                                    }
+                                }
+                            })
+                        };
+                        let ocr_result = run_ocr(ocr_args, ocr_progress).await;
+                        if let Err(err) = ocr_result {
+                            (Err(err), vec![ocr_forwarder])
+                        } else {
+                            // Stage 2: translate the OCR-produced EPUB (50-100%).
+                            translate_args.source = ocr_output;
+                            let (progress_tx, mut progress_rx) =
+                                mpsc::unbounded_channel::<ProgressEvent>();
+                            let progress: Option<
+                                Box<dyn babel_ebook::ProgressCallback + Send + Sync>,
+                            > = window.clone().map(|_| {
+                                Box::new(TaskProgressCallback {
+                                    sender: progress_tx,
+                                })
+                                    as Box<dyn babel_ebook::ProgressCallback + Send + Sync>
+                            });
+                            let translate_forwarder = {
+                                let window = window.clone();
+                                let task_id = task_id.clone();
+                                let queue = queue.clone();
+                                tauri::async_runtime::spawn(async move {
+                                    while let Some(event) = progress_rx.recv().await {
+                                        queue.update_task_progress(&task_id, &event).await;
+                                        queue.remap_task_progress(&task_id, 50, 0.5).await;
+                                        if let Some(w) = window.as_ref() {
+                                            let payload = TaskProgressPayload {
+                                                task_id: task_id.clone(),
+                                                event: event.clone(),
+                                            };
+                                            let _ = w.emit("task_progress", &payload);
+                                        }
+                                    }
+                                })
+                            };
+                            let r = run_translation(
+                                translate_args,
+                                progress,
+                                Some(cancellation),
+                                &worker,
+                            )
+                            .await;
+                            (r, vec![ocr_forwarder, translate_forwarder])
+                        }
                     }
                 };
 
@@ -437,7 +510,9 @@ impl QueueManager {
                         }
                     }
                 }
-                let _ = forwarder.await;
+                for f in forwarders {
+                    let _ = f.await;
+                }
                 if let Some(w) = window {
                     let _ = w.emit("queue_state_changed", ());
                 }
@@ -508,6 +583,21 @@ impl QueueManager {
         }
     }
 
+    /// Fold a per-stage progress value (already stored as the task's 0-100
+    /// `progress_percent`) into a slice of a multi-stage task's overall 0-100
+    /// range: `offset + percent * scale`. Used by the OCR-then-translate
+    /// pipeline to show aggregated progress across its two stages.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    async fn remap_task_progress(&self, task_id: &str, offset: u32, scale: f32) {
+        let mut guard = self.inner.lock().await;
+        let Some(task) = guard.tasks.iter_mut().find(|t| t.id == task_id) else {
+            return;
+        };
+        let remapped =
+            f64::from(task.progress_percent).mul_add(f64::from(scale), f64::from(offset));
+        task.progress_percent = remapped.round().clamp(0.0, 100.0) as u32;
+    }
+
     /// Add a new pending translation task to the queue.
     pub async fn enqueue(&self, args: TranslateArgs) -> Task {
         self.enqueue_kind(TaskKind::Translation(args)).await
@@ -516,6 +606,16 @@ impl QueueManager {
     /// Add a PDF -> EPUB OCR job to the queue.
     pub async fn enqueue_ocr(&self, args: PdfToEpubArgs) -> Task {
         self.enqueue_kind(TaskKind::Ocr(args)).await
+    }
+
+    /// Add a PDF -> EPUB -> translate pipeline job to the queue.
+    pub async fn enqueue_pipeline(
+        &self,
+        ocr_args: PdfToEpubArgs,
+        translate_args: TranslateArgs,
+    ) -> Task {
+        self.enqueue_kind(TaskKind::OcrThenTranslate(ocr_args, translate_args))
+            .await
     }
 
     async fn enqueue_kind(&self, kind: TaskKind) -> Task {
@@ -1108,7 +1208,7 @@ mod tests {
                 assert_eq!(a.source, args.source);
                 assert_eq!(a.output, args.output);
             }
-            TaskKind::Ocr(_) => panic!("expected a translation task"),
+            _ => panic!("expected a translation task"),
         }
     }
 

@@ -6,11 +6,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 /// The kind of job a queued task runs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(clippy::large_enum_variant)]
 pub enum TaskKind {
     /// Translate a source book into a target language.
     Translation(TranslateArgs),
     /// Convert a scanned PDF to an EPUB via OCR (+ optional verify/refine).
     Ocr(PdfToEpubArgs),
+    /// Convert a scanned PDF to EPUB via OCR, then translate the resulting EPUB.
+    /// The OCR output path feeds the translation source.
+    OcrThenTranslate(PdfToEpubArgs, TranslateArgs),
 }
 
 impl TaskKind {
@@ -18,14 +22,14 @@ impl TaskKind {
     pub fn source_path(&self) -> String {
         match self {
             Self::Translation(a) => a.source.clone(),
-            Self::Ocr(a) => a.pdf_path.clone(),
+            Self::Ocr(a) | Self::OcrThenTranslate(a, _) => a.pdf_path.clone(),
         }
     }
 
     /// Path where the task writes its output.
     pub fn output_path(&self) -> String {
         match self {
-            Self::Translation(a) => a.output.clone(),
+            Self::Translation(t) | Self::OcrThenTranslate(_, t) => t.output.clone(),
             Self::Ocr(a) => a.output_path.clone(),
         }
     }
@@ -98,7 +102,7 @@ impl Task {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::args::{PromptTemplates, TranslateArgs};
+    use crate::args::{PdfToEpubArgs, PromptTemplates, TranslateArgs};
 
     fn sample_args() -> TranslateArgs {
         TranslateArgs {
@@ -155,5 +159,37 @@ mod tests {
         assert_eq!(value, "failed");
         let value = serde_json::to_value(TaskStatus::Paused).unwrap();
         assert_eq!(value, "paused");
+    }
+
+    #[test]
+    fn pipeline_task_paths_span_both_stages() {
+        let ocr_args = PdfToEpubArgs {
+            pdf_path: "scan.pdf".to_string(),
+            output_path: "intermediate.epub".to_string(),
+            ocr_api_key: "k".to_string(),
+            ..Default::default()
+        };
+        let mut translate_args = sample_args();
+        translate_args.output = "final.epub".to_string();
+        let task = Task::new(TaskKind::OcrThenTranslate(ocr_args, translate_args));
+        // Source is the PDF (stage-1 input); output is the bilingual EPUB (stage-2 output).
+        assert_eq!(task.source_path, "scan.pdf");
+        assert_eq!(task.output_path, "final.epub");
+    }
+
+    #[test]
+    fn pipeline_task_kind_round_trips_through_serde() {
+        let ocr_args = PdfToEpubArgs {
+            pdf_path: "scan.pdf".to_string(),
+            output_path: "intermediate.epub".to_string(),
+            ocr_api_key: "k".to_string(),
+            ..Default::default()
+        };
+        let kind = TaskKind::OcrThenTranslate(ocr_args, sample_args());
+        let json = serde_json::to_string(&kind).unwrap();
+        let restored: TaskKind = serde_json::from_str(&json).unwrap();
+        assert!(matches!(restored, TaskKind::OcrThenTranslate(_, _)));
+        assert_eq!(restored.source_path(), "scan.pdf");
+        assert_eq!(restored.output_path(), "output.epub");
     }
 }

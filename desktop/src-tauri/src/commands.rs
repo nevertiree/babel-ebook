@@ -405,6 +405,19 @@ pub async fn enqueue_ocr_task(
     Ok(queue.enqueue_ocr(args).await)
 }
 
+/// Add a PDF -> EPUB -> translate pipeline job to the queue.
+#[allow(dead_code)]
+#[tauri::command]
+pub async fn enqueue_pipeline_task(
+    ocr_args: PdfToEpubArgs,
+    translate_args: TranslateArgs,
+    queue: tauri::State<'_, QueueManager>,
+) -> Result<Task, String> {
+    let config = build_config(&translate_args)?;
+    config.validate().map_err(|e| e.to_string())?;
+    Ok(queue.enqueue_pipeline(ocr_args, translate_args).await)
+}
+
 /// Remove a pending or finished task from the queue.
 #[allow(dead_code)]
 #[tauri::command]
