@@ -421,6 +421,7 @@ async fn run_pdf_to_epub(args: PdfToEpubArgs) -> Result<()> {
         verifier.as_deref(),
         refiner.as_deref(),
         &config,
+        None,
     )
     .await
     .context("pdf-to-epub conversion failed")?;

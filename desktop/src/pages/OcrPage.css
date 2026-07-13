@@ -139,3 +139,27 @@
 .ocr-success .ocr-success-path {
   color: var(--muted);
 }
+
+.ocr-progress {
+  margin-bottom: 1rem;
+}
+
+.ocr-progress-label {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-bottom: 0.4rem;
+}
+
+.ocr-progress-bar {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.ocr-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}

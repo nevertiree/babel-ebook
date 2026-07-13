@@ -1,6 +1,8 @@
 //! Convert scanned PDF files into EPUB using OCR + LLM verification.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
 
 use crate::core::BabelEbookError;
 use crate::epub::EpubBook;
@@ -58,6 +60,43 @@ impl Default for PdfToEpubConfig {
     }
 }
 
+/// Stage of the PDF -> EPUB OCR pipeline, for progress reporting.
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OcrStage {
+    /// Rendering PDF pages to images.
+    Render,
+    /// OCR and per-page verification.
+    Ocr,
+    /// LLM structural refinement.
+    Refine,
+    /// Pipeline finished.
+    Done,
+}
+
+/// A progress event emitted by the PDF -> EPUB OCR pipeline.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct OcrProgressEvent {
+    /// Current stage of the pipeline.
+    pub stage: OcrStage,
+    /// Completed page count during the OCR stage, or the page being refined.
+    pub page: u32,
+    /// Total number of pages in the PDF.
+    pub page_total: u32,
+    /// Current refinement round, if in the refine stage.
+    pub refine_round: Option<u32>,
+    /// Progress within the current stage, 0..=100.
+    pub percent: u32,
+    /// Human-readable status message.
+    pub message: String,
+}
+
+/// Callback for reporting PDF -> EPUB OCR pipeline progress.
+pub trait OcrProgressCallback: Send + Sync {
+    /// Called whenever the pipeline makes progress.
+    fn on_ocr_progress(&self, event: OcrProgressEvent);
+}
+
 /// Convert a scanned PDF to an `EpubBook`.
 ///
 /// The pipeline renders each page to an image, runs OCR, optionally verifies
@@ -68,6 +107,7 @@ impl Default for PdfToEpubConfig {
 ///
 /// Returns an error if rendering fails, the OCR backend returns an error, or
 /// the temporary directory cannot be created.
+#[allow(clippy::too_many_lines)]
 pub async fn convert_pdf_to_epub(
     pdf_path: &Path,
     title: &str,
@@ -75,6 +115,7 @@ pub async fn convert_pdf_to_epub(
     verifier: Option<&dyn VerifyBackend>,
     refiner: Option<&dyn RefineBackend>,
     config: &PdfToEpubConfig,
+    progress: Option<&dyn OcrProgressCallback>,
 ) -> Result<EpubBook, BabelEbookError> {
     std::fs::create_dir_all(&config.temp_dir).map_err(|e| {
         BabelEbookError::Anyhow(anyhow::anyhow!(
@@ -90,52 +131,100 @@ pub async fn convert_pdf_to_epub(
         ));
     }
 
+    let total: u32 = u32::try_from(rendered.len()).unwrap_or(u32::MAX);
+    if let Some(p) = progress {
+        p.on_ocr_progress(OcrProgressEvent {
+            stage: OcrStage::Ocr,
+            page: 0,
+            page_total: total,
+            refine_round: None,
+            percent: 0,
+            message: format!("OCR 0/{total}"),
+        });
+    }
+
     let concurrency = config.ocr_concurrency.max(1);
+    let completed = Arc::new(AtomicU32::new(0));
     let mut pages: Vec<OcrPageResult> =
         futures_util::stream::iter(rendered.clone().into_iter().enumerate())
-            .map(|(index, image_path)| async move {
-                let page_number = index + 1;
-                let image_bytes = std::fs::read(&image_path).map_err(|e| {
-                    BabelEbookError::Anyhow(anyhow::anyhow!(
-                        "failed to read rendered page image {}: {e}",
-                        image_path.display()
-                    ))
-                })?;
+            .map(|(index, image_path)| {
+                let completed = completed.clone();
+                async move {
+                    let page_number = index + 1;
+                    let image_bytes = std::fs::read(&image_path).map_err(|e| {
+                        BabelEbookError::Anyhow(anyhow::anyhow!(
+                            "failed to read rendered page image {}: {e}",
+                            image_path.display()
+                        ))
+                    })?;
 
-                let mut page = run_ocr_with_retries(
-                    ocr,
-                    &image_bytes,
-                    "image/png",
-                    page_number,
-                    config.max_retries,
-                )
-                .await?;
-
-                if let Some(v) = verifier {
-                    verify::verify_page_with_retry(
-                        v,
+                    let mut page = run_ocr_with_retries(
+                        ocr,
                         &image_bytes,
                         "image/png",
-                        &mut page,
-                        config.verify_threshold,
-                        config.verify_max_attempts,
-                        &config.verify_scale_factors,
+                        page_number,
+                        config.max_retries,
                     )
                     .await?;
-                }
 
-                Ok::<_, BabelEbookError>(page)
+                    if let Some(v) = verifier {
+                        verify::verify_page_with_retry(
+                            v,
+                            &image_bytes,
+                            "image/png",
+                            &mut page,
+                            config.verify_threshold,
+                            config.verify_max_attempts,
+                            &config.verify_scale_factors,
+                        )
+                        .await?;
+                    }
+
+                    if let Some(p) = progress {
+                        let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
+                        let percent = (done * 100 / total).min(100);
+                        p.on_ocr_progress(OcrProgressEvent {
+                            stage: OcrStage::Ocr,
+                            page: done,
+                            page_total: total,
+                            refine_round: None,
+                            percent,
+                            message: format!("OCR {done}/{total}"),
+                        });
+                    }
+
+                    Ok::<_, BabelEbookError>(page)
+                }
             })
             .buffered(concurrency)
             .try_collect()
             .await?;
 
     if let Some(r) = refiner {
-        refine_pages(r, &rendered, &mut pages, config.refine_rounds).await?;
+        refine_pages(
+            r,
+            &rendered,
+            &mut pages,
+            config.refine_rounds,
+            progress,
+            total,
+        )
+        .await?;
     }
 
     post_process::clean_pages(&mut pages);
     let image_resources = extract_and_embed_images(&rendered, &mut pages, &config.temp_dir)?;
+
+    if let Some(p) = progress {
+        p.on_ocr_progress(OcrProgressEvent {
+            stage: OcrStage::Done,
+            page: total,
+            page_total: total,
+            refine_round: None,
+            percent: 100,
+            message: "Done".to_string(),
+        });
+    }
 
     let mut book = epub::build_epub(title, &pages);
     book.resources.extend(image_resources);
@@ -249,6 +338,7 @@ async fn run_ocr_with_retries(
 }
 
 /// Convenience function that renders, OCRs, verifies and writes an EPUB file.
+#[allow(clippy::too_many_arguments)]
 pub async fn convert_pdf_to_epub_file(
     pdf_path: &Path,
     output_path: &Path,
@@ -257,8 +347,10 @@ pub async fn convert_pdf_to_epub_file(
     verifier: Option<&dyn VerifyBackend>,
     refiner: Option<&dyn RefineBackend>,
     config: &PdfToEpubConfig,
+    progress: Option<&dyn OcrProgressCallback>,
 ) -> Result<(), BabelEbookError> {
-    let book = convert_pdf_to_epub(pdf_path, title, ocr, verifier, refiner, config).await?;
+    let book =
+        convert_pdf_to_epub(pdf_path, title, ocr, verifier, refiner, config, progress).await?;
     crate::epub::write_epub(&book, output_path)
 }
 

@@ -62,7 +62,6 @@ impl CheckpointInfo {
         }
     }
 }
-#[cfg(not(test))]
 use tauri::Emitter;
 
 #[cfg(not(test))]
@@ -115,6 +114,16 @@ impl ProgressCallback for WindowProgressCallback {
     fn on_progress(&self, event: babel_ebook::ProgressEvent) {
         if let Err(err) = self.0.emit("translation_progress", event) {
             tracing::warn!("failed to emit translation_progress event: {err}");
+        }
+    }
+}
+
+struct OcrWindowProgress(tauri::Window);
+
+impl babel_ebook::pdf_ocr::OcrProgressCallback for OcrWindowProgress {
+    fn on_ocr_progress(&self, event: babel_ebook::pdf_ocr::OcrProgressEvent) {
+        if let Err(err) = self.0.emit("ocr_progress", event) {
+            tracing::warn!("failed to emit ocr_progress event: {err}");
         }
     }
 }
@@ -510,7 +519,10 @@ pub async fn list_checkpoints(
 /// Convert a scanned PDF to an EPUB using OCR + LLM verification.
 #[allow(dead_code)]
 #[tauri::command]
-pub async fn convert_pdf_to_epub(args: PdfToEpubArgs) -> Result<String, String> {
+pub async fn convert_pdf_to_epub(
+    args: PdfToEpubArgs,
+    window: tauri::Window,
+) -> Result<String, String> {
     let pdf_path = std::path::PathBuf::from(&args.pdf_path);
     let output_path = std::path::PathBuf::from(&args.output_path);
 
@@ -584,6 +596,7 @@ pub async fn convert_pdf_to_epub(args: PdfToEpubArgs) -> Result<String, String> 
         ..babel_ebook::pdf_ocr::PdfToEpubConfig::default()
     };
 
+    let progress: &dyn babel_ebook::pdf_ocr::OcrProgressCallback = &OcrWindowProgress(window);
     babel_ebook::pdf_ocr::convert_pdf_to_epub_file(
         &pdf_path,
         &output_path,
@@ -592,6 +605,7 @@ pub async fn convert_pdf_to_epub(args: PdfToEpubArgs) -> Result<String, String> 
         verifier.as_deref(),
         refiner.as_deref(),
         &config,
+        Some(progress),
     )
     .await
     .map_err(|e| e.to_string())?;

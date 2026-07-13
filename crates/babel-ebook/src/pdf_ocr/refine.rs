@@ -461,6 +461,8 @@ pub async fn refine_pages(
     rendered: &[std::path::PathBuf],
     pages: &mut [OcrPageResult],
     max_rounds: usize,
+    progress: Option<&dyn super::OcrProgressCallback>,
+    page_total: u32,
 ) -> Result<(), BabelEbookError> {
     if max_rounds == 0 {
         return Ok(());
@@ -486,6 +488,18 @@ pub async fn refine_pages(
             let stable = previous.as_ref().is_some_and(|p| blocks_equal(p, &refined));
 
             *page = refined.clone();
+            if let Some(p) = progress {
+                let page_num = u32::try_from(page_idx + 1).unwrap_or(u32::MAX);
+                let round_num = u32::try_from(round).unwrap_or(u32::MAX);
+                p.on_ocr_progress(super::OcrProgressEvent {
+                    stage: super::OcrStage::Refine,
+                    page: page_num,
+                    page_total,
+                    refine_round: Some(round_num),
+                    percent: (page_num * 100 / page_total).min(100),
+                    message: format!("Refine round {round_num} page {page_num}/{page_total}"),
+                });
+            }
             if stable {
                 tracing::info!(
                     page = page.page_number,

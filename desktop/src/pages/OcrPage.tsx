@@ -1,10 +1,20 @@
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
-import { useState } from "react";
+import { listen } from "@tauri-apps/api/event";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { Page, ProviderConfig, TranslateInputs } from "../types";
 import EmptyStateIcon from "../components/EmptyStateIcon";
 import "./OcrPage.css";
+
+interface OcrProgress {
+  stage: "render" | "ocr" | "refine" | "done";
+  page: number;
+  page_total: number;
+  refine_round: number | null;
+  percent: number;
+  message: string;
+}
 
 interface OcrPageProps {
   inputs: TranslateInputs;
@@ -41,6 +51,16 @@ function OcrPage({ inputs, setInputs, onPageChange }: OcrPageProps) {
   const [converting, setConverting] = useState(false);
   const [resultPath, setResultPath] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<OcrProgress | null>(null);
+
+  useEffect(() => {
+    const unlisten = listen<OcrProgress>("ocr_progress", (e) => {
+      setProgress(e.payload);
+    });
+    return () => {
+      void unlisten.then((fn) => fn());
+    };
+  }, []);
 
   const providerByName = (name: string): ProviderConfig | undefined =>
     providers.find((p) => p.name === name);
@@ -86,6 +106,7 @@ function OcrPage({ inputs, setInputs, onPageChange }: OcrPageProps) {
     setConverting(true);
     setError(null);
     setResultPath(null);
+    setProgress(null);
     try {
       const verifyProv = verifyEnabled ? providerByName(verifyProviderName) : undefined;
       const refineProv = refineEnabled ? providerByName(refineProviderName) : undefined;
@@ -371,6 +392,18 @@ function OcrPage({ inputs, setInputs, onPageChange }: OcrPageProps) {
           </button>
         )}
       </div>
+
+      {progress && (
+        <div className="ocr-progress">
+          <div className="ocr-progress-label">{progress.message}</div>
+          <div className="ocr-progress-bar">
+            <div
+              className="ocr-progress-fill"
+              style={{ width: `${progress.percent}%` }}
+            />
+          </div>
+        </div>
+      )}
 
       {error && <div className="ocr-error">{error}</div>}
       {resultPath && (
