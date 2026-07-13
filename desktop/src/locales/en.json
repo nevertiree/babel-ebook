@@ -312,6 +312,8 @@
   "ocr_using_settings_defaults": "Using OCR settings defaults.",
   "ocr_configure_in_settings": "Configure in settings",
   "ocr_engine_defaults_hint": "Engine defaults (concurrency, DPI, verify/refine):",
+  "ocr_model_vision_hint": "OCR needs a vision/multimodal model; only vision-capable models are listed (use custom for others).",
+  "ocr_settings_models_hint": "OCR, verify, and refine models are picked on the OCR page (per provider). This tab holds engine tuning only.",
   "ocr_verify_settings_hint": "Model and thresholds used when verification is enabled on the OCR page.",
   "ocr_refine_settings_hint": "Model and rounds used when refinement is enabled on the OCR page.",
   "ocr_error_no_files": "Select a PDF and an output path"

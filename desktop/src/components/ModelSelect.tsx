@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import LoadingSpinner from "./LoadingSpinner";
+import { isVisionModel } from "../utils";
 
 interface ModelSelectProps {
   provider: string;
@@ -10,6 +11,13 @@ interface ModelSelectProps {
   useCustomBaseUrl: boolean;
   model: string;
   onChange: (value: string) => void;
+  /**
+   * When true, the dropdown only offers vision/multimodal-capable models for
+   * this provider (e.g. for OCR, which must send page images). Non-vision models
+   * are hidden; "custom" remains available as an escape hatch so any model can
+   * still be typed.
+   */
+  visionOnly?: boolean;
 }
 
 /**
@@ -26,6 +34,7 @@ export default function ModelSelect({
   useCustomBaseUrl,
   model,
   onChange,
+  visionOnly = false,
 }: ModelSelectProps) {
   const { t } = useTranslation();
   const [models, setModels] = useState<string[]>([]);
@@ -49,8 +58,9 @@ export default function ModelSelect({
         });
         if (requestId !== requestIdRef.current) return;
         setModels(list);
-        if (list.length > 0 && !list.includes(model) && model !== "__custom__") {
-          onChange(list[0]);
+        const candidates = visionOnly ? list.filter((m) => isVisionModel(provider, m)) : list;
+        if (candidates.length > 0 && !candidates.includes(model) && model !== "__custom__") {
+          onChange(candidates[0]);
         }
       } catch (err) {
         if (requestId !== requestIdRef.current) return;
@@ -68,10 +78,11 @@ export default function ModelSelect({
       // discarded when the dependencies change.
       requestIdRef.current += 1;
     };
-  }, [provider, apiKey, baseUrl, useCustomBaseUrl]);
+  }, [provider, apiKey, baseUrl, useCustomBaseUrl, visionOnly, onChange, model]);
 
-  const isCustom = model === "__custom__" || (models.length > 0 && !models.includes(model));
-
+  const filteredModels = visionOnly ? models.filter((m) => isVisionModel(provider, m)) : models;
+  const hasModels = filteredModels.length > 0;
+  const isCustom = model === "__custom__" || (hasModels && !filteredModels.includes(model));
   const showSpinner = loading && models.length === 0;
 
   return (
@@ -80,35 +91,23 @@ export default function ModelSelect({
         {t("model")}
         {showSpinner && <LoadingSpinner size={14} />}
       </span>
-      {models.length === 0 ? (
-        <input
-          type="text"
-          value={model === "__custom__" ? "" : model}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={t("model_custom_placeholder")}
-          disabled={loading}
-        />
-      ) : isCustom ? (
-        <input
-          type="text"
-          value={model === "__custom__" ? "" : model}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={t("model_custom_placeholder")}
-          disabled={loading}
-        />
-      ) : (
-        <select
-          value={model}
-          onChange={(e) => onChange(e.target.value)}
-          disabled={loading}
-        >
-          {models.map((m) => (
+      {hasModels && !isCustom ? (
+        <select value={model} onChange={(e) => onChange(e.target.value)} disabled={loading}>
+          {filteredModels.map((m) => (
             <option key={m} value={m}>
               {m}
             </option>
           ))}
           <option value="__custom__">{t("model_custom")}</option>
         </select>
+      ) : (
+        <input
+          type="text"
+          value={model === "__custom__" ? "" : model}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={t("model_custom_placeholder")}
+          disabled={loading}
+        />
       )}
     </label>
   );

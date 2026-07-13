@@ -312,6 +312,8 @@
   "ocr_using_settings_defaults": "使用 OCR 设置中的默认值。",
   "ocr_configure_in_settings": "在设置中配置",
   "ocr_engine_defaults_hint": "引擎默认值（并发、DPI、校验/精炼）：",
+  "ocr_model_vision_hint": "OCR 需要视觉/多模态模型；仅列出支持视觉的模型（其他可用「自定义」输入）。",
+  "ocr_settings_models_hint": "OCR、校验、精炼的模型在 OCR 页按 provider 选择；此页仅设置引擎调参。",
   "ocr_verify_settings_hint": "在 OCR 页启用校验时使用的模型与阈值。",
   "ocr_refine_settings_hint": "在 OCR 页启用精炼时使用的模型与轮数。",
   "ocr_error_no_files": "请选择 PDF 和输出路径"

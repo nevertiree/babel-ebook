@@ -50,8 +50,10 @@ function OcrPage({ inputs, setInputs, onPageChange, ocrSettings }: OcrPageProps)
   const [ocrModel, setOcrModel] = useState("qwen-vl-ocr");
 
   const [verifyEnabled, setVerifyEnabled] = useState(false);
+  const [verifyModel, setVerifyModel] = useState("deepseek-chat");
 
   const [refineEnabled, setRefineEnabled] = useState(false);
+  const [refineModel, setRefineModel] = useState("qwen-max");
 
   // Pipeline mode reuses the shared translation inputs (provider/model/
   // target_lang/output_mode) configured on the translate page, so translation
@@ -131,7 +133,7 @@ function OcrPage({ inputs, setInputs, onPageChange, ocrSettings }: OcrPageProps)
     verify_api_key: verifyEnabled ? ocrProvider?.api_key ?? null : null,
     verify_base_url:
       verifyEnabled && ocrProvider?.use_custom_base_url ? ocrProvider.base_url || null : null,
-    verify_model: ocrSettings.verify.model.trim() || null,
+    verify_model: verifyModel.trim() || null,
     dpi: ocrSettings.dpi,
     verify_threshold: ocrSettings.verify.threshold,
     verify_max_attempts: ocrSettings.verify.maxAttempts,
@@ -140,7 +142,7 @@ function OcrPage({ inputs, setInputs, onPageChange, ocrSettings }: OcrPageProps)
     ocr_refine_api_key: refineEnabled ? ocrProvider?.api_key ?? null : null,
     ocr_refine_base_url:
       refineEnabled && ocrProvider?.use_custom_base_url ? ocrProvider.base_url || null : null,
-    ocr_refine_model: ocrSettings.refine.model.trim() || null,
+    ocr_refine_model: refineModel.trim() || null,
     ocr_refine_with_image: refineEnabled && ocrSettings.refine.withImage,
   });
 
@@ -288,8 +290,10 @@ function OcrPage({ inputs, setInputs, onPageChange, ocrSettings }: OcrPageProps)
             useCustomBaseUrl={ocrProvider?.use_custom_base_url ?? false}
             model={ocrModel}
             onChange={setOcrModel}
+            visionOnly
           />
         </div>
+        <p className="hint">{t("ocr_model_vision_hint")}</p>
       </section>
 
       {pipelineMode && (
@@ -472,16 +476,26 @@ function OcrPage({ inputs, setInputs, onPageChange, ocrSettings }: OcrPageProps)
             {t("ocr_verify_enable")}
           </label>
           {verifyEnabled && (
-            <p className="refine-hint">
-              {t("ocr_using_settings_defaults")}{" "}
-              <button
-                type="button"
-                className="text-button"
-                onClick={() => onPageChange("settings-ocr")}
-              >
-                {t("ocr_configure_in_settings")}
-              </button>
-            </p>
+            <>
+              <ModelSelect
+                provider={ocrProvider?.provider ?? ""}
+                apiKey={ocrProvider?.api_key ?? ""}
+                baseUrl={ocrProvider?.base_url ?? ""}
+                useCustomBaseUrl={ocrProvider?.use_custom_base_url ?? false}
+                model={verifyModel}
+                onChange={setVerifyModel}
+              />
+              <p className="refine-hint">
+                {t("ocr_using_settings_defaults")}{" "}
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={() => onPageChange("settings-ocr")}
+                >
+                  {t("ocr_configure_in_settings")}
+                </button>
+              </p>
+            </>
           )}
         </div>
 
@@ -495,16 +509,26 @@ function OcrPage({ inputs, setInputs, onPageChange, ocrSettings }: OcrPageProps)
             {t("ocr_refine_enable")}
           </label>
           {refineEnabled && (
-            <p className="refine-hint">
-              {t("ocr_using_settings_defaults")}{" "}
-              <button
-                type="button"
-                className="text-button"
-                onClick={() => onPageChange("settings-ocr")}
-              >
-                {t("ocr_configure_in_settings")}
-              </button>
-            </p>
+            <>
+              <ModelSelect
+                provider={ocrProvider?.provider ?? ""}
+                apiKey={ocrProvider?.api_key ?? ""}
+                baseUrl={ocrProvider?.base_url ?? ""}
+                useCustomBaseUrl={ocrProvider?.use_custom_base_url ?? false}
+                model={refineModel}
+                onChange={setRefineModel}
+              />
+              <p className="refine-hint">
+                {t("ocr_using_settings_defaults")}{" "}
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={() => onPageChange("settings-ocr")}
+                >
+                  {t("ocr_configure_in_settings")}
+                </button>
+              </p>
+            </>
           )}
         </div>
 

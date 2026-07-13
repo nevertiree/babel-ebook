@@ -7,11 +7,11 @@ interface OcrSettingsPageProps {
 }
 
 /**
- * "Set once" OCR engine defaults: concurrency, DPI, and the verify/refine
- * model + quality knobs. Per-job choices (source PDF, output path, OCR
- * provider+model, verify/refine on/off) live on the OCR page itself, mirroring
- * how the translate page keeps provider/model on the page and pushes detailed
- * config into settings tabs.
+ * "Set once" OCR engine tuning: concurrency, DPI, and the verify/refine quality
+ * knobs. The OCR/verify/refine *models* are picked on the OCR page itself,
+ * because they depend on the chosen OCR provider (the model list is fetched
+ * per provider) - mirroring how the translate page keeps provider/model on the
+ * page and pushes only provider-independent tuning into settings.
  */
 export default function OcrSettingsPage({
   ocrSettings,
@@ -27,6 +27,7 @@ export default function OcrSettingsPage({
   return (
     <div className="page settings-page ocr-settings-page">
       <h2>{t("settings_ocr")}</h2>
+      <p className="hint">{t("ocr_settings_models_hint")}</p>
 
       <h3>{t("ocr_engine")}</h3>
       <div className="row">
@@ -56,14 +57,6 @@ export default function OcrSettingsPage({
       <p className="hint">{t("ocr_verify_settings_hint")}</p>
       <div className="row">
         <label>
-          {t("ocr_model")}
-          <input
-            type="text"
-            value={ocrSettings.verify.model}
-            onChange={(e) => setVerify({ model: e.target.value })}
-          />
-        </label>
-        <label>
           {t("ocr_verify_threshold")}
           <input
             type="number"
@@ -88,14 +81,6 @@ export default function OcrSettingsPage({
       <h3>{t("ocr_refine")}</h3>
       <p className="hint">{t("ocr_refine_settings_hint")}</p>
       <div className="row">
-        <label>
-          {t("ocr_model")}
-          <input
-            type="text"
-            value={ocrSettings.refine.model}
-            onChange={(e) => setRefine({ model: e.target.value })}
-          />
-        </label>
         <label>
           {t("ocr_refine_rounds")}
           <input

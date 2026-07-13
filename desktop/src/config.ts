@@ -41,15 +41,15 @@ export interface GeneralSettings {
 export interface OcrSettings {
   concurrency: number;
   dpi: number;
-  verify: { model: string; threshold: number; maxAttempts: number };
-  refine: { model: string; rounds: number; withImage: boolean };
+  verify: { threshold: number; maxAttempts: number };
+  refine: { rounds: number; withImage: boolean };
 }
 
 export const DEFAULT_OCR_SETTINGS: OcrSettings = {
   concurrency: 3,
   dpi: 200,
-  verify: { model: "deepseek-chat", threshold: 0.7, maxAttempts: 3 },
-  refine: { model: "qwen-max", rounds: 1, withImage: false },
+  verify: { threshold: 0.7, maxAttempts: 3 },
+  refine: { rounds: 1, withImage: false },
 };
 
 interface VersionedSettings {
