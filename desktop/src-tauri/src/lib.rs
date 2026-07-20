@@ -97,6 +97,8 @@ pub fn run() {
             commands::get_app_version,
             commands::get_default_prompts,
             commands::enqueue_task,
+            commands::enqueue_ocr_task,
+            commands::enqueue_pipeline_task,
             commands::remove_task,
             commands::reorder_tasks,
             commands::cancel_task,
@@ -107,6 +109,7 @@ pub fn run() {
             commands::pause_task,
             commands::get_queue_state,
             commands::list_checkpoints,
+            commands::convert_pdf_to_epub,
         ])
         .run(tauri_context())
         .expect("error while running tauri application");

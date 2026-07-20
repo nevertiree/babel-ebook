@@ -161,6 +161,7 @@ export type TranslateInputs = Pick<
  */
 export type Page =
   | "translate"
+  | "ocr"
   | "tasks"
   | "logs"
   | "settings-compute"
@@ -170,6 +171,7 @@ export type Page =
   | "settings-prompts"
   | "settings-queue"
   | "settings-general"
+  | "settings-ocr"
   | "about"
   | "legal";
 

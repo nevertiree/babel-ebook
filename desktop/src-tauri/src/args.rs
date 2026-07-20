@@ -83,3 +83,77 @@ pub struct TestConnectionArgs {
     pub api_key: String,
     pub base_url: Option<String>,
 }
+
+/// Arguments passed from the frontend to convert a scanned PDF to EPUB.
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+#[serde(rename_all = "snake_case")]
+pub struct PdfToEpubArgs {
+    /// Path to the source PDF file.
+    pub pdf_path: String,
+    /// Path where the output EPUB should be written.
+    pub output_path: String,
+    /// Optional title for the generated EPUB.
+    pub title: Option<String>,
+    /// API key for the OCR provider.
+    pub ocr_api_key: String,
+    /// Optional custom base URL for the OCR provider.
+    pub ocr_base_url: Option<String>,
+    /// Optional model name for the OCR provider.
+    pub ocr_model: Option<String>,
+    /// Number of pages to OCR concurrently.
+    #[serde(default = "default_ocr_concurrency")]
+    pub ocr_concurrency: usize,
+    /// Optional API key for the verifier provider.
+    pub verify_api_key: Option<String>,
+    /// Optional base URL for the verifier provider.
+    pub verify_base_url: Option<String>,
+    /// Optional model name for the verifier provider.
+    pub verify_model: Option<String>,
+    /// If true, skip the LLM verification pass.
+    #[serde(default)]
+    pub no_verify: bool,
+    /// Rendering resolution in DPI.
+    #[serde(default = "default_dpi")]
+    pub dpi: u32,
+    /// Confidence threshold below which a block is verified.
+    #[serde(default = "default_verify_threshold")]
+    pub verify_threshold: f32,
+    /// Maximum number of verify attempts for a low-confidence block.
+    #[serde(default = "default_verify_max_attempts")]
+    pub verify_max_attempts: usize,
+    /// Scale factors for verify retry crops.
+    #[serde(default = "default_verify_scale_factors")]
+    pub verify_scale_factors: Vec<f32>,
+    /// Number of LLM structural refinement rounds after OCR (0 disables refinement).
+    #[serde(default)]
+    pub ocr_refine_rounds: usize,
+    /// Optional API key for the refinement backend. Defaults to the OCR API key.
+    pub ocr_refine_api_key: Option<String>,
+    /// Optional base URL for the refinement backend. Defaults to the OCR base URL.
+    pub ocr_refine_base_url: Option<String>,
+    /// Optional model name for the refinement backend. Defaults to qwen-max.
+    pub ocr_refine_model: Option<String>,
+    /// Include the page image in the refinement prompt (requires a vision model).
+    #[serde(default)]
+    pub ocr_refine_with_image: bool,
+}
+
+const fn default_dpi() -> u32 {
+    200
+}
+
+const fn default_verify_threshold() -> f32 {
+    0.7
+}
+
+const fn default_verify_max_attempts() -> usize {
+    3
+}
+
+fn default_verify_scale_factors() -> Vec<f32> {
+    vec![1.0, 2.0, 3.0]
+}
+
+const fn default_ocr_concurrency() -> usize {
+    3
+}

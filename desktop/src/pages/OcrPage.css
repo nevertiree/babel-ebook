@@ -1,0 +1,49 @@
+/* OCR page - page-specific tweaks only.
+   Form primitives (file-section, advanced-section, start-row, checkbox-label,
+   inline-success, ...) come from styles/form.css; base controls, buttons, the
+   progress bar, provider-select, empty-state, etc. come from styles/base.css.
+   This file only adds OCR-specific spacing/labels. */
+
+.ocr-page {
+  max-width: 720px;
+}
+
+.ocr-mode-toggle {
+  margin-bottom: 1.25rem;
+  font-size: 0.95rem;
+}
+
+/* Two quick-settings rows (OCR engine +, in pipeline mode, translation) stack
+   with a little breathing room. */
+.ocr-page .quick-settings {
+  margin-bottom: 1rem;
+}
+
+.ocr-page .quick-settings:last-of-type {
+  margin-bottom: 1.25rem;
+}
+
+.ocr-progress-block {
+  margin-bottom: 1.25rem;
+}
+
+.ocr-error {
+  padding: 0.65rem 0.75rem;
+  margin-bottom: 1.25rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--danger);
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--danger);
+  font-size: 0.85rem;
+  word-break: break-word;
+}
+
+.inline-success {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.inline-success .button-secondary {
+  align-self: flex-start;
+}

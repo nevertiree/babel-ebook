@@ -62,12 +62,11 @@ impl CheckpointInfo {
         }
     }
 }
-#[cfg(not(test))]
 use tauri::Emitter;
 
 #[cfg(not(test))]
 use crate::args::E2EArgs;
-use crate::args::{TestConnectionArgs, TranslateArgs};
+use crate::args::{PdfToEpubArgs, TestConnectionArgs, TranslateArgs};
 use crate::config::{build_config, build_test_config};
 use crate::queue::{QueueManager, QueueState};
 use crate::task::Task;
@@ -115,6 +114,16 @@ impl ProgressCallback for WindowProgressCallback {
     fn on_progress(&self, event: babel_ebook::ProgressEvent) {
         if let Err(err) = self.0.emit("translation_progress", event) {
             tracing::warn!("failed to emit translation_progress event: {err}");
+        }
+    }
+}
+
+struct OcrWindowProgress(tauri::Window);
+
+impl babel_ebook::pdf_ocr::OcrProgressCallback for OcrWindowProgress {
+    fn on_ocr_progress(&self, event: babel_ebook::pdf_ocr::OcrProgressEvent) {
+        if let Err(err) = self.0.emit("ocr_progress", event) {
+            tracing::warn!("failed to emit ocr_progress event: {err}");
         }
     }
 }
@@ -386,6 +395,32 @@ pub async fn enqueue_task(
     Ok(queue.enqueue(args).await)
 }
 
+/// Add a PDF -> EPUB OCR job to the queue.
+#[allow(dead_code)]
+#[tauri::command]
+pub async fn enqueue_ocr_task(
+    args: PdfToEpubArgs,
+    queue: tauri::State<'_, QueueManager>,
+) -> Result<Task, String> {
+    Ok(queue.enqueue_ocr(args).await)
+}
+
+/// Add a PDF -> EPUB -> translate pipeline job to the queue.
+#[allow(dead_code)]
+#[tauri::command]
+pub async fn enqueue_pipeline_task(
+    ocr_args: PdfToEpubArgs,
+    translate_args: TranslateArgs,
+    queue: tauri::State<'_, QueueManager>,
+) -> Result<Task, String> {
+    // Build the config to catch structural errors (e.g. invalid output_mode) at
+    // enqueue time. Full validation - including source-file existence - is
+    // deferred to stage 2 (run_translation), because the translation source is
+    // the EPUB produced by the OCR stage, which does not exist yet.
+    build_config(&translate_args)?;
+    Ok(queue.enqueue_pipeline(ocr_args, translate_args).await)
+}
+
 /// Remove a pending or finished task from the queue.
 #[allow(dead_code)]
 #[tauri::command]
@@ -505,6 +540,118 @@ pub async fn list_checkpoints(
 
     entries.sort_by(|a, b| a.job_id.cmp(&b.job_id));
     Ok(entries)
+}
+
+/// Convert a scanned PDF to an EPUB using OCR + LLM verification.
+#[allow(dead_code)]
+#[tauri::command]
+pub async fn convert_pdf_to_epub(
+    args: PdfToEpubArgs,
+    window: tauri::Window,
+) -> Result<String, String> {
+    let progress: Option<Box<dyn babel_ebook::pdf_ocr::OcrProgressCallback + Send + Sync>> =
+        Some(Box::new(OcrWindowProgress(window)));
+    run_ocr(args, progress).await
+}
+
+/// Run a PDF -> EPUB OCR conversion, forwarding progress through `progress`.
+///
+/// Shared by the direct `convert_pdf_to_epub` command and the queue worker so
+/// both paths build the OCR backends identically. Test-safe (no Tauri types).
+pub async fn run_ocr(
+    args: PdfToEpubArgs,
+    progress: Option<Box<dyn babel_ebook::pdf_ocr::OcrProgressCallback + Send + Sync>>,
+) -> Result<String, String> {
+    let pdf_path = std::path::PathBuf::from(&args.pdf_path);
+    let output_path = std::path::PathBuf::from(&args.output_path);
+
+    let title = args.title.unwrap_or_else(|| {
+        pdf_path
+            .file_stem()
+            .map_or_else(|| "Untitled".into(), |s| s.to_string_lossy().into_owned())
+    });
+
+    let ocr_api_key = args.ocr_api_key.clone();
+    let ocr_base_url = args.ocr_base_url.clone();
+    let ocr_config = babel_ebook::pdf_ocr::QwenOcrConfig {
+        api_key: args.ocr_api_key,
+        base_url: args.ocr_base_url,
+        model: args.ocr_model.unwrap_or_else(|| "qwen-vl-ocr".into()),
+    };
+    let ocr = babel_ebook::pdf_ocr::QwenOcrBackend::new(ocr_config);
+
+    let verifier: Option<Box<dyn babel_ebook::pdf_ocr::VerifyBackend>> = if args.no_verify {
+        None
+    } else {
+        let verify_api_key = args
+            .verify_api_key
+            .ok_or("verify_api_key is required unless no_verify is set")?;
+        let verify_base_url = args
+            .verify_base_url
+            .ok_or("verify_base_url is required for the verifier")?;
+        let verify_model = args
+            .verify_model
+            .ok_or("verify_model is required for the verifier")?;
+        Some(Box::new(babel_ebook::pdf_ocr::OpenAiVerifyBackend::new(
+            babel_ebook::pdf_ocr::OpenAiVerifyConfig {
+                api_key: verify_api_key,
+                base_url: verify_base_url,
+                model: verify_model,
+            },
+        )))
+    };
+
+    let refiner: Option<Box<dyn babel_ebook::pdf_ocr::RefineBackend>> =
+        if args.ocr_refine_rounds == 0 {
+            None
+        } else {
+            Some(Box::new(babel_ebook::pdf_ocr::OpenAiRefineBackend::new(
+                babel_ebook::pdf_ocr::OpenAiRefineConfig {
+                    api_key: args.ocr_refine_api_key.clone().unwrap_or(ocr_api_key),
+                    base_url: args
+                        .ocr_refine_base_url
+                        .clone()
+                        .or(ocr_base_url)
+                        .unwrap_or_else(|| {
+                            "https://dashscope.aliyuncs.com/compatible-mode/v1".to_string()
+                        }),
+                    model: args
+                        .ocr_refine_model
+                        .clone()
+                        .unwrap_or_else(|| "qwen-max".into()),
+                    max_tokens: 4096,
+                    include_image: args.ocr_refine_with_image,
+                },
+            )))
+        };
+
+    let config = babel_ebook::pdf_ocr::PdfToEpubConfig {
+        dpi: args.dpi,
+        verify_threshold: args.verify_threshold,
+        verify_max_attempts: args.verify_max_attempts,
+        verify_scale_factors: args.verify_scale_factors,
+        ocr_concurrency: args.ocr_concurrency,
+        refine_rounds: args.ocr_refine_rounds,
+        ..babel_ebook::pdf_ocr::PdfToEpubConfig::default()
+    };
+
+    let progress_ref: Option<&dyn babel_ebook::pdf_ocr::OcrProgressCallback> = progress
+        .as_ref()
+        .map(|p| p.as_ref() as &dyn babel_ebook::pdf_ocr::OcrProgressCallback);
+    babel_ebook::pdf_ocr::convert_pdf_to_epub_file(
+        &pdf_path,
+        &output_path,
+        &title,
+        &ocr,
+        verifier.as_deref(),
+        refiner.as_deref(),
+        &config,
+        progress_ref,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(output_path.to_string_lossy().into_owned())
 }
 
 #[cfg(test)]
