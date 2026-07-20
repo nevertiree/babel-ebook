@@ -1,5 +1,5 @@
 interface NavIconProps {
-  icon: "translate" | "tasks" | "logs" | "settings" | "about";
+  icon: "translate" | "ocr" | "tasks" | "logs" | "settings" | "about";
   className?: string;
 }
 
@@ -27,6 +27,17 @@ export default function NavIcon({ icon, className }: NavIconProps) {
           <path d="M14 16h4" />
           <path d="M19 5h3" />
           <path d="M20.5 3v12" />
+        </svg>
+      );
+    case "ocr":
+      return (
+        <svg {...commonProps}>
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <polyline points="14 2 14 8 20 8" />
+          <path d="M8 12h4" />
+          <path d="M8 16h2.5" />
+          <circle cx="16" cy="15.5" r="2.2" />
+          <path d="M18 17.5 20 19.5" />
         </svg>
       );
     case "tasks":

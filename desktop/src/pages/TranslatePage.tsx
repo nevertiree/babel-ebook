@@ -1,6 +1,6 @@
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { CheckpointInfo, LogEntry, Page, Task, TranslateInputs, ValidationResult } from "../types";
 import {
@@ -8,114 +8,10 @@ import {
   targetLanguages,
 } from "../types";
 import RunningPanel from "../components/RunningPanel";
-import LoadingSpinner from "../components/LoadingSpinner";
+import ModelSelect from "../components/ModelSelect";
 import EmptyStateIcon from "../components/EmptyStateIcon";
 import ProviderIcon from "../components/ProviderIcon";
 import "./TranslatePage.css";
-
-interface ModelSelectProps {
-  provider: string;
-  apiKey: string;
-  baseUrl: string;
-  useCustomBaseUrl: boolean;
-  model: string;
-  onChange: (value: string) => void;
-}
-
-function ModelSelect({
-  provider,
-  apiKey,
-  baseUrl,
-  useCustomBaseUrl,
-  model,
-  onChange,
-}: ModelSelectProps) {
-  const { t } = useTranslation();
-  const [models, setModels] = useState<string[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const requestIdRef = useRef(0);
-
-  useEffect(() => {
-    const requestId = (requestIdRef.current += 1);
-    setLoading(true);
-    setError(null);
-
-    void (async () => {
-      try {
-        const list = await invoke<string[]>("list_models", {
-          args: {
-            provider,
-            api_key: apiKey,
-            base_url: useCustomBaseUrl ? baseUrl || null : null,
-          },
-        });
-        if (requestId !== requestIdRef.current) return;
-        setModels(list);
-        if (list.length > 0 && !list.includes(model) && model !== "__custom__") {
-          onChange(list[0]);
-        }
-      } catch (err) {
-        if (requestId !== requestIdRef.current) return;
-        setModels([]);
-        setError(String(err));
-      } finally {
-        if (requestId === requestIdRef.current) {
-          setLoading(false);
-        }
-      }
-    })();
-
-    return () => {
-      // Increment the id so that any in-flight response for this effect is
-      // discarded when the dependencies change.
-      requestIdRef.current += 1;
-    };
-  }, [provider, apiKey, baseUrl, useCustomBaseUrl]);
-
-  const isCustom = model === "__custom__" || (models.length > 0 && !models.includes(model));
-
-  const showSpinner = loading && models.length === 0;
-
-  return (
-    <label title={error ?? undefined}>
-      <span className="field-row">
-        {t("model")}
-        {showSpinner && <LoadingSpinner size={14} />}
-      </span>
-      {models.length === 0 ? (
-        <input
-          type="text"
-          value={model === "__custom__" ? "" : model}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={t("model_custom_placeholder")}
-          disabled={loading}
-        />
-      ) : isCustom ? (
-        <input
-          type="text"
-          value={model === "__custom__" ? "" : model}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={t("model_custom_placeholder")}
-          disabled={loading}
-        />
-      ) : (
-        <select
-          value={model}
-          onChange={(e) => onChange(e.target.value)}
-          disabled={loading}
-        >
-          {models.map((m) => (
-            <option key={m} value={m}>
-              {m}
-            </option>
-          ))}
-          <option value="__custom__">{t("model_custom")}</option>
-        </select>
-      )}
-    </label>
-  );
-}
 
 interface TranslatePageProps {
   inputs: TranslateInputs;
@@ -142,6 +38,7 @@ function TranslatePage({
 }: TranslatePageProps) {
   const { t } = useTranslation();
   const [checkpoints, setCheckpoints] = useState<CheckpointInfo[]>([]);
+  const [pdfConverting, setPdfConverting] = useState(false);
 
   const hasProviders = inputs.providers.length > 0;
   const activeProvider = inputs.providers.find((p) => p.name === inputs.active_provider);
@@ -225,6 +122,54 @@ function TranslatePage({
   const basename = (path: string) => {
     const sep = path.includes("/") ? "/" : "\\";
     return path.split(sep).pop() || path;
+  };
+
+  const importPdf = async () => {
+    if (!activeProvider?.api_key) {
+      setInputs({ source: "" });
+      return;
+    }
+    if (pdfConverting) return;
+
+    const pdfPath = await open({
+      filters: [{ name: t("pdf_files"), extensions: ["pdf"] }],
+    });
+    if (!pdfPath || Array.isArray(pdfPath)) return;
+
+    const stem = pdfPath.replace(/\.pdf$/i, "");
+    const outputPath = await save({
+      filters: [{ name: "EPUB", extensions: ["epub"] }],
+      defaultPath: `${stem}.epub`,
+    });
+    if (!outputPath || Array.isArray(outputPath)) return;
+
+    setPdfConverting(true);
+    try {
+      const convertedPath = await invoke<string>("convert_pdf_to_epub", {
+        args: {
+          pdf_path: pdfPath,
+          output_path: outputPath,
+          title: basename(stem),
+          ocr_api_key: activeProvider.api_key,
+          ocr_base_url: activeProvider.use_custom_base_url
+            ? activeProvider.base_url || null
+            : null,
+          ocr_model: null,
+          verify_api_key: null,
+          verify_base_url: null,
+          verify_model: null,
+          no_verify: true,
+        },
+      });
+      setInputs({ source: convertedPath });
+      if (inputs.resume) {
+        setInputs({ resume: "" });
+      }
+    } catch (err) {
+      console.error("PDF conversion failed:", err);
+    } finally {
+      setPdfConverting(false);
+    }
   };
 
   const sourceIsEpub = inputs.source?.toLowerCase().endsWith(".epub") ?? false;
@@ -359,6 +304,15 @@ function TranslatePage({
             )}
             <button type="button" onClick={(e) => { e.stopPropagation(); selectSource(); }}>
               {t("select_file")}
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={(e) => { e.stopPropagation(); void importPdf(); }}
+              disabled={!activeProvider?.api_key || pdfConverting}
+              title={!activeProvider?.api_key ? t("error_api_key") : t("import_pdf")}
+            >
+              {pdfConverting ? t("pdf_converting") : t("import_pdf")}
             </button>
           </div>
         </div>

@@ -20,6 +20,7 @@ pub mod epub;
 pub mod escape;
 pub mod html;
 pub mod input_formats;
+pub mod pdf_ocr;
 pub mod pipeline;
 pub mod translator;
 pub mod worker;

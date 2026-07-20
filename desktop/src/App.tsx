@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import "./styles/theme.css";
 import "./styles/base.css";
+import "./styles/form.css";
 import type {
   FormState,
   ModelParams,
@@ -18,6 +19,8 @@ import type {
 } from "./types";
 import { defaults } from "./types";
 import TranslatePage from "./pages/TranslatePage";
+import OcrPage from "./pages/OcrPage";
+import OcrSettingsPage from "./pages/OcrSettingsPage";
 import ComputeSettingsPage from "./pages/ComputeSettingsPage";
 import ModelParamsPage from "./pages/ModelParamsPage";
 import TranslationSettingsPage from "./pages/TranslationSettingsPage";
@@ -36,12 +39,16 @@ import NavIcon from "./components/NavIcon";
 import { useQueue } from "./hooks/useQueue";
 import { useLogState } from "./hooks/useLogState";
 import {
+  DEFAULT_OCR_SETTINGS,
   loadGeneralSettings,
+  loadOcrSettings,
   loadSettings,
   normalizeTheme,
   saveGeneralSettings,
+  saveOcrSettings,
   saveSettings,
   type GeneralSettings,
+  type OcrSettings,
 } from "./config";
 import { generateId } from "./utils";
 
@@ -179,6 +186,7 @@ function App() {
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   const [general, setGeneral] = useState<GeneralSettings>(DEFAULT_GENERAL);
+  const [ocrSettings, setOcrSettings] = useState<OcrSettings>(DEFAULT_OCR_SETTINGS);
   const [detectedLocale, setDetectedLocale] = useState<string>("en");
 
   const {
@@ -388,15 +396,17 @@ function App() {
 
   const e2eOutputRef = useRef<string | null>(null);
   const generalLoadedRef = useRef(false);
+  const ocrLoadedRef = useRef(false);
   const initialLanguageAppliedRef = useRef(false);
 
   // Load persisted settings on mount, optionally overridden by E2E env args.
   useEffect(() => {
     void (async () => {
       try {
-        const [settings, generalSettings, e2e] = await Promise.all([
+        const [settings, generalSettings, ocrSettingsLoaded, e2e] = await Promise.all([
           loadSettings(),
           loadGeneralSettings(),
+          loadOcrSettings(),
           invoke<E2EArgs>("get_e2e_args").catch((err) => {
             console.error("get_e2e_args failed:", err);
             return {} as E2EArgs;
@@ -404,6 +414,8 @@ function App() {
         ]);
         setGeneral(generalSettings);
         generalLoadedRef.current = true;
+        setOcrSettings(ocrSettingsLoaded);
+        ocrLoadedRef.current = true;
 
         let merged = { ...form, ...settings } as FormState;
 
@@ -499,6 +511,12 @@ function App() {
     if (!generalLoadedRef.current) return;
     void saveGeneralSettings(general);
   }, [general]);
+
+  // Persist OCR engine defaults when they change.
+  useEffect(() => {
+    if (!ocrLoadedRef.current) return;
+    void saveOcrSettings(ocrSettings);
+  }, [ocrSettings]);
 
   // Sync the active theme to the document root so that every element inherits
   // the correct CSS variables, not just descendants of .app-shell.
@@ -626,6 +644,15 @@ function App() {
 
   const renderPage = () => {
     switch (page) {
+      case "ocr":
+        return (
+          <OcrPage
+            inputs={translateInputs}
+            setInputs={setInputs}
+            onPageChange={setPage}
+            ocrSettings={ocrSettings}
+          />
+        );
       case "translate":
         return (
           <TranslatePage
@@ -664,6 +691,7 @@ function App() {
       case "settings-output":
       case "settings-queue":
       case "settings-general":
+      case "settings-ocr":
         return (
           <SettingsLayout activePage={page} onNavigate={setPage}>
             {page === "settings-compute" && (
@@ -696,6 +724,9 @@ function App() {
             {page === "settings-queue" && (
               <QueueSettingsPage queueSettings={queueSettings} setQueueSettings={setQueueSettings} />
             )}
+            {page === "settings-ocr" && (
+              <OcrSettingsPage ocrSettings={ocrSettings} setOcrSettings={setOcrSettings} />
+            )}
             {page === "settings-general" && (
               <GeneralSettingsPage
                 general={general}
@@ -718,6 +749,10 @@ function App() {
                   setGeneral(general);
                   await saveSettings(merged);
                   await saveGeneralSettings(general);
+                  if (settings.ocr) {
+                    setOcrSettings(settings.ocr);
+                    await saveOcrSettings(settings.ocr);
+                  }
                 }}
               />
             )}
@@ -752,6 +787,16 @@ function App() {
             >
               <NavIcon icon="translate" className="nav-item-icon" />
               <span className="nav-item-label">{t("nav_translate")}</span>
+            </button>
+
+            <button
+              type="button"
+              className={`nav-item ${page === "ocr" ? "active" : ""}`}
+              onClick={() => setPage("ocr")}
+              data-testid="nav-ocr"
+            >
+              <NavIcon icon="ocr" className="nav-item-icon" />
+              <span className="nav-item-label">{t("nav_ocr")}</span>
             </button>
 
             <button
