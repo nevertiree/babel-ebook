@@ -18,6 +18,7 @@ interface TranslatePageProps {
   setInputs: (update: Partial<TranslateInputs>) => void;
   onStart: () => void;
   onDryRun: () => void;
+  onBatchImport: () => void;
   currentTask?: Task;
   validation: ValidationResult;
   onPageChange: (page: Page) => void;
@@ -30,6 +31,7 @@ function TranslatePage({
   setInputs,
   onStart,
   onDryRun,
+  onBatchImport,
   currentTask,
   validation,
   onPageChange,
@@ -313,6 +315,15 @@ function TranslatePage({
               title={!activeProvider?.api_key ? t("error_api_key") : t("import_pdf")}
             >
               {pdfConverting ? t("pdf_converting") : t("import_pdf")}
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={(e) => { e.stopPropagation(); void onBatchImport(); }}
+              disabled={!activeProvider?.api_key}
+              title={!activeProvider?.api_key ? t("error_api_key") : t("batch_import_hint")}
+            >
+              {t("batch_import")}
             </button>
           </div>
         </div>

@@ -11,12 +11,19 @@
 #![allow(clippy::missing_errors_doc)]
 
 mod args;
+mod batch;
 mod commands;
 mod config;
 mod error;
 mod keyring;
 mod queue;
 mod task;
+
+/// Default number of translation tasks that may run in parallel. Each task
+/// additionally uses its own chapter-level concurrency, so raising this value
+/// multiplies total in-flight LLM requests.
+#[cfg(not(test))]
+const DEFAULT_MAX_CONCURRENT: usize = 3;
 
 #[cfg(not(test))]
 use std::sync::Arc;
@@ -64,9 +71,7 @@ pub fn run() {
             let worker =
                 Arc::new(TranslationWorker::new().map_err(|e| format!("spawn worker: {e}"))?);
             let queue = QueueManager::with_store(queue_store);
-            queue
-                .clone()
-                .spawn_worker(app.handle().clone(), worker.clone());
+            queue.spawn_worker(app.handle(), &worker, DEFAULT_MAX_CONCURRENT);
             app.manage(queue);
             app.manage(worker);
 
@@ -99,6 +104,7 @@ pub fn run() {
             commands::enqueue_task,
             commands::enqueue_ocr_task,
             commands::enqueue_pipeline_task,
+            commands::enqueue_batch,
             commands::remove_task,
             commands::reorder_tasks,
             commands::cancel_task,

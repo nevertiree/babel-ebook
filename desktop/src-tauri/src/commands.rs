@@ -68,7 +68,7 @@ use tauri::Emitter;
 use crate::args::E2EArgs;
 use crate::args::{PdfToEpubArgs, TestConnectionArgs, TranslateArgs};
 use crate::config::{build_config, build_test_config};
-use crate::queue::{QueueManager, QueueState};
+use crate::queue::{BatchEnqueueResult, QueueManager, QueueState};
 use crate::task::Task;
 
 /// Read E2E injection values from the environment.
@@ -419,6 +419,20 @@ pub async fn enqueue_pipeline_task(
     // the EPUB produced by the OCR stage, which does not exist yet.
     build_config(&translate_args)?;
     Ok(queue.enqueue_pipeline(ocr_args, translate_args).await)
+}
+
+/// Add multiple source files to the queue using shared translation arguments.
+#[allow(dead_code)]
+#[tauri::command]
+pub async fn enqueue_batch(
+    sources: Vec<String>,
+    base: TranslateArgs,
+    output_filename_template: String,
+    queue: tauri::State<'_, QueueManager>,
+) -> Result<BatchEnqueueResult, String> {
+    Ok(queue
+        .enqueue_batch(&sources, &base, &output_filename_template)
+        .await)
 }
 
 /// Remove a pending or finished task from the queue.

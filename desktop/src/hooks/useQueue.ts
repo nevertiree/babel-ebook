@@ -67,14 +67,15 @@ export function useQueue(): UseQueueReturn {
   }, []);
 
   useEffect(() => {
-    if (queue.current_task_id) {
-      setLastTaskId(queue.current_task_id);
+    if (queue.current_task_ids?.length) {
+      setLastTaskId(queue.current_task_ids[0]);
     }
-  }, [queue.current_task_id]);
+  }, [queue.current_task_ids]);
 
   const currentTask = useMemo(() => {
-    if (queue.current_task_id) {
-      return queue.tasks.find((t) => t.id === queue.current_task_id);
+    const ids = queue.current_task_ids;
+    if (ids?.length) {
+      return queue.tasks.find((t) => t.id === ids[0]);
     }
     if (lastTaskId) {
       return queue.tasks.find((t) => t.id === lastTaskId);

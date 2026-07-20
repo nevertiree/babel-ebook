@@ -25,7 +25,25 @@ export interface Task {
 export interface QueueState {
   tasks: Task[];
   running: boolean;
-  current_task_id?: string;
+  current_task_ids?: string[];
+}
+
+/** Reason a source file was skipped during batch import. */
+export type SkipReason =
+  | "unsupported_format"
+  | "duplicate_in_queue"
+  | "duplicate_in_batch";
+
+/** A source file that was skipped during batch import. */
+export interface SkippedSource {
+  path: string;
+  reason: SkipReason;
+}
+
+/** Result of a batch enqueue operation. */
+export interface BatchEnqueueResult {
+  enqueued_sources: string[];
+  skipped: SkippedSource[];
 }
 
 /**
