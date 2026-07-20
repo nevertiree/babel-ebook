@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
-import { confirm } from "@tauri-apps/plugin-dialog";
+import { confirm, open } from "@tauri-apps/plugin-dialog";
 import "./styles/theme.css";
 import "./styles/base.css";
 import "./styles/form.css";
 import type {
+  BatchEnqueueResult,
   FormState,
   ModelParams,
   OutputSettingsState,
@@ -642,6 +643,45 @@ function App() {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   };
 
+  async function handleBatchImport() {
+    const provider = activeProvider(form);
+    if (!provider) {
+      showToast(t("error_no_provider"), "error");
+      return;
+    }
+    const paths = await open({
+      multiple: true,
+      filters: [
+        {
+          name: t("ebook_files"),
+          extensions: ["epub", "mobi", "azw3", "txt", "srt", "docx"],
+        },
+      ],
+    });
+    if (!paths || !Array.isArray(paths) || paths.length === 0) return;
+
+    try {
+      const base = buildTranslateArgs(form);
+      const result = await invoke<BatchEnqueueResult>("enqueue_batch", {
+        sources: paths,
+        base,
+        output_filename_template: "{stem}_{target_lang}",
+      });
+      await invoke("start_queue");
+      await refreshQueue();
+      const enqueued = result.enqueued_sources.length;
+      const skipped = result.skipped.length;
+      if (skipped > 0) {
+        showToast(t("batch_import_partial", { enqueued, skipped }), "info");
+      } else {
+        showToast(t("batch_import_success", { count: enqueued }), "success");
+      }
+    } catch (err) {
+      appendError(`${t("error")}: ${err}`);
+      showToast(`${t("error")}: ${err}`, "error");
+    }
+  }
+
   const renderPage = () => {
     switch (page) {
       case "ocr":
@@ -660,6 +700,7 @@ function App() {
             setInputs={setInputs}
             onStart={handleStart}
             onDryRun={handleDryRun}
+            onBatchImport={handleBatchImport}
             currentTask={currentTask}
             validation={validation}
             onPageChange={setPage}
